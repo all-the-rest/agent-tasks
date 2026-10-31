@@ -78,8 +78,9 @@ detail page or the executions list.
 
 Set a task to **Email me** and the agent composes a completion e-mail. It can add
 an image beside text and other blocks through a compact DSL; the server validates
-the blocks and renders email-safe HTML. See [the e-mail DSL](email-dsl.md) for
-the syntax and limits.
+the blocks and renders email-safe HTML. You only enable the notification — the
+agent chooses the blocks and writes the DSL. See
+[the e-mail DSL](email-dsl.md) for the syntax and limits.
 
 Delivery needs `SMTP_URL` (and optionally `SMTP_FROM`). Without SMTP the message
 is written to the worker log in development.
