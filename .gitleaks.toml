@@ -7,7 +7,7 @@
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Synthetic credentials in tests and fixtures"
 paths = [
   '''apps/api/test/log-redaction\.test\.ts''',
@@ -15,3 +15,8 @@ paths = [
   '''test/.*''',
   '''e2e/.*''',
 ]
+
+[[allowlists]]
+description = "replace-with-* placeholders in the committed deployment templates"
+regexTarget = "secret"
+regexes = ['''^replace-with-[a-z0-9-]+$''']
