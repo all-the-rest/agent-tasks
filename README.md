@@ -1,37 +1,69 @@
 # Agent Tasks
 
-Self-hosted AI task scheduler: recurring research tasks, a real agent loop,
-OpenAI-compatible inference (OpenCode Go, OpenAI, self-hosted gateways), an
-isolated Chromium runner, and strict multi-user isolation.
+**A self-hosted research team that runs on your schedule.** Turn a question into
+a recurring job: the agent searches the web, opens pages, keeps the sources,
+writes a sourced report and e-mails you when it is done. Everything runs on your
+own server, with your own provider key.
 
-> **Status:** early but working. Every claim in this README is backed by a test or a
-> command you can rerun — see [`docs/VERIFICATION_REPORT.md`](docs/VERIFICATION_REPORT.md)
-> for the current evidence and the open gates. The OpenAI-compatible adapter is
-> tested against deterministic local mocks; no OpenCode Go account was available in
-> the verification environment, so real-account behaviour is **NOT VERIFIED**
+![Agent Tasks dashboard](docs/images/dashboard.png)
+
+> **Status:** early but working. Every claim in this README is backed by a test or
+> a command you can rerun — see [`docs/VERIFICATION_REPORT.md`](docs/VERIFICATION_REPORT.md)
+> for the evidence and open gates. The OpenAI-compatible adapter is tested against
+> deterministic local mocks; no OpenCode Go account was available in the
+> verification environment, so real-account behaviour is **NOT VERIFIED**
 > ([details](docs/architecture/providers.md#verification-status)).
 
-## What it does
+## A quick tour
 
-- **Scheduled tasks per user.** Cron or presets (once, daily, selected weekdays,
-  weekly, monthly, custom), IANA timezones, correct handling of DST gaps and
-  overlaps (Europe/Vienna tested).
-- **A real agent.** The model chooses from a fixed set of validated tools (ten
-  defined; nine exposed, form filling off), observes results and iterates. No shell,
-  no arbitrary JavaScript, no unrestricted file system.
-- **Web research.** SearXNG-backed search, Playwright page visits, extracted text,
-  collected sources, honest "unknown" reporting.
-- **Bring your own endpoint.** OpenAI-compatible providers are the production path:
-  OpenCode Go, the official OpenAI API or any gateway that speaks
-  `/chat/completions`. Provider keys are AES-256-GCM encrypted at rest and are never
-  read from environment variables. A legacy Ollama adapter remains for local
-  development only; it is not part of the compose deployment.
-- **Multi-user by construction.** Every read and write is scoped to the owner,
-  including background execution. Admin rights never imply access to a user's
-  task, report or credential.
-- **Hardened browser.** Chromium runs in its own container, non-root, read-only
-  root filesystem, no capabilities, no Docker socket, behind an enforcing egress
-  proxy that resolves DNS itself (DNS rebinding) and re-checks every redirect hop.
+### Schedule briefings in your timezone
+
+Cron or presets (once, daily, weekdays, weekly, monthly, custom), IANA timezones
+and correct DST handling. Pause, run now, duplicate or retry from the task page.
+
+![Tasks and schedules](docs/images/tasks.png)
+
+### Read sourced reports, not just answers
+
+The agent records every page it opened, labels uncertainty and persists a
+Markdown report. The execution view shows status, duration, token usage, timeline
+and sources.
+
+![Execution report with table and sources](docs/images/execution-report.png)
+
+### Let the agent compose the e-mail
+
+With **Email me** enabled, the agent adds e-mail blocks through a compact
+[e-mail DSL](docs/email-dsl.md). The server validates the blocks and renders
+table-based, inline-styled HTML — including an image beside text.
+
+### Admin without the guesswork
+
+Providers, users, invitations, limits, the registration toggle and the audit log
+live in one admin area.
+
+![Providers](docs/images/admin-providers.png)
+
+![Admin settings](docs/images/admin-settings.png)
+
+## What you can do
+
+- **Recurring research briefings** with presets or cron, per-task timezone
+  (Europe/Vienna tested), pause/resume, manual runs and retries.
+- **Real web research** through SearXNG and Playwright: multiple pages, extracted
+  text, persisted sources and honest uncertainty.
+- **Bring your own model**: OpenCode Go, OpenAI or any OpenAI-compatible gateway,
+  with encrypted provider keys and optional model variants (`model#high`).
+- **Completion e-mails** composed by the agent (image-beside-text blocks and
+  more), rendered email-safe and spam-checked in CI.
+- **Multi-user from day one**: invitations, ADMIN/USER roles, TOTP MFA,
+  owner-scoped tasks, reports, logs and credentials.
+- **A hardened browser**: non-root, read-only, no Docker socket, egress proxy
+  with DNS-rebinding protection, Chromium sandbox enabled by default.
+
+Full walkthrough: [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
+Screenshots are generated with [`scripts/capture-readme-screenshots.mjs`](scripts/capture-readme-screenshots.mjs)
+and committed under [`docs/images/`](docs/images/).
 
 ## Architecture in one picture
 
@@ -154,10 +186,10 @@ pnpm build
   admin settings toggle); onboarding is invite-only with single-use tokens.
   Enabling it opens the `/register` page and a direct sign-up as `USER`; an
   administrator can switch it off at any time.
-- Completion e-mails (task setting "Email me") are composed by the agent: it can
-  add blocks such as an image beside text (`add_email_block`), which are rendered
-  through the shared, email-safe HTML builder. Text is escaped and image/button
-  URLs must be http(s).
+- Completion e-mails (task setting "Email me") are composed by the agent in a
+  compact [e-mail DSL](docs/email-dsl.md) (`compose_email`): headings,
+  paragraphs, images, image-beside-text, buttons and dividers. The server parses
+  and validates the DSL and renders email-safe HTML; the model never writes HTML.
 - Sessions are revocable; sign-out invalidates the session on the next request.
 - TOTP MFA (with backup codes) is available and tested end to end.
 - Passwords are hashed by Better Auth; there are no default credentials.

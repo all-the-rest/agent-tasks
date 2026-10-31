@@ -40,6 +40,8 @@ export interface MockOpenAiOptions {
   latencyMs?: number;
   /** Emit one add_email_block tool call before the final answer. */
   emailBlock?: Record<string, unknown>;
+  /** Emit one compose_email (DSL) tool call before the final answer. */
+  emailDsl?: string;
 }
 
 const GENERIC_AGENTS = ['node', 'undici', 'axios', 'openai-node', 'python-requests', 'okhttp', 'curl', 'wget', 'go-http-client'];
@@ -253,7 +255,9 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
     const emailBlockRequested = messages.some(
       (message) =>
         Array.isArray((message as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls) &&
-        (message as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls?.some((call) => call.function?.name === 'add_email_block'),
+        (message as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls?.some(
+          (call) => call.function?.name === 'add_email_block' || call.function?.name === 'compose_email',
+        ),
     );
     const lastUser = [...messages].reverse().find((message) => message.role === 'user');
     const research = toolContent(messages);
@@ -288,6 +292,19 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
         toolCalls: [toolCall],
         finishReason: 'tool_calls',
         usage: { prompt_tokens: 120, completion_tokens: 24, total_tokens: 144 },
+        allowanceUsd,
+      });
+      return;
+    }
+
+    if (options.emailDsl && !emailBlockRequested) {
+      sendCompletion(response, {
+        stream,
+        model,
+        content: 'I will compose the notification e-mail from the DSL.',
+        toolCalls: [{ name: 'compose_email', arguments: { dsl: options.emailDsl } }],
+        finishReason: 'tool_calls',
+        usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
         allowanceUsd,
       });
       return;

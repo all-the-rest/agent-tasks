@@ -165,13 +165,15 @@ describe('execution end to end (mock model, real browser, real network policy)',
   it('sends the completion e-mail with the agent image-text block', async () => {
     const mailMock = await createMockOpenAiServer({
       researchSteps: 0,
-      emailBlock: {
-        type: 'imageText',
-        imageUrl: 'https://example.com/chart.png',
-        alt: 'Revenue chart',
-        text: 'Revenue grew 12% in the last quarter.',
-        side: 'left',
-      },
+      emailDsl: [
+        '# Weekly report',
+        '',
+        'Revenue grew 12% in the last quarter.',
+        '',
+        ':::imageText side=left image=https://example.com/chart.png alt="Revenue chart"',
+        'Revenue grew 12% in the last quarter.',
+        ':::',
+      ].join('\n'),
     });
     try {
       const { executionId, ownerId } = await seedTask({ allowWebResearch: false, baseUrl: mailMock.url, notification: 'email' });
@@ -196,7 +198,8 @@ describe('execution end to end (mock model, real browser, real network policy)',
       expect(sent[0]?.html).toContain(`/executions/${executionId}`);
 
       const report = await harness.db.pool.query('select report from executions where id = $1', [executionId]);
-      expect(report.rows[0].report.email.blocks[0]).toMatchObject({ type: 'imageText', side: 'left' });
+      expect(report.rows[0].report.email.blocks.map((block) => block.type)).toEqual(['heading', 'paragraph', 'imageText']);
+      expect(report.rows[0].report.email.blocks[2]).toMatchObject({ type: 'imageText', side: 'left' });
     } finally {
       await mailMock.close();
     }

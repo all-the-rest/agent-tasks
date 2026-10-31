@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { checkUrl, emailBlockSchema, NetworkPolicyError } from '@agent-tasks/shared';
+import { checkUrl, emailBlockSchema, EmailDslError, EMAIL_DSL_GRAMMAR, NetworkPolicyError, parseEmailDsl } from '@agent-tasks/shared';
 import type { EmailBlock } from '@agent-tasks/shared';
 import type { SearchProvider } from '@agent-tasks/browser-tools';
 import type { BrowserRunnerClient } from '@agent-tasks/browser-tools';
@@ -392,6 +392,57 @@ const addEmailBlockTool: AgentTool = {
   },
 };
 
+
+/**
+ * DSL entry point: the model writes compact Markdown-like text and the parser
+ * produces validated blocks. This is the documented, token-efficient interface;
+ * add_email_block remains available for a single structured block.
+ */
+const composeEmailTool: AgentTool = {
+  name: 'compose_email',
+  description:
+    'Compose the completion e-mail from the compact e-mail DSL. Blocks: "# Heading", "## Heading", paragraphs (blank line separated), "![alt](https://image)", "{{Button label | https://url}}", "---", and ":::imageText side=left image=https://url alt="..." + text + ":::". Only http(s) URLs; at most 20 blocks. Use this instead of writing HTML.',
+  parameters: {
+    type: 'object',
+    properties: {
+      dsl: {
+        type: 'string',
+        description: EMAIL_DSL_GRAMMAR,
+      },
+    },
+    required: ['dsl'],
+    additionalProperties: false,
+  },
+  async run(input, context): Promise<ToolOutcome> {
+    const parsed = z.object({ dsl: z.string().min(1).max(20_000) }).safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, content: 'invalid arguments: dsl is required', preview: 'invalid arguments', error: 'invalid_arguments' };
+    }
+    let blocks;
+    try {
+      blocks = parseEmailDsl(parsed.data.dsl);
+    } catch (error) {
+      const message = error instanceof EmailDslError ? error.message : (error as Error).message;
+      return { ok: false, content: `invalid e-mail DSL: ${message}`, preview: 'invalid e-mail DSL', error: 'invalid_arguments' };
+    }
+    if (context.emailBlocks.length + blocks.length > MAX_EMAIL_BLOCKS) {
+      return {
+        ok: false,
+        content: `email block limit reached (${MAX_EMAIL_BLOCKS}); ${context.emailBlocks.length} already added, ${blocks.length} in this DSL`,
+        preview: 'email block limit reached',
+        error: 'limit_reached',
+      };
+    }
+    context.emailBlocks.push(...blocks);
+    const types = blocks.map((block) => block.type).join(', ');
+    return {
+      ok: true,
+      content: `Composed ${blocks.length} email block(s): ${types}.`,
+      preview: `composed ${blocks.length} email block(s)`,
+    };
+  },
+};
+
 export const AGENT_TOOLS: AgentTool[] = [
   searchTool,
   openUrlTool,
@@ -404,6 +455,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   getCurrentUrlTool,
   extractLinksTool,
   addEmailBlockTool,
+  composeEmailTool,
 ];
 
 export const TOOL_NAMES = AGENT_TOOLS.map((tool) => tool.name);

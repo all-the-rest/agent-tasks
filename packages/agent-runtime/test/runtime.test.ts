@@ -146,6 +146,27 @@ describe('agent runtime', () => {
     expect(provider.calls[0]?.tools?.map((tool) => tool.name)).toContain('add_email_block');
   });
 
+  it('accepts the e-mail DSL and returns the composed blocks', async () => {
+    const provider = new ScriptedProvider([
+      {
+        content: 'composing',
+        toolCalls: [
+          {
+            id: '1',
+            name: 'compose_email',
+            arguments: {
+              dsl: '# Report\n\nThe result.\n\n:::imageText side=left image=https://example.com/chart.png alt="Chart"\nRevenue grew.\n:::',
+            },
+          },
+        ],
+      },
+      { content: '## Findings\n\nDone.', toolCalls: [] },
+    ]);
+    const result = await runAgent({ ...options(provider), emailNotification: true });
+    expect(result.emailBlocks.map((block) => block.type)).toEqual(['heading', 'paragraph', 'imageText']);
+    expect(provider.calls[0]?.tools?.map((tool) => tool.name)).toContain('compose_email');
+  });
+
   it('does not offer add_email_block when the task has no e-mail notification', async () => {
     const provider = new ScriptedProvider([{ content: 'done', toolCalls: [] }]);
     await runAgent(options(provider));
@@ -230,6 +251,7 @@ describe('agent runtime', () => {
       [
         'add_email_block',
         'click_element',
+        'compose_email',
         'extract_links',
         'extract_page_text',
         'fill_form',
