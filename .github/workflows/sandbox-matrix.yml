@@ -1,0 +1,121 @@
+name: Sandbox matrix probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-policy:
+    name: Host kernel policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect and try to enable user namespaces on the host
+        run: |
+          set -x
+          uname -r
+          cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo "no unprivileged_userns_clone"
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo "no apparmor sysctl"
+          unshare -Ur true; echo "host_before=$?"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          unshare -Ur true; echo "host_after_apparmor=$?"
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          unshare -Ur true; echo "host_after_clone=$?"
+
+  matrix:
+    name: ${{ matrix.name }}
+    needs: host-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: control-nosandbox
+            opts: ""
+            sandbox: "0"
+            setuid: "no"
+          - name: nonroot-userns
+            opts: ""
+            sandbox: "1"
+            setuid: "no"
+          - name: nonroot-userns-sysadmin
+            opts: "--cap-add SYS_ADMIN"
+            sandbox: "1"
+            setuid: "no"
+          - name: nonroot-userns-seccomp
+            opts: "--security-opt seccomp=unconfined"
+            sandbox: "1"
+            setuid: "no"
+          - name: nonroot-userns-apparmor
+            opts: "--security-opt apparmor=unconfined"
+            sandbox: "1"
+            setuid: "no"
+          - name: nonroot-userns-sysadmin-seccomp
+            opts: "--cap-add SYS_ADMIN --security-opt seccomp=unconfined"
+            sandbox: "1"
+            setuid: "no"
+          - name: nonroot-setuid
+            opts: ""
+            sandbox: "1"
+            setuid: "yes"
+          - name: nonroot-setuid-sysadmin
+            opts: "--cap-add SYS_ADMIN"
+            sandbox: "1"
+            setuid: "yes"
+          - name: nonroot-setuid-sysadmin-seccomp
+            opts: "--cap-add SYS_ADMIN --security-opt seccomp=unconfined"
+            sandbox: "1"
+            setuid: "yes"
+          - name: privileged-setuid
+            opts: "--privileged"
+            sandbox: "1"
+            setuid: "yes"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Launch Chromium with the sandbox
+        continue-on-error: true
+        env:
+          OPTS: ${{ matrix.opts }}
+          SANDBOX: ${{ matrix.sandbox }}
+          SETUID: ${{ matrix.setuid }}
+        run: |
+          docker run --rm $OPTS \
+            -v "$PWD/scripts/sandbox-probe.cjs:/probe.cjs:ro" \
+            -e EXPECT_SANDBOX="$SANDBOX" \
+            -e PROBE_SETUID="$SETUID" \
+            --entrypoint bash \
+            mcr.microsoft.com/playwright:v1.64.1-noble -c '
+              set -x
+              id
+              ls -l /ms-playwright/chromium-*/chrome-linux64/chrome_sandbox 2>&1 || true
+              unshare -Ur true; echo "unshare_rc=$?"
+              if [ "$PROBE_SETUID" = yes ]; then
+                chmod 4755 /ms-playwright/chromium-*/chrome-linux64/chrome_sandbox
+              fi
+              ls -l /ms-playwright/chromium-*/chrome-linux64/chrome_sandbox 2>&1 || true
+              npm i --prefix /tmp/pw playwright-core@1.64.1 --no-audit --no-fund --silent
+              chmod -R a+rX /tmp/pw
+              runuser -u pwuser -- env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+            '
+      - name: Launch after enabling unprivileged user namespaces on the host
+        if: matrix.name == 'nonroot-userns'
+        continue-on-error: true
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          docker run --rm \
+            -v "$PWD/scripts/sandbox-probe.cjs:/probe.cjs:ro" \
+            -e EXPECT_SANDBOX=1 \
+            --entrypoint bash \
+            mcr.microsoft.com/playwright:v1.64.1-noble -c '
+              unshare -Ur true; echo "unshare_rc=$?"
+              npm i --prefix /tmp/pw playwright-core@1.64.1 --no-audit --no-fund --silent
+              chmod -R a+rX /tmp/pw
+              runuser -u pwuser -- env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+            '
