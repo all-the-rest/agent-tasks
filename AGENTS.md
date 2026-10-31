@@ -21,18 +21,17 @@ docker compose config -q
 
 ## Gates
 
+- `ratchet` is pinned to `.ratchet-version` (`0.6.2`), installed with
+  `scripts/install-ratchet.sh`; hook and CI reject other versions.
 - `ratchet check` runs on every commit through `.githooks/pre-commit`; the
   `agent-rules` preset is part of `ratchet.config.jsonc`. The baseline may only
   move down.
-- No `TODO`/`FIXME`/`XXX` markers in shipped source: a gap is either fixed or
-  tracked as an issue, never left in code.
+- No `TODO`/`FIXME`/`XXX` in shipped source: fix it or track an issue.
 - No `any`, no `dangerouslySetInnerHTML`; reports render through
   `rehype-sanitize`.
 - No secrets in source. Provider keys are AES-256-GCM encrypted at rest.
-- The pre-commit hook scans staged files for secret-looking strings and runs
-  lint/typecheck for code changes.
-- Docs-only changes do not start the CI workflow (`paths-ignore`), but the local
-  pre-commit hook still scans them and runs the ratchet gates.
+- Docs-only changes skip CI (`paths-ignore`); the pre-commit hook still scans
+  staged files for secrets, runs lint/typecheck for code and the ratchet gates.
 
 ## Conventions
 
@@ -46,10 +45,9 @@ docker compose config -q
   the egress proxy is the only way out.
 - E-mail blocks: DSL parser in `packages/shared/src/email-dsl.ts`, UI/HTML
   builder in `email-blocks.ts`, agent tools `compose_email`/`add_email_block`.
-- User-facing docs: `README.md`, `docs/USER_GUIDE.md`, `docs/email-dsl.md`.
-  Screenshots live in `docs/images/` and are regenerated with
-  `node scripts/capture-readme-screenshots.mjs`.
-- Evidence and open gates: `docs/VERIFICATION_REPORT.md`.
+- User-facing docs: `README.md`, `docs/USER_GUIDE.md`, `docs/email-dsl.md`;
+  screenshots in `docs/images/` via `scripts/capture-readme-screenshots.mjs`;
+  evidence in `docs/VERIFICATION_REPORT.md`.
 
 ## Agent rules
 

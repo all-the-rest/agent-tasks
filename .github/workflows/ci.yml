@@ -76,21 +76,15 @@ jobs:
         run: pnpm test:unit
       - name: Web unit tests
         run: pnpm --filter @agent-tasks/web test
-      - name: Install ratchet
-        env:
-          RATCHET_VERSION: '0.6.2'
-        run: |
-          set -euo pipefail
-          asset="ratchet-${RATCHET_VERSION}-linux-x86_64.tar.gz"
-          base="https://github.com/all-the-rest/ratchet-cli/releases/download/v${RATCHET_VERSION}"
-          curl -fsSL --proto '=https' --tlsv1.2 -o "/tmp/${asset}" "${base}/${asset}"
-          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/ratchet-checksums.txt "${base}/checksums.txt"
-          (cd /tmp && grep " ${asset}$" ratchet-checksums.txt | sha256sum --check --strict -)
-          tar -xzf "/tmp/${asset}" -C /tmp ratchet
-          sudo install -m 0755 /tmp/ratchet /usr/local/bin/ratchet
-          ratchet --version
-      - name: Quality gates
-        run: pnpm gates
+      - name: Read pinned ratchet version
+        id: ratchet
+        run: echo "version=v$(tr -d '[:space:]' < .ratchet-version)" >> "$GITHUB_OUTPUT"
+      - name: Ratchet gates
+        uses: all-the-rest/ratchet-cli@0db64e280b024cf5a71c5c8a780dff8b9abf732f
+        with:
+          mode: validate
+          tier: fast
+          version: ${{ steps.ratchet.outputs.version }}
 
   integration:
     name: Integration tests
