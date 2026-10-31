@@ -30,7 +30,9 @@ runner) against the exact production container posture.
 | `node apps/api/dist/index.js` + worker + runner (production bundles) | healthz OK, setup/login/session role verified | 0 |
 | `node local Ollama 0.40.13 + llama3.2:1b` via `scripts/verify-ollama-local.ts` | real tool call `get_weather {city: "Vienna"}` | 0 |
 | `docker compose config -q` | three app images + postgres + runner (+ search profile) | 0 |
-| CI compose job (`Browser E2E`, GitHub run 41226712353) | stack started with the sandbox **enabled**; runner `/healthz` asserts `sandbox: true`, `browserVersion 156.0.8078.4`; 9/9 Playwright tests passed | 0 |
+| CI compose job (`Browser E2E`, GitHub run 41230606215) | stack started with the sandbox **enabled**; runner `/healthz` asserts `sandbox: true`, `browserVersion 156.0.8078.4`; 9/9 Playwright tests passed | 0 |
+| CI same job: env bootstrap and registration | `ADMIN_EMAIL` admin created, login as ADMIN, `403` without invitation, OpenCode Go provider + shared credential, enable → `200`, disable → `403` (`ENV_BOOTSTRAP_OK`) | 0 |
+| CI same job: two workers and crash recovery | 6 concurrent executions, ≥2 distinct workers, one row each, duplicate `409`; SIGKILL of the owning worker → recovery on the survivor (`WORKERS_OK`) | 0 |
 | Sandbox probe run 41226712667 (`2ce1ac8`) | exact production posture (pwuser; `cap_drop: ALL` + `cap_add: SYS_CHROOT`; `no-new-privileges`; custom seccomp): `LAUNCH_OK version=156.0.8078.4 sandbox=true` **and** `PAGE_OK text=ok` | 0 |
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 5 of 5 gates | 0 |
@@ -63,7 +65,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 4 | Task CRUD, presets, Europe/Vienna, DST | `packages/shared/src/schedule.ts`, `routes/tasks.ts` | `schedule.test.ts`: spring-forward 03:30, fall-back single booking, one-off past, summer/winter | PASS |
 | 5 | Durable scheduling, no duplicates, leases, recovery | `apps/worker/src/scheduling.ts`, `queues.ts` | `scheduler.test.ts`: idempotent tick, concurrent ticks, DB duplicate rejection, single claim, stale-lease requeue/cancel | PASS |
 | 5 | Retries, timeout, cancellation | `executor.ts`, `runtime.ts`, `quota.ts` | `execution.test.ts`; `runtime.test.ts` (deadline timeout vs caller cancel); `quota.test.ts` (N/N+1 boundaries); `lifecycle.test.ts` (graceful drain) | PASS |
-| 5 | Parallel workers | `executionWorkOptions` → pg-boss `localConcurrency` | `queues.test.ts` (concurrency applied, 1 stays 1) | PASS (option) / PARTIAL (no multi-container run) |
+| 5 | Parallel workers, duplicate prevention, crash recovery | `executionWorkOptions`, `claimExecution`, `recoverStaleExecutions`, the run guard in `routes/tasks.ts` | `queues.test.ts`, `scheduler.test.ts`; **CI run 41230606215**: two worker containers, six concurrent executions → ≥2 distinct `worker_id`s, exactly one row each, duplicate trigger `409`; SIGKILL of the owning worker → lease recovery completed the same execution on the survivor, one row | PASS |
 | 6 | Ollama adapter, real model | `packages/ai-providers/src/ollama.ts` | **real Ollama 0.40.13 + llama3.2:1b**: `/api/show` reports `tools`, `chat()` returned `get_weather {"city":"Vienna"}` with usage 202 tokens (`scripts/verify-ollama-local.ts`, exit 0) | PASS |
 | 6 | OpenAI-compatible / OpenCode Go contract | `openai-compatible.ts`, `packages/mock-openai`, `test/fixtures/opencode-go-server.ts` | Go-conformance tests incl. the two official headers: **tool User-Agent (non-generic) and stable `x-opencode-session` on chat, `/models` and health**; spoofed extra headers cannot replace them; empty session refused; schema rejects generic agents. Plus SSE streaming, tool deltas, allowance, error mapping | PASS against the contract-enforcing fake API (operator-accepted); real account NOT VERIFIED |
 | 6 | Codex, account-scoped only | `codex.ts`, per-user `CODEX_HOME` in `executor.ts`/`codex-home.ts` | unit tests (different owners → different 0700 homes, non-UUID refused, config not mutated); disabled unless `AGENT_TASKS_ENABLE_CODEX=1`; no real Codex account | PARTIAL / NOT VERIFIED (account) |
@@ -77,9 +79,9 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 27 web tests (MFA, XSS, live de↔en switch), production build, 9 Playwright flows | PASS |
 | 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers) and CI compose job starts the stack and runs 9/9 E2E | PASS |
 | 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 164 unit, 48 integration, 34 web, 9 E2E | PASS |
-| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41226712353: lint/typecheck, unit, integration, compose E2E (sandbox enabled), api/web/runner image builds and security all success | PASS |
+| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41230606215: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
-| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `2ce1ac8` pushed; CI green | PASS (with the org deviation) |
+| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `0a03590` pushed; CI green | PASS (with the org deviation) |
 
 ## Docker Compose (executed)
 
@@ -154,7 +156,7 @@ had three gaps, each fixed and covered by
    the kernel still enforces the capability check.
 
 Probe run 41226712667 launched **and rendered a page** under the exact posture;
-CI run 41226712353 asserts `sandbox: true` and passes the E2E suite.
+CI run 41230606215 asserts `sandbox: true` and passes the E2E suite.
 
 ### Medium
 
@@ -194,7 +196,7 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 
 - **OpenCode Go with a real account**: no account/API key available. The adapter is proven against a real HTTP fixture that enforces the documented contract; model ids, allowance values and rate-limit headers of the real service remain unknown.
 - **Codex with a real account**: none available; adapter is opt-in and text-only.
-- **Running Compose stack**: verified locally and in CI (run 41226712353). The
+- **Running Compose stack**: verified locally and in CI (run 41230606215). The
   local host lacks unprivileged user namespaces, so the local stack used the
   documented override; CI runs the shipped `RUNNER_CHROMIUM_SANDBOX=true`
   posture and asserts it.
@@ -206,8 +208,8 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - URL: https://github.com/all-the-rest/agent-tasks (the brief's `Allderest/agent-tasks` does not exist; the `all-the-rest` organisation was used)
 - Visibility: PUBLIC; License: Apache-2.0 (`LICENSE` present)
 - Issues: 14 requirement issues (#1–#14)
-- Commit: `2ce1ac8` (Chromium sandbox fixes) + the commit containing this report
-- CI: run 41226712353 — all 8 jobs successful, including Browser E2E with the sandbox enabled, the Mailpit/SpamAssassin and UI checks, and the OpenCode Go header tests
+- Commit: `0a03590` (env bootstrap, registration setting, OpenCode Go seed, worker verification) + the commit containing this report
+- CI: run 41230606215 — all 8 jobs successful, including Browser E2E with the sandbox, env bootstrap, two-worker/crash-recovery, Mailpit/SpamAssassin and UI checks
 
 ### OpenCode Go client contract (operator acceptance: fake API)
 
@@ -228,6 +230,24 @@ shipped and covered by regression tests: seccomp rules for
 `clone(CLONE_NEWPID/NEWNET)`, plus `CAP_SYS_CHROOT`. Probe run 41226712667 shows
 `LAUNCH_OK sandbox=true` **and** `PAGE_OK` with the exact production posture.
 
+### Parallel workers and crash recovery (practical)
+
+The compose E2E job scales the worker service to two containers and runs
+`scripts/verify-workers.mjs`:
+
+- six concurrent manual runs of separate tasks against a slow mock inside the
+  compose network (one model call, 20 s latency);
+- asserts at least two distinct `worker_id`s, exactly one execution row per run
+  and a `409` when an already active task is triggered again;
+- reads the `worker_id` of a running execution, maps it to the owning container,
+  SIGKILLs that container (`docker update --restart=no` + `docker kill`) and
+  waits for the 120 s lease plus the 2-minute recovery tick: the same execution
+  row is requeued and completes on the surviving worker, with no duplicate row.
+
+Run 41230606215: `worker-df7551c0` was killed mid-run, `worker-c73ef3f2`
+completed the recovered execution, and the script printed `WORKERS_OK`. The
+surrounding Playwright suite passed 9/9 in the same run.
+
 ### Registration setting and environment bootstrap (added on request)
 
 - `ALLOW_REGISTRATION` (`false` by default) seeds the database setting on a fresh
@@ -247,7 +267,13 @@ shipped and covered by regression tests: seccomp rules for
   `ALLOW_REGISTRATION=false`, the admin bootstrap and OpenCode Go configuration;
   start it with `docker compose --env-file .env.production up -d`.
 - Tests: `apps/api/test/env.test.ts` (5) and `test/integration/bootstrap.test.ts`
-  (4, including the runtime toggle); local Compose run with the env file is recorded below.
+  (4, including the runtime toggle).
+- CI run 41230606215 starts the compose stack with `ADMIN_EMAIL`/`ADMIN_PASSWORD`
+  and a seeded OpenCode Go provider; `scripts/verify-env-bootstrap.mjs` asserts
+  `setup/status` configured, the `403` without invitation, login as `ADMIN`, the
+  provider with a shared credential, enable → `200` and disable → `403`
+  (`ENV_BOOTSTRAP_OK`). The local developer Docker daemon was unresponsive
+  during this check, so the runtime proof is from CI.
 
 ### Transactional mail (added after the first verification)
 
@@ -278,9 +304,12 @@ All mandatory requirements are backed by executed evidence. The previously open
 Chromium sandbox is proven end to end: probe run 41226712667 starts Chromium with
 `sandbox=true` under the exact production posture (pwuser, `cap_drop: ALL` +
 `cap_add: SYS_CHROOT`, `no-new-privileges`, the shipped seccomp profile) and
-renders a page; CI run 41226712353 runs the Compose stack with
+renders a page; CI run 41230606215 runs the Compose stack with
 `RUNNER_CHROMIUM_SANDBOX=true`, asserts `sandbox: true` from the runner's
-`/healthz` and passes all 9 Playwright E2E tests.
+`/healthz` and passes all 9 Playwright E2E tests. The same job proves the
+multi-worker path: two worker containers, six concurrent executions with
+distinct claims, a refused duplicate trigger, and SIGKILL crash recovery on the
+surviving worker.
 
 Remaining limits are non-mandatory or environment-scoped:
 
