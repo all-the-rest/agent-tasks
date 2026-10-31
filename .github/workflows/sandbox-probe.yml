@@ -1,0 +1,48 @@
+name: Sandbox probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: plain
+            opts: ""
+          - name: no-new-privileges
+            opts: "--security-opt no-new-privileges"
+          - name: cap-drop-all
+            opts: "--cap-drop ALL"
+          - name: hardened
+            opts: "--cap-drop ALL --security-opt no-new-privileges"
+          - name: sys-admin
+            opts: "--cap-add SYS_ADMIN"
+          - name: privileged
+            opts: "--privileged"
+    steps:
+      - name: Inspect the Playwright image and user namespaces
+        run: |
+          docker run --rm --entrypoint bash mcr.microsoft.com/playwright:v1.64.1-noble -c '
+            id
+            ls -l /ms-playwright/chromium-*/chrome-linux64/chrome_sandbox 2>&1 || true
+            unshare -Ur true && echo userns-ok || echo userns-denied
+            npm root -g
+            ls "$(npm root -g)" | head
+          ' || true
+      - name: Launch Chromium with sandboxing
+        continue-on-error: true
+        run: |
+          docker run --rm ${{ matrix.opts }} \
+            -e NODE_PATH=/usr/lib/node_modules \
+            mcr.microsoft.com/playwright:v1.64.1-noble \
+            node -e '
+              const { chromium } = require("playwright");
+              chromium.launch({ chromiumSandbox: true })
+                .then(async (browser) => { console.log("LAUNCH_OK", browser.version()); await browser.close(); })
+                .catch((error) => { console.error("LAUNCH_FAIL", error.message.split("\n")[0]); process.exit(1); });
+            ' || true
