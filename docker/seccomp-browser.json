@@ -1068,6 +1068,54 @@
 			"action": "SCMP_ACT_ALLOW",
 			"args": [
 				{
+					"index": 0,
+					"value": 536870912,
+					"valueTwo": 536870912,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"excludes": {
+				"caps": [
+					"CAP_SYS_ADMIN"
+				],
+				"arches": [
+					"s390",
+					"s390x"
+				]
+			},
+			"comment": "renderer/zygote fork in a new PID namespace after the userns is established"
+		},
+		{
+			"names": [
+				"clone"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
+					"index": 0,
+					"value": 1073741824,
+					"valueTwo": 1073741824,
+					"op": "SCMP_CMP_MASKED_EQ"
+				}
+			],
+			"excludes": {
+				"caps": [
+					"CAP_SYS_ADMIN"
+				],
+				"arches": [
+					"s390",
+					"s390x"
+				]
+			},
+			"comment": "network namespace for the sandboxed zygote"
+		},
+		{
+			"names": [
+				"clone"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [
+				{
 					"index": 1,
 					"value": 268435456,
 					"valueTwo": 268435456,
