@@ -35,12 +35,12 @@ jobs:
       matrix:
         include:
           - name: prod-seccomp
-            opts: "--cap-drop ALL --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
+            opts: "--cap-drop ALL --cap-add SYS_CHROOT --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
             sandbox: "1"
             setuid: "no"
             user: pwuser
-          - name: prod-seccomp-sysadmin
-            opts: "--cap-drop ALL --cap-add SYS_ADMIN --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
+          - name: prod-no-chroot-cap
+            opts: "--cap-drop ALL --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
             sandbox: "1"
             setuid: "no"
             user: pwuser
