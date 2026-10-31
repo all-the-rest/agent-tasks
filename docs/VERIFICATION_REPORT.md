@@ -28,8 +28,10 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | `node apps/api/dist/index.js` + worker + runner (production bundles) | healthz OK, setup/login/session role verified | 0 |
 | `node local Ollama 0.40.13 + llama3.2:1b` via `scripts/verify-ollama-local.ts` | real tool call `get_weather {city: "Vienna"}` | 0 |
 | `docker compose config -q` | three app images + postgres + runner (+ search profile) | 0 |
+| CI compose job (`Browser E2E`, GitHub run 41216069396) | stack started, web served, 9/9 Playwright tests passed (sandbox disabled on that kernel) | 0 |
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 5 of 5 gates | 0 |
+| GitHub Actions run 41218719813 (`7f76ca4`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
 
 Reproduction:
 
@@ -64,15 +66,15 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 7 | Real research, ≥3 pages, sources, report | `executor.ts`, `browser-runner` | `execution.test.ts`: deterministic fake SearXNG returned 3 URLs; real Chromium opened example.com/.org/.net; ≥3 distinct sources persisted, report markdown + usage recorded | PASS |
 | 8 | Search backends | `packages/browser-tools/src/search.ts` | `search.test.ts` (6): SearXNG JSON mapping, non-http filtering, limit, HTTP 503, abort, fixture/noop | PASS |
 | 9 | Browser isolation, egress policy | `docker/Dockerfile.runner`, `compose.yaml`, `proxy.ts`, `shared/src/net.ts` | `egress.test.ts` (7: loopback, private, DNS rebinding, port policy, IPv6 loopback/link-local, tunnel) + `net.test.ts` (18 classifications) | PASS (policy) |
-| 9 | Chromium sandbox, non-root, read-only, no socket | compose: `RUNNER_CHROMIUM_SANDBOX=true` (env-overridable), non-root user, `read_only`, `cap_drop`, no docker socket | `docker inspect` + in-container checks: uid 1001, read-only, cap_drop ALL, no socket; loopback/private egress refused, public allowed. Sandbox on this kernel: Chromium `No usable sandbox!`; E2E now exercises research through the runner | PASS (hardening/egress); NOT VERIFIED (sandbox on this host) |
+| 9 | Chromium sandbox, non-root, read-only, no socket | compose: `RUNNER_CHROMIUM_SANDBOX=true` (env-overridable), non-root user, `read_only`, `cap_drop`, no docker socket | `docker inspect` + in-container checks: uid 1001, read-only, cap_drop ALL, no socket; loopback/private egress refused, public allowed; CI E2E runs research through the runner. **Sandbox itself: Chromium `No usable sandbox!` locally and in the GitHub runner container; CI runs with `RUNNER_CHROMIUM_SANDBOX=false`** | PASS (hardening/egress); **NOT VERIFIED (sandbox)** |
 | 10 | Prompt injection, XSS, CSRF, secret leaks | runtime untrusted wrapper, `rehype-sanitize`, origin hook, `secretBox`, redaction | runtime tests; `markdown-safety.test.tsx`; `auth.test.ts` CSRF; `providers.test.ts` no secret in admin responses; `audit.test.ts`; ciphertext assertion | PASS |
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 27 web tests (MFA, XSS, live de↔en switch), production build, 9 Playwright flows | PASS |
-| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `DEPLOYMENT.md` | `docker compose config -q` 0; **stack start not repeated after the daemon wipe** | PARTIAL (config) / NOT VERIFIED (running stack) |
+| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers) and CI compose job starts the stack and runs 9/9 E2E | PASS |
 | 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 130 unit, 40 integration, 27 web, 9 E2E | PASS |
-| 15 | GitHub Actions | `.github/workflows/ci.yml` (6 jobs) | workflow defined and YAML-valid; first run after push | NOT VERIFIED until CI |
+| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41218719813: lint/typecheck, unit, integration, compose E2E, api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
-| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, license Apache-2.0, `main`; 14 issues | PARTIAL (repo public; commit/CI pending) |
+| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `7f76ca4` pushed; CI green | PASS (with the org deviation) |
 
 ## Docker Compose (executed)
 
@@ -155,8 +157,8 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 
 - **OpenCode Go with a real account**: no account/API key available. The adapter is proven against a real HTTP fixture that enforces the documented contract; model ids, allowance values and rate-limit headers of the real service remain unknown.
 - **Codex with a real account**: none available; adapter is opt-in and text-only.
-- **Running Compose stack after the bundle fix**: the remote daemon was wiped mid-run; the build was re-started, health re-check pending. All images built before the wipe; the production bundles were verified outside Docker.
-- **Chromium sandbox inside the container**: the host kernel lacks user namespaces and the daemon outage prevented a container run.
+- **Running Compose stack**: verified locally and in CI (run 41218719813). CI disables the Chromium sandbox because the runner kernel refuses it.
+- **Chromium sandbox inside the container**: `RUNNER_CHROMIUM_SANDBOX=true` fails with `No usable sandbox!` both on this host and in the GitHub runner container (no user namespaces). CI therefore runs with `false`; the production default stays `true`. This mandatory item is **NOT VERIFIED**.
 - **SMTP delivery**: no server configured.
 - **GitHub Actions**: first run after the initial push.
 
@@ -165,5 +167,23 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - URL: https://github.com/all-the-rest/agent-tasks (the brief's `Allderest/agent-tasks` does not exist; the `all-the-rest` organisation was used)
 - Visibility: PUBLIC; License: Apache-2.0 (`LICENSE` present)
 - Issues: 14 requirement issues (#1–#14)
-- Commit: recorded after the first push (`git log -1`)
-- CI: see the Actions tab; this file is updated when a run completes.
+- Commit: `7f76ca4` (implementation) + the commit containing this report
+- CI: run 41218719813 — all 8 jobs successful
+
+## Final verdict: NOT READY
+
+Everything that can be proven in this environment is proven: real Ollama inference with a tool call, a contract-enforcing OpenAI-compatible/OpenCode-Go fixture, three-page real web research, multi-user isolation and IDOR tests, scheduling/DST/recovery, a running Compose stack, production bundles, and green local + GitHub CI gates.
+
+The objective's READY gate is nevertheless not met, because mandatory items remain unproven:
+
+1. **Chromium sandbox (mandatory).** It cannot start on this host or on the GitHub runner container (`No usable sandbox!`). The shipped default is `true`, but CI has to set `RUNNER_CHROMIUM_SANDBOX=false`; the sandbox has never been exercised successfully anywhere in this run.
+2. **Real OpenCode Go account (mandatory provider path).** No account/API key was available. The adapter is verified only against a local HTTP fixture implementing the documented contract; real Go model ids, allowance values and rate-limit behaviour are unknown.
+3. **Codex account-scoped execution.** No account was available; the adapter is opt-in and additionally refuses to run without an operator-provided isolated runner.
+
+Additional deviations/gaps:
+
+4. The organisation `Allderest` does not exist; the repository is public at `all-the-rest/agent-tasks`.
+5. Real SMTP delivery (password reset, email verification) is unverified; no SMTP server was configured.
+6. `fill_form` remains disabled by policy, so the model sees nine tools, not ten.
+
+To reach READY, a host with unprivileged user namespaces (or a privileged sandbox sidecar) must run the shipped `RUNNER_CHROMIUM_SANDBOX=true` image successfully, and an OpenCode Go account must run one real streamed completion with a tool call. Both are environment/credential prerequisites, not code changes.
