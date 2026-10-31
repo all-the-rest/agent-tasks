@@ -85,6 +85,12 @@ Details: [`docs/architecture/overview.md`](docs/architecture/overview.md).
 
 ## Quick start (Docker Compose)
 
+The ready-made entrypoints for **production, local and E2E** live in
+[`deployment/README.md`](deployment/README.md). Each stack has its own compose
+project name, host ports, networks, volumes and `com.agent-tasks.stack` label, so
+a local stack and the E2E stack can run side by side. The commands below use the
+root `compose.yaml` directly.
+
 ```bash
 git clone https://github.com/all-the-rest/agent-tasks.git
 cd agent-tasks

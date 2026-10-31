@@ -1,5 +1,26 @@
 # Deployment
 
+## Ready-made stacks
+
+[`deployment/`](deployment/README.md) has one compose entrypoint per lifecycle
+stage. They include the root `compose.yaml`, so services and security settings
+have a single source.
+
+| Stack | Command | Project name | Host ports |
+| --- | --- | --- | --- |
+| production | `deployment/stack.sh production up -d` | `agent-tasks` | `HTTP_PORT` (default `8080`) |
+| local | `deployment/stack.sh local --profile mail --profile search up -d --build` | `agent-tasks-local` | web `8090`, Mailpit `1025`/`8025` |
+| E2E | `deployment/stack.sh e2e --profile mail --profile search up -d --build` | `agent-tasks-e2e` | web `8180`, Mailpit `1126`/`8126` |
+
+The project name isolates containers, networks and volumes, and every container
+carries `com.agent-tasks.stack=<stack>`. Local and E2E therefore run at the same
+time. `stack.sh` fills the development secrets on first use and refuses to start
+production while a `replace-with-*` placeholder remains. See
+[`deployment/README.md`](deployment/README.md) for the full workflow.
+
+The commands in this document use the root `compose.yaml` directly (CI does the
+same) and expect the variables in the shell or `.env`.
+
 ## Compose profiles
 
 Compose starts only the services selected by a profile. `docker compose config --services`

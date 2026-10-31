@@ -17,4 +17,7 @@
 - Hardened Playwright browser service with an enforcing egress proxy.
 - React UI with English/German catalogues on Lingui 6 (gettext PO files).
 - Docker Compose deployment with hardened containers and Portainer/Watchtower labels.
+- Isolated production, local and E2E stacks under `deployment/` with distinct
+  project names, ports, volumes and `com.agent-tasks.stack` labels, so local and
+  E2E run simultaneously.
 - GitHub Actions CI with lint, typecheck, tests, image builds, Trivy, gitleaks and a production-dependency audit.
