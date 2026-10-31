@@ -35,11 +35,11 @@ jobs:
       matrix:
         include:
           - name: prod-seccomp
-            opts: "--cap-drop ALL --security-opt no-new-privileges:true --security-opt seccomp=$PWD/docker/seccomp-browser.json"
+            opts: "--cap-drop ALL --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
             sandbox: "1"
             setuid: "no"
           - name: prod-seccomp-sysadmin
-            opts: "--cap-drop ALL --cap-add SYS_ADMIN --security-opt no-new-privileges:true --security-opt seccomp=$PWD/docker/seccomp-browser.json"
+            opts: "--cap-drop ALL --cap-add SYS_ADMIN --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
             sandbox: "1"
             setuid: "no"
           - name: control-nosandbox
@@ -94,6 +94,7 @@ jobs:
           SANDBOX: ${{ matrix.sandbox }}
           SETUID: ${{ matrix.setuid }}
         run: |
+          OPTS=$(printf '%s' "${{ matrix.opts }}" | sed "s|__SECCOMP__|$PWD/docker/seccomp-browser.json|g")
           docker run --rm $OPTS \
             -v "$PWD/scripts/sandbox-probe.cjs:/probe.cjs:ro" \
             -e EXPECT_SANDBOX="$SANDBOX" \
