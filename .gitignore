@@ -4,6 +4,9 @@ dist/
 .env.*
 !.env.example
 !.env.production
+# Generated per-stack secrets; only the examples are committed.
+deployment/env/*.env
+deployment/env/*.env.tmp
 coverage/
 test-results/
 playwright-report/

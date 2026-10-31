@@ -1,0 +1,12 @@
+# Production stack: the shared service definition plus production defaults.
+#
+#   deployment/stack.sh production --profile search up -d
+#
+# The project name is part of the isolation contract: a production stack keeps
+# the historical `agent-tasks` name, so an existing deployment is not renamed.
+# Values come from deployment/env/production.env (copy the example first).
+name: agent-tasks
+
+include:
+  - path: ../compose.yaml
+    env_file: env/production.env

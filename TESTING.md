@@ -55,6 +55,17 @@ E2E_BASE_URL=http://localhost:8080 E2E_SETUP_TOKEN=<SETUP_TOKEN> pnpm test:e2e
 E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_EMAIL=<admin> E2E_ADMIN_PASSWORD=<password> pnpm test:e2e
 ```
 
+The isolated E2E stack keeps a local stack running and has its own ports, project
+name and volumes. It generates matching `SETUP_TOKEN`/`E2E_SETUP_TOKEN` and
+`ADMIN_PASSWORD`/`E2E_ADMIN_PASSWORD` values on first use:
+
+```bash
+deployment/stack.sh e2e --profile mail --profile search up -d --build
+( set -a; . deployment/env/e2e.env; set +a; pnpm test:e2e )
+```
+
+See [`deployment/README.md`](deployment/README.md) for the stack layout.
+
 The suite starts `packages/mock-openai` and registers it as an
 `openai-compatible` provider with a declared model. It binds a loopback port on
 the test host; a remote Docker daemon needs a reachable address, so that topology

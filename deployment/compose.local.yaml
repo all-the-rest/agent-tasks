@@ -1,0 +1,9 @@
+# Local development stack. Project name and host ports differ from production
+# and E2E, so all stacks can run at the same time on one Docker host.
+#
+#   deployment/stack.sh local --profile mail --profile search up -d --build
+name: agent-tasks-local
+
+include:
+  - path: ../compose.yaml
+    env_file: env/local.env

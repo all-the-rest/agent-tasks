@@ -1,0 +1,10 @@
+# Browser E2E stack. Separate project name, volumes, networks and host ports;
+# the local stack keeps running while the suite rebuilds this one.
+#
+#   deployment/stack.sh e2e --profile mail --profile search up -d --build
+#   . deployment/env/e2e.env && pnpm test:e2e
+name: agent-tasks-e2e
+
+include:
+  - path: ../compose.yaml
+    env_file: env/e2e.env
