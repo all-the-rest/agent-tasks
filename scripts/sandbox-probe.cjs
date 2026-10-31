@@ -8,6 +8,10 @@ const sandbox = process.env.EXPECT_SANDBOX !== '0';
   try {
     const browser = await chromium.launch({ chromiumSandbox: sandbox, headless: true });
     console.log(`LAUNCH_OK version=${browser.version()} sandbox=${sandbox}`);
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent('<h1 id="probe">ok</h1>');
+    console.log(`PAGE_OK text=${await page.textContent('#probe')}`);
     await browser.close();
     process.exit(0);
   } catch (error) {
