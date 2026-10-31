@@ -155,6 +155,30 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "false"
 
+  # Optional, profile "mail": local SMTP sink for development and tests.
+  # Mailpit's spam score comes from the SpamAssassin sidecar (sa-check API).
+  mailpit:
+    image: axllent/mailpit:v1.33
+    restart: unless-stopped
+    profiles: [mail]
+    environment:
+      MP_ENABLE_SPAMASSASSIN: spamassassin:783
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_HTTP_PORT:-8025}:8025"
+    networks: [backend]
+    security_opt:
+      - no-new-privileges:true
+
+  spamassassin:
+    image: axllent/spamassassin:3
+    restart: unless-stopped
+    profiles: [mail]
+    networks: [backend]
+    security_opt:
+      - no-new-privileges:true
+
   # Optional, profile "search": self-hosted metasearch used for real web research.
   searxng:
     image: searxng/searxng:2026.10.30-ffa88e3ba

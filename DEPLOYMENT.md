@@ -36,7 +36,7 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `SECRETS_ENCRYPTION_KEY` | api, worker | — | yes, base64 of exactly 32 bytes |
 | `SECRETS_ENCRYPTION_KEY_PREVIOUS` | api, worker | — | no; only while rotating keys |
 | `SETUP_TOKEN` | api | — | yes for this stack, at least 16 characters. An empty value fails validation at startup; without it `/api/setup` answers `503` |
-| `SMTP_URL` | api | — | no |
+| `SMTP_URL` | api | — | no; when set, reset/verification/invitation mails are sent as multipart plain-text + HTML |
 | `SMTP_FROM` | api | `agent-tasks@localhost` | no; only used with `SMTP_URL` |
 | `SEARXNG_URL` | worker (the api schema also parses it) | —; worker falls back to the `searchBaseUrl` system setting, default `http://searxng:8080` | no; compose default `http://searxng:8080` |
 | `LOG_LEVEL` | api, worker, browser-runner | `info` | no; `fatal`, `error`, `warn`, `info`, `debug` or `trace`; compose forwards it to api and worker only |
@@ -78,9 +78,22 @@ These are read by `compose.yaml`, not by the application:
 | `IMAGE_TAG` | `latest` | Release selector |
 | `BROWSER_MEMORY_LIMIT` | `1g` | Container limit for browser-runner |
 | `BROWSER_CPUS` | `1.0` | CPU limit for browser-runner |
+| `MAILPIT_SMTP_PORT` | `1025` | Published SMTP port of the optional `mail` profile |
+| `MAILPIT_HTTP_PORT` | `8025` | Published Mailpit UI/API port |
 
 SearXNG's effective secret is `server.secret_key` in
 `docker/searxng/settings.yml`; change it before exposing the `search` profile.
+
+### Mail testing (optional `mail` profile)
+
+`docker compose --profile mail up -d` starts Mailpit (SMTP `1025`, UI/API `8025`)
+and a SpamAssassin sidecar. Point the API at it with
+`SMTP_URL=smtp://mailpit:1025`; every transactional mail is then delivered to
+the Mailpit inbox. `node scripts/check-mailpit.mjs` requests a password reset for
+`MAIL_TO`, asserts the message is multipart with a full HTML part, and asserts
+Mailpit's SpamAssassin `Score` is below `MAIL_MAX_SPAM_SCORE` (default 5). CI runs
+the same script against the compose stack. The score is SpamAssassin's, surfaced
+by Mailpit; it is not computed by Mailpit itself.
 
 ## Model provider (OpenAI-compatible)
 

@@ -169,10 +169,11 @@ jobs:
             # The production default stays true (compose.yaml); the sandbox itself is
             # therefore NOT VERIFIED in CI.
             echo "RUNNER_CHROMIUM_SANDBOX=false"
+            echo "SMTP_URL=smtp://mailpit:1025"
             echo "E2E_BASE_URL=http://localhost:8080"
           } >> "$GITHUB_ENV"
       - name: Build and start the compose stack
-        run: docker compose --profile search up -d --build
+        run: docker compose --profile search --profile mail up -d --build
       - name: Wait for the API health endpoint
         run: |
           for attempt in $(seq 1 60); do
@@ -197,6 +198,10 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run browser E2E
         run: pnpm test:e2e
+      - name: Verify HTML mail and SpamAssassin score
+        run: |
+          email=$(docker compose exec -T postgres psql -U agent -d agent_tasks -tAc "select email from \"user\" where role = 'ADMIN' order by created_at limit 1" | tr -d '[:space:]')
+          MAIL_TO="$email" API_BASE_URL=http://localhost:8080 MAILPIT_URL=http://localhost:8025 MAIL_ORIGIN=http://localhost:8080 node scripts/check-mailpit.mjs
       - name: Upload Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v4
