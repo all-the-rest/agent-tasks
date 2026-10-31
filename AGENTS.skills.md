@@ -8,7 +8,7 @@ geprüft am: 2026-10-31
 | Skill | angewendet? | wo im Projekt | offene Position |
 |---|---|---|---|
 | `codegraph-project-setup` | ja | `.codegraph/`, `.githooks/pre-commit`, `AGENTS.md` | |
-| `project-gates` | ja | `ratchet.config.jsonc` (Preset `agent-rules`), `ratchet.baseline.json`, `.githooks/pre-commit` | CI nutzt das checksum-gepinnte Release-Binary statt der `ratchet-cli`-Action |
+| `project-gates` | ja | `ratchet.config.jsonc` (Preset `agent-rules`), `ratchet.baseline.json`, `.ratchet-version`, `.githooks/pre-commit`, `.github/workflows/ci.yml` | |
 | `ratchet-gates` | ja | `ratchet.config.jsonc`, `ratchet.baseline.json` | |
 | `github-ci-filters` | ja | `.github/workflows/ci.yml` (`paths-ignore`) | Doku-Pushes überspringen den CI-Lauf; der lokale Secret-Scan bleibt |
 | `ui-review` | ja | `scripts/capture-readme-screenshots.mjs`, `docs/images/`, `docs/USER_GUIDE.md` | |
