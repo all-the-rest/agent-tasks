@@ -37,6 +37,23 @@ describe('browser runner seccomp profile', () => {
     ]);
   });
 
+  it('allows clone(CLONE_NEWUSER|CLONE_NEWPID|CLONE_NEWNET) for the namespace sandbox', () => {
+    const rule = profile.syscalls.find(
+      (candidate) =>
+        candidate.names.includes('clone') &&
+        candidate.action === 'SCMP_ACT_ALLOW' &&
+        candidate.excludes?.caps?.includes('CAP_SYS_ADMIN') &&
+        candidate.args?.some(
+          (arg) =>
+            arg.index === 0 &&
+            arg.op === 'SCMP_CMP_MASKED_EQ' &&
+            arg.value === CLONE_NEWUSER &&
+            arg.valueTwo === CLONE_NEWUSER,
+        ),
+    );
+    expect(rule, 'missing the clone(CLONE_NEWUSER) rule').toBeDefined();
+  });
+
   it('keeps every other namespace operation behind CAP_SYS_ADMIN', () => {
     const unprivileged = profile.syscalls.filter(
       (candidate) =>
