@@ -10,8 +10,10 @@ Environment of this run (2026-10-31): Linux container, 4 cores, 7.8 GB RAM,
 Node v26.10.0 on the host, pnpm 12.9.1, PostgreSQL 15.15 (installed locally for
 this run), Docker 29.9.2 on a **remote daemon** (`tcp://dind:2375`; its state was
 wiped during the session and it is intermittently unresponsive under host load).
-Chromium 1248 via Playwright 1.64.1. The host kernel does not provide user
-namespaces, so Chromium's sandbox cannot start on the bare host.
+Chromium 1248 via Playwright 1.64.1. The local developer container does not
+provide user namespaces, so the local Compose stack used the documented
+override; the shipped sandbox default is verified in CI (GitHub's Ubuntu 24.04
+runner) against the exact production container posture.
 
 ## Executed gates (exact commands and results)
 
@@ -20,7 +22,7 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | `pnpm install --frozen-lockfile` | lockfile accepted | 0 |
 | `pnpm lint` | 0 errors, 0 warnings | 0 |
 | `pnpm -r typecheck` | 10 projects | 0 |
-| `pnpm test:unit` | **160 passed**, 22 files | 0 |
+| `pnpm test:unit` | **164 passed**, 23 files | 0 |
 | `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **48 passed**, 8 files, real PostgreSQL 15.15 | 0 |
 | `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
 | `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
@@ -28,7 +30,8 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | `node apps/api/dist/index.js` + worker + runner (production bundles) | healthz OK, setup/login/session role verified | 0 |
 | `node local Ollama 0.40.13 + llama3.2:1b` via `scripts/verify-ollama-local.ts` | real tool call `get_weather {city: "Vienna"}` | 0 |
 | `docker compose config -q` | three app images + postgres + runner (+ search profile) | 0 |
-| CI compose job (`Browser E2E`, GitHub run 41216069396) | stack started, web served, 9/9 Playwright tests passed (sandbox disabled on that kernel) | 0 |
+| CI compose job (`Browser E2E`, GitHub run 41226712353) | stack started with the sandbox **enabled**; runner `/healthz` asserts `sandbox: true`, `browserVersion 156.0.8078.4`; 9/9 Playwright tests passed | 0 |
+| Sandbox probe run 41226712667 (`2ce1ac8`) | exact production posture (pwuser; `cap_drop: ALL` + `cap_add: SYS_CHROOT`; `no-new-privileges`; custom seccomp): `LAUNCH_OK version=156.0.8078.4 sandbox=true` **and** `PAGE_OK text=ok` | 0 |
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 5 of 5 gates | 0 |
 | GitHub Actions run 41222770419 (`97487c1`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
@@ -68,7 +71,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 7 | Real research, ≥3 pages, sources, report | `executor.ts`, `browser-runner` | `execution.test.ts`: deterministic fake SearXNG returned 3 URLs; real Chromium opened example.com/.org/.net; ≥3 distinct sources persisted, report markdown + usage recorded | PASS |
 | 8 | Search backends | `packages/browser-tools/src/search.ts` | `search.test.ts` (6): SearXNG JSON mapping, non-http filtering, limit, HTTP 503, abort, fixture/noop | PASS |
 | 9 | Browser isolation, egress policy | `docker/Dockerfile.runner`, `compose.yaml`, `proxy.ts`, `shared/src/net.ts` | `egress.test.ts` (7: loopback, private, DNS rebinding, port policy, IPv6 loopback/link-local, tunnel) + `net.test.ts` (18 classifications) | PASS (policy) |
-| 9 | Chromium sandbox, non-root, read-only, no socket | compose: `RUNNER_CHROMIUM_SANDBOX=true` (env-overridable), non-root user, `read_only`, `cap_drop`, no docker socket | `docker inspect` + in-container checks: uid 1001, read-only, cap_drop ALL, no socket; loopback/private egress refused, public allowed; CI E2E runs research through the runner. **Sandbox itself: Chromium `No usable sandbox!` locally and in the GitHub runner container; CI runs with `RUNNER_CHROMIUM_SANDBOX=false`** | PASS (hardening/egress); **NOT VERIFIED (sandbox)** |
+| 9 | Chromium sandbox, non-root, read-only, no socket | `compose.yaml` (`RUNNER_CHROMIUM_SANDBOX=true`, `cap_drop: ALL` + `cap_add: SYS_CHROOT`, custom seccomp), `docker/seccomp-browser.json`, `browser.ts` | Probe run 41226712667: **`LAUNCH_OK sandbox=true` + `PAGE_OK`** with pwuser, no SYS_ADMIN, `no-new-privileges`, read-only, the custom profile; CI asserts `/healthz` `sandbox: true` and passes 9/9 E2E; `docker inspect`: uid 1001, read-only, no socket; loopback/private egress refused | PASS |
 | 10 | Prompt injection, XSS, CSRF, secret leaks | runtime untrusted wrapper, `rehype-sanitize`, origin hook, `secretBox`, redaction | runtime tests; `markdown-safety.test.tsx`; `auth.test.ts` CSRF; `providers.test.ts` no secret in admin responses; `audit.test.ts`; ciphertext assertion | PASS |
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 27 web tests (MFA, XSS, live de↔en switch), production build, 9 Playwright flows | PASS |
@@ -97,7 +100,18 @@ Verified against the running containers:
 - **Containerised bootstrap:** `POST /api/setup` → 200, sign-in → 200, `/api/me` → 200 with `role: ADMIN`, `/api/auth/get-session` contains `role`.
 - **Runner hardening** (`docker inspect`): `User=pwuser` (uid 1001), `ReadonlyRootfs=true`, `CapDrop=[ALL]`, `no-new-privileges`, custom seccomp profile, no published ports, no `/var/run/docker.sock`. The process is `uid=1001(pwuser)`.
 - **Egress inside the container:** `open_url http://127.0.0.1:8081/healthz` → `{"ok":false,"error":"port 8081 is not allowed"}`; `http://10.0.0.1/` → `{"ok":false,"error":"address 10.0.0.1 is not public"}`; `https://example.com/` → `{"ok":true}`. Session cleanup returned `sessions: 0`.
-- **Chromium sandbox:** with the shipped default `RUNNER_CHROMIUM_SANDBOX=true` the runner exits with Chromium's `FATAL … No usable sandbox!` on this host (kernel/AppArmor disables user namespaces). The compose file now supports the documented override (`RUNNER_CHROMIUM_SANDBOX=false`) and the local run used it. The sandbox itself is therefore **NOT VERIFIED on this host**; the default remains `true`. The Playwright suite now enables web research, so it exercises the compose runner and fails if the sandboxed default cannot start on the CI runner.
+- **Chromium sandbox:** the runner now starts with the sandbox enabled. Three
+  container-level pieces are required and regression-tested: the seccomp profile
+  must allow `unshare(CLONE_NEWUSER)`, the combined
+  `clone(CLONE_NEWUSER|CLONE_NEWPID|CLONE_NEWNET)` launch, and the zygote's
+  renderer fork (`clone(CLONE_NEWPID)`/`CLONE_NEWNET`); the container must keep
+  `CAP_SYS_CHROOT` for the sandbox's chroot. The exact posture (pwuser,
+  `cap_drop: ALL` + `cap_add: SYS_CHROOT`, `no-new-privileges`, custom seccomp)
+  produced `LAUNCH_OK sandbox=true` and `PAGE_OK` in probe run 41226712667; CI
+  asserts `sandbox: true` from `/healthz`. This developer host still lacks
+  unprivileged user namespaces (kernel policy), so its local Compose run used
+  the documented `RUNNER_CHROMIUM_SANDBOX=false` override; the shipped default
+  stays `true` and is proven in CI.
 - **Real bug found and fixed:** the runtime images copied workspace packages as TypeScript sources while the app bundles externalised them, so api/worker/runner crashed with `ERR_MODULE_NOT_FOUND … packages/database/src/client.js`. Fixed with `noExternal: [/^@agent-tasks\//]` tsup configs; the production bundles were then run directly against real PostgreSQL and passed the same bootstrap/login flow.
 - **Web image bug found and fixed:** nginx-unprivileged runs as uid 101, so `RUN rm -f /docker-entrypoint.d/…` failed with permission denied; the Dockerfile now removes it as root and switches back.
 
@@ -120,6 +134,27 @@ Verified against the running containers:
 10. **Shared credential upsert never conflicted** (`owner_id NULL`); replaced with a locked read-then-update transaction.
 11. **Malformed provider/invitation ids could 500.** `requireUuid` now precedes DB access; tests across all provider routes.
 12. **Codex was unconfigurable** (`enabled`/`codexHome` stripped) and shared one global home. Added `codexConfigSchema`, per-user `CODEX_HOME_ROOT/<owner-uuid>` with 0700 creation, and validation against path traversal.
+
+### Sandbox verification (fixed in this session)
+
+The first probe was invalid: the Playwright image ships browsers but no
+`playwright` package, so it never launched anything. The shipped profile then
+had three gaps, each fixed and covered by
+`services/browser-runner/test/seccomp-profile.test.ts`:
+
+1. `SCMP_CMP_MASKED_EQ` compares `(arg & value)` against `valueTwo`, which
+   defaults to 0; the first `unshare(CLONE_NEWUSER)` rule was inverted and
+   denied exactly that call.
+2. Docker resolves cap-conditional rules at container start. `chroot` is only
+   allowed with `CAP_SYS_CHROOT`, which `cap_drop: ALL` removed; the container
+   now adds `CAP_SYS_CHROOT` back (still no `SYS_ADMIN`).
+3. The zygote forks renderers with `clone(CLONE_NEWPID)`/`CLONE_NEWNET` after
+   the user namespace exists; the profile only allowed `CLONE_NEWUSER`, so
+   `newContext` hung with "Zygote could not fork". Both flags are allowed now;
+   the kernel still enforces the capability check.
+
+Probe run 41226712667 launched **and rendered a page** under the exact posture;
+CI run 41226712353 asserts `sandbox: true` and passes the E2E suite.
 
 ### Medium
 
@@ -159,8 +194,10 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 
 - **OpenCode Go with a real account**: no account/API key available. The adapter is proven against a real HTTP fixture that enforces the documented contract; model ids, allowance values and rate-limit headers of the real service remain unknown.
 - **Codex with a real account**: none available; adapter is opt-in and text-only.
-- **Running Compose stack**: verified locally and in CI (run 41218719813). CI disables the Chromium sandbox because the runner kernel refuses it.
-- **Chromium sandbox inside the container**: `RUNNER_CHROMIUM_SANDBOX=true` fails with `No usable sandbox!` both on this host and in the GitHub runner container (no user namespaces). CI therefore runs with `false`; the production default stays `true`. This mandatory item is **NOT VERIFIED**.
+- **Running Compose stack**: verified locally and in CI (run 41226712353). The
+  local host lacks unprivileged user namespaces, so the local stack used the
+  documented override; CI runs the shipped `RUNNER_CHROMIUM_SANDBOX=true`
+  posture and asserts it.
 - **External SMTP provider**: only Mailpit was available; delivery to a real internet mail provider (SPF/DKIM/DMARC) is still unverified.
 - **GitHub Actions**: first run after the initial push.
 
@@ -169,8 +206,8 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - URL: https://github.com/all-the-rest/agent-tasks (the brief's `Allderest/agent-tasks` does not exist; the `all-the-rest` organisation was used)
 - Visibility: PUBLIC; License: Apache-2.0 (`LICENSE` present)
 - Issues: 14 requirement issues (#1–#14)
-- Commit: `97487c1` (implementation + HTML mail + compatibility/UI verification + OpenCode Go header hardening) + the commit containing this report
-- CI: run 41222770419 — all 8 jobs successful, including the Mailpit/SpamAssassin, UI and OpenCode Go header checks
+- Commit: `2ce1ac8` (Chromium sandbox fixes) + the commit containing this report
+- CI: run 41226712353 — all 8 jobs successful, including Browser E2E with the sandbox enabled, the Mailpit/SpamAssassin and UI checks, and the OpenCode Go header tests
 
 ### OpenCode Go client contract (operator acceptance: fake API)
 
@@ -183,10 +220,13 @@ health, stable/distinct sessions, spoof resistance, and the schema rules. The
 contract-enforcing fake API is accepted by the operator for this goal; real-account
 values remain unknown.
 
-The Playwright image does **not** solve the separate sandbox blocker: its
-`chrome_sandbox` is mode `0777` (not setuid) and `unshare -Ur` is denied even with
-`--privileged` (probe run 41222309593). The shipped default `RUNNER_CHROMIUM_SANDBOX=true`
-therefore cannot start on this host or the GitHub runner; CI uses `false`.
+The Playwright image **alone** does not enable the sandbox: it ships browsers but
+no `playwright` npm package, its `chrome_sandbox` is mode `0777` (not setuid) and
+it runs as root by default. The container needed three additional settings, now
+shipped and covered by regression tests: seccomp rules for
+`unshare(CLONE_NEWUSER)`, `clone(CLONE_NEWUSER|…)` and the zygote's
+`clone(CLONE_NEWPID/NEWNET)`, plus `CAP_SYS_CHROOT`. Probe run 41226712667 shows
+`LAUNCH_OK sandbox=true` **and** `PAGE_OK` with the exact production posture.
 
 ### Transactional mail (added after the first verification)
 
@@ -211,20 +251,29 @@ therefore cannot start on this host or the GitHub runner; CI uses `false`.
   fallback link.
 - Unit tests cover the renderer, multipart content and HTML escaping.
 
-## Final verdict: NOT READY
+## Final verdict: READY
 
-Everything that can be proven in this environment is proven: real Ollama inference with a tool call, a contract-enforcing OpenAI-compatible/OpenCode-Go fixture, three-page real web research, multi-user isolation and IDOR tests, scheduling/DST/recovery, a running Compose stack, production bundles, and green local + GitHub CI gates.
+All mandatory requirements are backed by executed evidence. The previously open
+Chromium sandbox is proven end to end: probe run 41226712667 starts Chromium with
+`sandbox=true` under the exact production posture (pwuser, `cap_drop: ALL` +
+`cap_add: SYS_CHROOT`, `no-new-privileges`, the shipped seccomp profile) and
+renders a page; CI run 41226712353 runs the Compose stack with
+`RUNNER_CHROMIUM_SANDBOX=true`, asserts `sandbox: true` from the runner's
+`/healthz` and passes all 9 Playwright E2E tests.
 
-The objective's READY gate is nevertheless not met, because mandatory items remain unproven:
+Remaining limits are non-mandatory or environment-scoped:
 
-1. **Chromium sandbox (mandatory).** It cannot start on this host or on the GitHub runner container (`No usable sandbox!`). A dedicated probe of the pinned Playwright image showed why the image does not solve it: `chrome_sandbox` is mode `0777` (not setuid), and `unshare -Ur` is denied **even with `--privileged`**, so neither the user-namespace nor the setuid fallback is available. CI sets `RUNNER_CHROMIUM_SANDBOX=false`; the shipped default stays `true`.
-2. ~~Real OpenCode Go account~~ — by operator decision a contract-enforcing fake API is sufficient; the two official headers (tool User-Agent, stable `x-opencode-session`) and the rest of the contract are test-covered. Live-account values remain unknown but are not required for this goal.
-3. **Codex account-scoped execution (optional, experimental).** No account was available; the adapter is disabled by default and refuses to run without an operator-provided isolated runner. It is not part of the primary provider path.
-
-Additional deviations/gaps:
-
-4. The organisation `Allderest` does not exist; the repository is public at `all-the-rest/agent-tasks`.
-5. Real SMTP delivery (password reset, email verification) is unverified; no SMTP server was configured.
-6. `fill_form` remains disabled by policy, so the model sees nine tools, not ten.
-
-To reach READY, a host that permits unprivileged user namespaces (or a setuid-capable sandbox helper) must run the shipped `RUNNER_CHROMIUM_SANDBOX=true` image successfully. This is an environment prerequisite, not a code change; the Playwright image alone cannot provide it (probe evidence above). The fake-API acceptance removes the OpenCode Go account from the blocker list.
+1. **OpenCode Go with a real account** — by operator decision the
+   contract-enforcing fake API is sufficient; live model ids and allowance
+   values remain unknown. The two mandatory client headers (tool User-Agent,
+   stable `x-opencode-session`) are enforced and tested.
+2. **Codex account-scoped execution** — optional and experimental, disabled by
+   default, no account available.
+3. **Real internet SMTP delivery** — Mailpit + SpamAssassin only; SPF/DKIM/DMARC
+   remain unverified.
+4. **Repository organisation** — `Allderest` does not exist; the public repo is
+   `all-the-rest/agent-tasks`.
+5. **`fill_form`** — disabled by policy; the model sees nine tools, not ten.
+6. **Local developer host** — its kernel forbids unprivileged user namespaces,
+   so the local Compose run used the documented `RUNNER_CHROMIUM_SANDBOX=false`
+   override; the shipped default is proven in CI.

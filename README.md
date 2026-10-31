@@ -105,10 +105,15 @@ pnpm dev                        # api :8080, web :5173 (proxy -> api), worker
 The worker expects a browser runner at `RUNNER_URL` (default
 `http://browser-runner:8081`). For local browser tasks, start
 `pnpm --filter @agent-tasks/browser-runner dev` on port 8081 and set
-`RUNNER_URL=http://127.0.0.1:8081`. On hosts without user namespaces, Chromium
-needs `RUNNER_CHROMIUM_SANDBOX=false`; production keeps it `true`. The
-`PUBLIC_BASE_URL` in `.env.example` targets the compose port; for the Vite dev
-server change it to `http://localhost:5173` so reset links point at the dev UI.
+`RUNNER_URL=http://127.0.0.1:8081`. Chromium runs with its internal sandbox:
+the shipped seccomp profile allows `unshare(CLONE_NEWUSER)` and
+`clone(CLONE_NEWUSER|…)`, and the container keeps `CAP_SYS_CHROOT` for the
+sandbox's chroot. The host kernel must permit unprivileged user namespaces;
+if it does not, the runner refuses to start unless you explicitly set
+`RUNNER_CHROMIUM_SANDBOX=false` (logged as `sandbox_disabled`, never for
+production). The `PUBLIC_BASE_URL` in `.env.example` targets the compose port;
+for the Vite dev server change it to `http://localhost:5173` so reset links
+point at the dev UI.
 
 Quality gates:
 
