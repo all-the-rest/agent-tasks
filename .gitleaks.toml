@@ -1,0 +1,17 @@
+# Gitleaks configuration.
+#
+# The deterministic test fixtures intentionally contain fake tokens (the redaction
+# tests must exercise a realistic-looking value). They are allowlisted by path so a
+# real leak anywhere else still fails the scan.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic credentials in tests and fixtures"
+paths = [
+  '''apps/api/test/log-redaction\.test\.ts''',
+  '''packages/.*/test/.*''',
+  '''test/.*''',
+  '''e2e/.*''',
+]
