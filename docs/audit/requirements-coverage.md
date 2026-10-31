@@ -88,7 +88,7 @@ are not listed here.
 | 07 | Account-scoped: per-user `CODEX_HOME`, no shared accounts | **MISSING** — one global provider row is read; there is no user → directory mapping. |
 | 08 | Tools include `fill_form` | PARTIAL — the tool exists but is never offered (`allowForms: false`), so the model sees nine tools, not ten. |
 | 08 | Limits enforced per step, tool call, page visit, search query, output size, duration | PARTIAL — the tool-call budget throws a cancelled error, and output/duration limits are only partially applied. |
-| 10 | Chromium sandbox enabled in the supported deployment | PARTIAL — configured, but never exercised; the only test run disables it. |
+| 10 | Chromium sandbox enabled in the supported deployment | **RESOLVED** — probe run 41226712667 launched and rendered a page with the shipped posture; CI asserts `sandbox: true`. |
 | 11 | Clicks on login/checkout/payment/destructive controls refused | PARTIAL — substring match on the target label only. |
 | 11 | Secret redaction in logs, errors and provider messages | PARTIAL — only the active API key is treated as a secret. |
 | 11 | Credentials never returned by any API response | PARTIAL — `/api/admin/providers` returns the raw provider `config` (including `headers`). |
@@ -228,7 +228,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | ---: | --- | --- | --- | --- |
 | 1 | Separate service, non-root, no caps, read-only, pids/memory | IMPLEMENTED | `compose.yaml:128-137`; `Dockerfile.runner:22` (`USER pwuser`) | config |
 | 2 | No published port, no docker socket, no host networking | IMPLEMENTED | `compose.yaml:110-146` (no `ports:` for the runner) | config |
-| 3 | Chromium sandbox enabled | PARTIAL | `compose.yaml:125` (`RUNNER_CHROMIUM_SANDBOX: "true"`), `browser.ts:42-45`; container has `cap_drop: [ALL]` + `no-new-privileges`, so the setuid sandbox is unusable and userns was not available on the verification host (`execution.test.ts:171-176` runs with sandbox **off**) | never exercised |
+| 3 | Chromium sandbox enabled | **RESOLVED** | seccomp allows `unshare`/`clone(CLONE_NEWUSER)` and the zygote's `clone(CLONE_NEWPID/NEWNET)`; `CAP_SYS_CHROOT` retained; probe run 41226712667: `LAUNCH_OK sandbox=true` + `PAGE_OK`; CI asserts `sandbox: true` | `seccomp-profile.test.ts`, CI E2E |
 | 4 | Fresh context, downloads off, non-http(s) aborted | IMPLEMENTED | `browser.ts:82-107` (`acceptDownloads:false`, route abort) | integration/E2E exercises sessions |
 | 5 | Enforcing proxy resolves, checks all answers, pins | IMPLEMENTED | `proxy.ts:63-70,72-102`; `net.ts:210-226` | `egress.test.ts:330-355` |
 | 6 | Blocks loopback/RFC1918/link-local/metadata/CGNAT/multicast/reserved/IPv6/mapped/NAT64 | IMPLEMENTED | `net.ts:50-129`; proxy calls it | `net.test.ts` (18 classifications), `egress.test.ts:330-355` |
@@ -447,6 +447,12 @@ no userns (`execution.test.ts:171-176` starts the runner with
 `RUNNER_CHROMIUM_SANDBOX=false`). *Fix:* either enable userns explicitly in the
 runner service (`security_opt: seccomp` profile allowing `CLONE_NEWUSER`) and add a
 startup smoke test, or document the constraint honestly.
+
+> **Resolved (2026-10-31, `2ce1ac8`):** the profile now allows
+> `unshare(CLONE_NEWUSER)`, `clone(CLONE_NEWUSER|…)` and the zygote's
+> `clone(CLONE_NEWPID/NEWNET)`; `CAP_SYS_CHROOT` is kept for chroot. Probe run
+> 41226712667 produced `LAUNCH_OK sandbox=true` **and** `PAGE_OK`; CI asserts
+> `sandbox: true` and passes 9/9 E2E. See `docs/VERIFICATION_REPORT.md`.
 
 **M11 — "Chromium cannot resolve names" is not enforced.**
 `browser.ts:37-46` does not pass `--host-resolver-rules`, so Chromium still performs
