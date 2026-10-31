@@ -31,7 +31,8 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | CI compose job (`Browser E2E`, GitHub run 41216069396) | stack started, web served, 9/9 Playwright tests passed (sandbox disabled on that kernel) | 0 |
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 5 of 5 gates | 0 |
-| GitHub Actions run 41218719813 (`7f76ca4`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
+| GitHub Actions run 41220413002 (`6d30662`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
+| `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail: HTML 2013 B, text 317 B, **spam score 0.6**, `IsSpam=false` | 0 |
 
 Reproduction:
 
@@ -53,7 +54,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 2 | TOTP MFA, backup codes | `twoFactor()` plugin; `LoginPage` challenge; `SettingsPage` enable/disable | `auth.test.ts` (enable → verify → sign-in `twoFactorRedirect` → wrong code → valid code), `login-mfa.test.tsx` (4), `settings-mfa.test.tsx` (2) | PASS |
 | 2 | Session revocation, CSRF, rate limits | `cookieCache.enabled=false`, origin hook in `app.ts`, `rateLimit.customRules` | `auth.test.ts` logout 401, CSRF 403, 429 | PASS |
 | 2 | Audit log | `audit_logs`, `context.audit()` | `audit.test.ts`: setup, invite, role change, provider, credential; asserts the credential value never appears | PASS |
-| 2 | Email reset/verification | `mailer.ts`, Better Auth senders | code path only; no SMTP server in this environment | PARTIAL |
+| 2 | Email reset/verification (HTML) | `mailer.ts`, `lib/email-templates.ts`, Better Auth senders | **Mailpit over real SMTP** (CI): multipart text+HTML, complete HTML document, link present, SpamAssassin score 0.6 (`IsSpam=false`); no external provider | PASS (SMTP via Mailpit) |
 | 3 | Multi-user isolation / IDOR | owner-scoped queries, `requireUuid` | `isolation.test.ts` (8 tests: cross-user read/write/run/pause/cancel/export/history, forged owner id, credential isolation, admin bypass) | PASS |
 | 4 | Task CRUD, presets, Europe/Vienna, DST | `packages/shared/src/schedule.ts`, `routes/tasks.ts` | `schedule.test.ts`: spring-forward 03:30, fall-back single booking, one-off past, summer/winter | PASS |
 | 5 | Durable scheduling, no duplicates, leases, recovery | `apps/worker/src/scheduling.ts`, `queues.ts` | `scheduler.test.ts`: idempotent tick, concurrent ticks, DB duplicate rejection, single claim, stale-lease requeue/cancel | PASS |
@@ -159,7 +160,7 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - **Codex with a real account**: none available; adapter is opt-in and text-only.
 - **Running Compose stack**: verified locally and in CI (run 41218719813). CI disables the Chromium sandbox because the runner kernel refuses it.
 - **Chromium sandbox inside the container**: `RUNNER_CHROMIUM_SANDBOX=true` fails with `No usable sandbox!` both on this host and in the GitHub runner container (no user namespaces). CI therefore runs with `false`; the production default stays `true`. This mandatory item is **NOT VERIFIED**.
-- **SMTP delivery**: no server configured.
+- **External SMTP provider**: only Mailpit was available; delivery to a real internet mail provider (SPF/DKIM/DMARC) is still unverified.
 - **GitHub Actions**: first run after the initial push.
 
 ## Repository
@@ -167,8 +168,21 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - URL: https://github.com/all-the-rest/agent-tasks (the brief's `Allderest/agent-tasks` does not exist; the `all-the-rest` organisation was used)
 - Visibility: PUBLIC; License: Apache-2.0 (`LICENSE` present)
 - Issues: 14 requirement issues (#1–#14)
-- Commit: `7f76ca4` (implementation) + the commit containing this report
-- CI: run 41218719813 — all 8 jobs successful
+- Commit: `6d30662` (implementation + HTML mail) + the commit containing this report
+- CI: run 41220413002 — all 8 jobs successful, including the Mailpit/SpamAssassin check
+
+### Transactional mail (added after the first verification)
+
+- Functional mails (password reset, address verification, invitation) are now
+  multipart/alternative: a plain-text part plus an inline-styled HTML document.
+  Every interpolated value is escaped; the server-generated action URL is the only
+  href.
+- The optional compose profile `mail` runs Mailpit with a SpamAssassin sidecar.
+  CI requests a real reset, fetches the message through Mailpit's API and queries
+  `GET /api/v1/message/{id}/sa-check`: **score 0.6, `IsSpam=false`** (threshold 5),
+  HTML 2013 bytes, text 317 bytes. This is SpamAssassin's score as surfaced by
+  Mailpit, not a Mailpit-only heuristic.
+- Unit tests cover the renderer, multipart content and HTML escaping.
 
 ## Final verdict: NOT READY
 
