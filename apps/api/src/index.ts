@@ -2,12 +2,19 @@ import { randomBytes } from 'node:crypto';
 import { createDatabase, runMigrations } from '@agent-tasks/database';
 import { createAuth } from './auth.js';
 import { buildApp } from './app.js';
+import { ensureBootstrap } from './bootstrap.js';
 import { createContext } from './context.js';
 import { loadEnv } from './env.js';
 import { createMailer } from './mailer.js';
 
 const env = loadEnv();
 const database = createDatabase(env.DATABASE_URL);
+
+if (env.NODE_ENV === 'production' && !env.SETUP_TOKEN && !(env.ADMIN_EMAIL && env.ADMIN_PASSWORD)) {
+  throw new Error(
+    'production requires ADMIN_EMAIL/ADMIN_PASSWORD (first-admin bootstrap) or SETUP_TOKEN',
+  );
+}
 
 if (process.env.RUN_MIGRATIONS === 'true') {
   await runMigrations(env.DATABASE_URL);
@@ -19,6 +26,11 @@ const auth = createAuth({ db: database.db, env, mailer });
 const context = createContext({ db: database.db, env, auth, mailer });
 
 const app = await buildApp(context);
+
+// Materialise settings/admin/provider seeds before accepting requests. The wait
+// covers a fresh deployment where the worker has not finished migrating yet.
+const bootstrap = await ensureBootstrap(context);
+app.log.info({ event: 'bootstrap', ...bootstrap }, 'database bootstrap complete');
 
 app.log.info(
   {

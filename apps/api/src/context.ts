@@ -16,6 +16,8 @@ export interface AppContext {
   mailer: Mailer;
   secrets: SecretBox;
   settings(): Promise<SystemSettings>;
+  /** Drop the short cache after an admin changes the settings. */
+  invalidateSettings(): void;
   audit(entry: {
     actorId: string | null;
     action: string;
@@ -31,6 +33,9 @@ export function createContext(deps: { db: Database; env: ApiEnv; auth: Auth; mai
   return {
     ...deps,
     secrets: new SecretBox(deps.env.SECRETS_ENCRYPTION_KEY, deps.env.SECRETS_ENCRYPTION_KEY_PREVIOUS),
+    invalidateSettings() {
+      cached = null;
+    },
     async settings() {
       if (cached && Date.now() - cached.at < 5_000) return cached.value;
       const rows = await deps.db.select().from(systemSettings).where(eq(systemSettings.id, 1)).limit(1);

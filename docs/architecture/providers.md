@@ -187,6 +187,16 @@ Then `POST /api/admin/providers/<id>/models/refresh` and
 `kind: openai` uses the same adapter and the same required `baseUrl`; it has no
 preconfigured official URL.
 
+### Environment-seeded provider
+
+For unattended deployments the API creates the primary provider on first start
+from `OPENCODE_GO_API_KEY` (plus `OPENCODE_GO_MODEL` or `OPENCODE_GO_MODELS`),
+`OPENCODE_GO_BASE_URL` (default
+`https://opencode.ai/inference/go/openai/v1`) and `OPENCODE_GO_NAME` (default
+`OpenCode Go`). The seed is idempotent by provider name, stores the key with
+`SECRETS_ENCRYPTION_KEY`, and never updates an existing provider — admin edits
+survive restarts. `.env.production` wires this up.
+
 ## Ollama (optional, legacy)
 
 The adapter remains in `packages/ai-providers` for local development: models come

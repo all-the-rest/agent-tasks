@@ -79,7 +79,21 @@ grep '^SETUP_TOKEN=' .env
 and its code default is listed in [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 Open `http://localhost:8080`, paste the token from the last command on the setup
-screen and create the first administrator. Then:
+screen and create the first administrator.
+
+Alternatively set `ADMIN_EMAIL`, `ADMIN_PASSWORD` (at least 12 characters) and
+optionally `ADMIN_NAME` in `.env`: the API creates the first administrator on
+start and the setup screen is skipped. Both variables must be set together.
+
+For production, `.env.production` is a ready template: replace the placeholders
+(domain, PostgreSQL and auth secrets, admin credentials, OpenCode Go key/model)
+and start with `docker compose --env-file .env.production up -d`. It sets
+`ALLOW_REGISTRATION=false` and seeds an **OpenCode Go** provider from
+`OPENCODE_GO_*` on first start; the API key is encrypted at rest. The
+registration value is only the initial database setting — an administrator can
+change it later in **Admin → Settings**.
+
+Then:
 
 1. **Admin → Providers** → kind `openai-compatible`, base URL
    `https://opencode.ai/inference/go/openai/v1` for OpenCode Go (confirm it with your
@@ -136,7 +150,10 @@ pnpm build
 
 ## Security posture
 
-- Public registration is off; onboarding is invite-only with single-use tokens.
+- Public registration is off by default (`ALLOW_REGISTRATION=false` and the
+  admin settings toggle); onboarding is invite-only with single-use tokens.
+  Enabling it opens the `/register` page and a direct sign-up as `USER`; an
+  administrator can switch it off at any time.
 - Sessions are revocable; sign-out invalidates the session on the next request.
 - TOTP MFA (with backup codes) is available and tested end to end.
 - Passwords are hashed by Better Auth; there are no default credentials.

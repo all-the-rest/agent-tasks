@@ -115,13 +115,22 @@ export function LoginPage() {
       title={isTotpStep ? t('auth.twoFactorTitle') : t('auth.loginTitle')}
       subtitle={isTotpStep ? t('auth.twoFactorSubtitle') : t('auth.loginSubtitle')}
       footer={
-        !isTotpStep && setup.data && !setup.data.configured ? (
-          <span>
-            {t('auth.setupRequired')}{' '}
-            <Link className="link link-primary" to="/setup">
-              {t('auth.setupTitle')}
-            </Link>
-          </span>
+        !isTotpStep ? (
+          setup.data && !setup.data.configured ? (
+            <span>
+              {t('auth.setupRequired')}{' '}
+              <Link className="link link-primary" to="/setup">
+                {t('auth.setupTitle')}
+              </Link>
+            </span>
+          ) : config.data?.allowRegistration ? (
+            <span>
+              {t('auth.noAccount')}{' '}
+              <Link className="link link-primary" to="/register">
+                {t('auth.register')}
+              </Link>
+            </span>
+          ) : null
         ) : null
       }
     >

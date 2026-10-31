@@ -120,6 +120,13 @@ export const de = {
       },
     },
     auth: {
+      registerTitle: 'Konto erstellen',
+      registerSubtitle: 'Die Registrierung ist auf dieser Instanz geöffnet.',
+      register: 'Konto erstellen',
+      registering: 'Konto wird erstellt…',
+      registerFailed: 'Das Konto konnte nicht erstellt werden.',
+      registerDisabled: 'Registrierung ist deaktiviert',
+      registerDisabledHint: 'Bitte einen Administrator um eine Einladung.',
       loginTitle: 'Willkommen zurück',
       loginSubtitle: 'Melde dich an, um deine geplanten Rechercheaufgaben zu verwalten.',
       signIn: 'Anmelden',

@@ -35,7 +35,16 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `AUTH_SECRET` | api | — | yes, at least 32 characters |
 | `SECRETS_ENCRYPTION_KEY` | api, worker | — | yes, base64 of exactly 32 bytes |
 | `SECRETS_ENCRYPTION_KEY_PREVIOUS` | api, worker | — | no; only while rotating keys |
-| `SETUP_TOKEN` | api | — | yes for this stack, at least 16 characters. An empty value fails validation at startup; without it `/api/setup` answers `503` |
+| `SETUP_TOKEN` | api | — | optional when `ADMIN_EMAIL`/`ADMIN_PASSWORD` are set; otherwise required for the setup screen, at least 16 characters |
+| `ADMIN_EMAIL` | api | — | no; creates the first `ADMIN` on start when no admin exists. Must be set together with `ADMIN_PASSWORD` |
+| `ADMIN_PASSWORD` | api | — | no; at least 12 characters; see `ADMIN_EMAIL` |
+| `ADMIN_NAME` | api | `Administrator` | no; display name of the env bootstrap admin |
+| `ALLOW_REGISTRATION` | api | `false` | no; initial value of the database setting. `true` opens `/register` and direct sign-up as `USER`; the admin UI can change it later |
+| `OPENCODE_GO_API_KEY` | api | — | no; when set (with a model) the API creates an `OpenCode Go` provider and stores the key encrypted on first start |
+| `OPENCODE_GO_BASE_URL` | api | `https://opencode.ai/inference/go/openai/v1` | no |
+| `OPENCODE_GO_MODEL` | api | — | required when `OPENCODE_GO_API_KEY` is set unless `OPENCODE_GO_MODELS` is given |
+| `OPENCODE_GO_MODELS` | api | — | no; comma-separated list, overrides `OPENCODE_GO_MODEL` |
+| `OPENCODE_GO_NAME` | api | `OpenCode Go` | no; provider name used for idempotency |
 | `SMTP_URL` | api | — | no; when set, reset/verification/invitation mails are sent as multipart plain-text + HTML |
 | `SMTP_FROM` | api | `agent-tasks@localhost` | no; only used with `SMTP_URL` |
 | `SEARXNG_URL` | worker (the api schema also parses it) | —; worker falls back to the `searchBaseUrl` system setting, default `http://searxng:8080` | no; compose default `http://searxng:8080` |
@@ -275,6 +284,33 @@ stack's environment.
 3. **Admin → Users**: invite users. Invitations are single-use and expire after 7
    days. Mail needs `SMTP_URL`/`SMTP_FROM`; without SMTP the UI still shows the
    invitation link.
+
+### Environment bootstrap (no setup screen)
+
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (together, password at least 12
+characters). On start the API creates the first administrator when none exists
+and skips the setup screen; `SETUP_TOKEN` is then optional (keep it set as a
+fallback if you prefer). The bootstrap is idempotent and safe across restarts.
+
+`ALLOW_REGISTRATION` seeds the database setting on a **fresh** database only:
+`false` (default) keeps onboarding invite-only, `true` opens `/register` and
+allows direct sign-up as `USER`. An administrator can change the value later in
+**Admin → Settings**; the environment value never overwrites a saved setting.
+
+### `.env.production`
+
+The repository ships a production template at `.env.production` (no real
+secrets). Replace every `replace-…` placeholder, then start with:
+
+```bash
+docker compose --env-file .env.production --profile search up -d --build
+```
+
+It sets `NODE_ENV=production`, `COOKIE_SECURE=true`, `ALLOW_REGISTRATION=false`
+and configures an OpenCode Go provider through `OPENCODE_GO_*`. On first start
+the provider is created (only if a provider with that name does not exist) and
+its API key is encrypted with `SECRETS_ENCRYPTION_KEY`. `OPENCODE_GO_MODEL` (or
+`OPENCODE_GO_MODELS`) is required when a key is set.
 
 ## Backup and restore
 

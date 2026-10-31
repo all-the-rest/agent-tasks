@@ -209,6 +209,7 @@ export async function registerAdminRoutes(app: FastifyInstance, context: AppCont
     const parsed = systemSettingsSchema.safeParse(request.body);
     if (!parsed.success) throw AppError.badRequest('invalid settings', parsed.error.issues);
     await saveSettings(db, parsed.data);
+    context.invalidateSettings();
     await context.audit({ actorId: admin.id, action: AUDIT_ACTIONS.settingsUpdated, targetType: 'settings', metadata: parsed.data });
     return parsed.data;
   });
