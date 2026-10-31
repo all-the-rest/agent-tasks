@@ -62,7 +62,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 5 | Retries, timeout, cancellation | `executor.ts`, `runtime.ts`, `quota.ts` | `execution.test.ts`; `runtime.test.ts` (deadline timeout vs caller cancel); `quota.test.ts` (N/N+1 boundaries); `lifecycle.test.ts` (graceful drain) | PASS |
 | 5 | Parallel workers | `executionWorkOptions` → pg-boss `localConcurrency` | `queues.test.ts` (concurrency applied, 1 stays 1) | PASS (option) / PARTIAL (no multi-container run) |
 | 6 | Ollama adapter, real model | `packages/ai-providers/src/ollama.ts` | **real Ollama 0.40.13 + llama3.2:1b**: `/api/show` reports `tools`, `chat()` returned `get_weather {"city":"Vienna"}` with usage 202 tokens (`scripts/verify-ollama-local.ts`, exit 0) | PASS |
-| 6 | OpenAI-compatible / OpenCode Go contract | `openai-compatible.ts`, `packages/mock-openai`, `test/fixtures/opencode-go-server.ts` | 22 Go-conformance tests: SSE streaming, tool-call delta assembly, `[DONE]`, usage variants, `x-opencode-allowance`, stable `x-opencode-session`, honest UA, 401/402/403/429/5xx, malformed/truncated streams, abort, URL forms, `/models` fallback | PASS against the documented contract; real OpenCode Go account NOT VERIFIED |
+| 6 | OpenAI-compatible / OpenCode Go contract | `openai-compatible.ts`, `packages/mock-openai`, `test/fixtures/opencode-go-server.ts` | Go-conformance tests incl. the two official headers: **tool User-Agent (non-generic) and stable `x-opencode-session` on chat, `/models` and health**; spoofed extra headers cannot replace them; empty session refused; schema rejects generic agents. Plus SSE streaming, tool deltas, allowance, error mapping | PASS against the contract-enforcing fake API (operator-accepted); real account NOT VERIFIED |
 | 6 | Codex, account-scoped only | `codex.ts`, per-user `CODEX_HOME` in `executor.ts`/`codex-home.ts` | unit tests (different owners → different 0700 homes, non-UUID refused, config not mutated); disabled unless `AGENT_TASKS_ENABLE_CODEX=1`; no real Codex account | PARTIAL / NOT VERIFIED (account) |
 | 7 | Agent loop, validated tools | `packages/agent-runtime` | `runtime.test.ts` (tool execution, forbidden tool, untrusted wrapping, page/step limits, abort) | PASS |
 | 7 | Real research, ≥3 pages, sources, report | `executor.ts`, `browser-runner` | `execution.test.ts`: deterministic fake SearXNG returned 3 URLs; real Chromium opened example.com/.org/.net; ≥3 distinct sources persisted, report markdown + usage recorded | PASS |
@@ -201,9 +201,9 @@ Everything that can be proven in this environment is proven: real Ollama inferen
 
 The objective's READY gate is nevertheless not met, because mandatory items remain unproven:
 
-1. **Chromium sandbox (mandatory).** It cannot start on this host or on the GitHub runner container (`No usable sandbox!`). The shipped default is `true`, but CI has to set `RUNNER_CHROMIUM_SANDBOX=false`; the sandbox has never been exercised successfully anywhere in this run.
-2. **Real OpenCode Go account (mandatory provider path).** No account/API key was available. The adapter is verified only against a local HTTP fixture implementing the documented contract; real Go model ids, allowance values and rate-limit behaviour are unknown.
-3. **Codex account-scoped execution.** No account was available; the adapter is opt-in and additionally refuses to run without an operator-provided isolated runner.
+1. **Chromium sandbox (mandatory).** It cannot start on this host or on the GitHub runner container (`No usable sandbox!`). A dedicated probe of the pinned Playwright image showed why the image does not solve it: `chrome_sandbox` is mode `0777` (not setuid), and `unshare -Ur` is denied **even with `--privileged`**, so neither the user-namespace nor the setuid fallback is available. CI sets `RUNNER_CHROMIUM_SANDBOX=false`; the shipped default stays `true`.
+2. ~~Real OpenCode Go account~~ — by operator decision a contract-enforcing fake API is sufficient; the two official headers (tool User-Agent, stable `x-opencode-session`) and the rest of the contract are test-covered. Live-account values remain unknown but are not required for this goal.
+3. **Codex account-scoped execution (optional, experimental).** No account was available; the adapter is disabled by default and refuses to run without an operator-provided isolated runner. It is not part of the primary provider path.
 
 Additional deviations/gaps:
 
@@ -211,4 +211,4 @@ Additional deviations/gaps:
 5. Real SMTP delivery (password reset, email verification) is unverified; no SMTP server was configured.
 6. `fill_form` remains disabled by policy, so the model sees nine tools, not ten.
 
-To reach READY, a host with unprivileged user namespaces (or a privileged sandbox sidecar) must run the shipped `RUNNER_CHROMIUM_SANDBOX=true` image successfully, and an OpenCode Go account must run one real streamed completion with a tool call. Both are environment/credential prerequisites, not code changes.
+To reach READY, a host that permits unprivileged user namespaces (or a setuid-capable sandbox helper) must run the shipped `RUNNER_CHROMIUM_SANDBOX=true` image successfully. This is an environment prerequisite, not a code change; the Playwright image alone cannot provide it (probe evidence above). The fake-API acceptance removes the OpenCode Go account from the blocker list.
