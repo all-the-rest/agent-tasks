@@ -23,15 +23,16 @@ let adminCookie = '';
  */
 async function call(method, path, body, session = 'none') {
   const useCookie = session === 'admin' ? adminCookie : '';
+  const headers = {
+    // Better Auth refuses sign-in without an Origin; trusted origins come from
+    // PUBLIC_BASE_URL, which is the API base in the compose stack.
+    origin: base,
+    ...(useCookie ? { cookie: useCookie } : {}),
+    ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+  };
   const response = await fetch(`${base}${path}`, {
     method,
-    headers: {
-      'content-type': 'application/json',
-      // Better Auth refuses sign-in without an Origin; trusted origins come from
-      // PUBLIC_BASE_URL, which is the API base in the compose stack.
-      origin: base,
-      ...(useCookie ? { cookie: useCookie } : {}),
-    },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const setCookies = response.headers.getSetCookie?.() ?? [];
