@@ -21,7 +21,7 @@ docker compose config -q
 
 ## Gates
 
-- `ratchet` is pinned to `.ratchet-version` (`0.6.2`), installed with
+- `ratchet` is pinned to `.ratchet-version` (`0.6.3`), installed with
   `scripts/install-ratchet.sh`; hook and CI reject other versions.
 - `ratchet check` runs on every commit through `.githooks/pre-commit`; the
   `agent-rules` preset is part of `ratchet.config.jsonc`. The baseline may only
