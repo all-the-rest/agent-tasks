@@ -51,9 +51,33 @@ Every request carries:
 - `authorization: Bearer <key>` when a credential resolves
 - `openai-organization: <org>` when `config.organization` is set
 
-Precedence: built-in defaults, then `config.headers`, then `authorization`,
-`openai-organization` and the session header. Custom headers may override
-`content-type`, `accept` or `user-agent`, but not the credential or conversation id.
+Precedence: built-in defaults, then `config.headers`, then the **contract headers**.
+`user-agent`, `authorization`, `openai-organization` and the session header always
+win over extra headers: a spoofed generic User-Agent or a rotated session id is
+rejected by OpenCode Go, so the adapter never lets `config.headers` replace them.
+Extra headers may still override `content-type` and `accept`.
+
+### Official OpenCode Go client requirements
+
+The [Go documentation](https://opencode.ai/docs/go/) asks every client to:
+
+1. send typical coding-agent traffic;
+2. **identify itself with its own User-Agent** (for example `my-coding-agent/1.0`),
+   never a generic SDK or HTTP-library name; and
+3. **send a stable session id in `x-opencode-session` for each conversation**, so
+   routing and prompt caching can be optimised.
+
+The adapter enforces all three mechanically:
+
+- `compatibleConfigSchema` rejects generic agents (`node`, `undici`, `axios`,
+  `openai-node`, `python-requests`, `okhttp`, `curl`, `wget`, `go-http-client`,
+  `node-fetch`) and requires a non-empty session header.
+- `buildHeaders()` always emits the configured tool User-Agent and the
+  session header, including for **auxiliary requests**: model discovery uses
+  `discovery`, health checks use `health`, and every chat turn reuses the
+  execution's conversation id. `config.headers` cannot override either.
+- An empty or whitespace-only session id is a typed error rather than a request
+  with a missing header.
 
 `compatibleConfigSchema` defaults: `headers: {}`, `userAgent: "agent-tasks/0.1.0"`,
 `sessionHeader: "x-opencode-session"`, `timeoutMs: 120000`, `stream: true`,
@@ -206,11 +230,17 @@ The OpenAI-compatible adapter is covered by two deterministic suites:
   fixture: streaming content and tool-call fragments, the non-streaming JSON path,
   session-id stability, header precedence, `401`/`402`/`403`/`429`/`5xx` mapping,
   malformed SSE, abort handling, base-URL normalisation and the declared-model
-  fallback.
+  fallback. It also asserts the official contract on **every** request (chat,
+  model discovery and health): a non-generic tool User-Agent and a non-empty
+  `x-opencode-session`; extra headers cannot spoof either; an empty session id is
+  refused. `packages/shared/test/schemas.test.ts` rejects generic User-Agents and
+  an empty session header at configuration time.
 
 Both endpoints enforce the documented client contract; a generic User-Agent or a
 missing session header is rejected with `400`.
 
-No OpenCode Go account was available in the verification environment. Real-account
-behaviour (actual models, quotas, allowance values and provider-specific errors) is
-**NOT VERIFIED**; the contract above is implemented and mock-tested, not live-tested.
+No OpenCode Go account was available in the verification environment. By operator
+decision, a contract-enforcing fake API is sufficient for this goal; the adapter is
+tested against it, including both mandatory headers. Real-account behaviour (actual
+models, quotas, allowance values and provider-specific errors) remains
+**NOT VERIFIED**.

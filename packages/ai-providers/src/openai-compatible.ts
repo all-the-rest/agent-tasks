@@ -110,12 +110,17 @@ export function modelsUrl(baseUrl: string): string {
  * the credential or the conversation id the contract depends on.
  */
 export function buildHeaders(config: HeaderConfig, apiKey: string | undefined, sessionId: string): Record<string, string> {
+  if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+    throw new ProviderError('bad_response', 'a stable non-empty session id is required for the provider session header');
+  }
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     accept: config.stream ? 'text/event-stream' : 'application/json',
-    'user-agent': config.userAgent,
     ...config.headers,
   };
+  // The two OpenCode Go contract headers always win over arbitrary extra headers:
+  // a generic or spoofed User-Agent/session pair would be rejected by the service.
+  headers['user-agent'] = config.userAgent;
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
   if (config.organization) headers['openai-organization'] = config.organization;
   if (config.sessionHeader) headers[config.sessionHeader] = sessionId;

@@ -23,14 +23,28 @@ export const providerModelConfigSchema = z.object({
 export type ProviderModelConfig = z.infer<typeof providerModelConfigSchema>;
 
 /** Network + header settings shared by every OpenAI-compatible endpoint. */
+/** Libraries that OpenCode Go explicitly rejects as client identity. */
+const GENERIC_USER_AGENTS = ['node', 'undici', 'axios', 'openai-node', 'python-requests', 'okhttp', 'curl', 'wget', 'go-http-client', 'node-fetch'] as const;
+
 export const compatibleConfigSchema = z.object({
   baseUrl: z.string().url().max(500),
   /** Extra headers sent with every request, e.g. OpenCode Go's `x-opencode-session`. */
   headers: z.record(z.string().min(1).max(64), z.string().max(600)).default({}),
-  /** Sent as User-Agent. OpenCode Go requires an honest client identifier. */
-  userAgent: z.string().min(1).max(120).default('agent-tasks/0.1.0'),
+  /**
+   * Sent as User-Agent. OpenCode Go requires the client to identify itself with its
+   * own tool name, not a generic SDK/HTTP-library name.
+   */
+  userAgent: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .refine((value) => !GENERIC_USER_AGENTS.some((agent) => value.toLowerCase().startsWith(agent)), {
+      message: 'User-Agent must identify this tool (e.g. agent-tasks/1.0), not a generic HTTP/SDK library',
+    })
+    .default('agent-tasks/0.1.0'),
   /** Header that carries a stable per-conversation session id (`x-opencode-session` for Go). */
-  sessionHeader: z.string().max(64).default('x-opencode-session'),
+  sessionHeader: z.string().min(1).max(64).default('x-opencode-session'),
   organization: z.string().max(120).optional(),
   timeoutMs: z.number().int().min(1_000).max(600_000).default(120_000),
   /** Ask for server-sent events; the adapter defaults to streaming. */

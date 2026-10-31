@@ -228,7 +228,7 @@ describe('OpenCode Go streaming adapter', () => {
     expect(server.requests).toHaveLength(3);
   });
 
-  it('sends the configured client headers and lets custom headers override defaults', async () => {
+  it('sends the configured client headers, with the contract headers winning over extras', async () => {
     const server = await start({ content: 'headers' });
     const responder = await provider.chat(
       context(server, {
@@ -247,7 +247,8 @@ describe('OpenCode Go streaming adapter', () => {
     expect(responder.content).toBe('headers');
 
     const request = lastRequest(server);
-    expect(request.headers['user-agent']).toBe('agent-tasks/custom (tests)');
+    // OpenCode Go requires the tool's own agent string; an extra header cannot spoof it.
+    expect(request.headers['user-agent']).toBe('agent-tasks/0.1.0 (opencode-go tests)');
     expect(request.headers['x-client-name']).toBe('agent-tasks-tests');
     expect(request.headers.authorization).toBe('Bearer sk-opencode-go-test');
     expect(request.headers['x-opencode-session']).toBe('conv-headers');
@@ -263,6 +264,57 @@ describe('OpenCode Go streaming adapter', () => {
     });
     expect(lastRequest(server).headers.authorization).toBeUndefined();
   });
+  it('sends both official contract headers on chat, model discovery and health', async () => {
+    const server = await start({ content: 'contract' });
+    const ctx = context(server);
+    await provider.listModels(ctx);
+    await provider.health(ctx);
+    await provider.chat(ctx, {
+      model: 'opencode-go-heavy',
+      sessionId: 'conv-contract',
+      messages: [
+        { role: 'system', content: 'contract conversation' },
+        { role: 'user', content: 'hi' },
+      ],
+    });
+
+    expect(server.requests.map((request) => request.path)).toEqual(['/v1/models', '/v1/models', '/v1/chat/completions']);
+    for (const request of server.requests) {
+      const userAgent = String(request.headers['user-agent'] ?? '').toLowerCase();
+      expect(userAgent).not.toBe('');
+      for (const generic of ['node', 'undici', 'axios', 'openai-node', 'python-requests', 'okhttp', 'curl', 'wget', 'go-http-client', 'node-fetch']) {
+        expect(userAgent.startsWith(generic), `${request.path} sent generic UA ${userAgent}`).toBe(false);
+      }
+      const session = request.headers['x-opencode-session'];
+      expect(typeof session, `${request.path} is missing x-opencode-session`).toBe('string');
+      expect(String(session).length).toBeGreaterThan(0);
+    }
+    expect(lastRequest(server).headers['x-opencode-session']).toBe('conv-contract');
+  });
+
+  it('never lets extra headers replace the contract user agent or session id', async () => {
+    const server = await start({ content: 'spoof' });
+    await provider.chat(
+      context(server, { headers: { 'user-agent': 'undici', 'x-opencode-session': 'spoofed-session' } }),
+      {
+        model: 'opencode-go-heavy',
+        sessionId: 'conv-real-session',
+        messages: [
+          { role: 'system', content: 'spoof conversation' },
+          { role: 'user', content: 'hi' },
+        ],
+      },
+    );
+    const request = lastRequest(server);
+    expect(request.headers['user-agent']).toBe('agent-tasks/0.1.0 (opencode-go tests)');
+    expect(request.headers['x-opencode-session']).toBe('conv-real-session');
+  });
+
+  it('refuses to build headers without a session id', () => {
+    expect(() => buildHeaders({ stream: true, userAgent: 'agent-tasks/0.1.0', sessionHeader: 'x-opencode-session', headers: {} }, undefined, '')).toThrow(/session id/i);
+    expect(() => buildHeaders({ stream: true, userAgent: 'agent-tasks/0.1.0', sessionHeader: 'x-opencode-session', headers: {} }, undefined, '   ')).toThrow(/session id/i);
+  });
+
   it('rejects contract violations at the endpoint itself', async () => {
     const server = await start({ content: 'guard' });
     const body = JSON.stringify({
@@ -498,7 +550,8 @@ describe('OpenCode Go URL and discovery contract', () => {
       'session-direct',
     );
 
-    expect(headers['user-agent']).toBe('custom-client/9.0');
+    // The official client identity comes from `userAgent`; extra headers cannot spoof it.
+    expect(headers['user-agent']).toBe('agent-tasks/0.1.0');
     expect(headers.accept).toBe('text/event-stream');
     expect(headers['x-extra']).toBe('1');
     expect(headers['x-opencode-session']).toBe('session-direct');
