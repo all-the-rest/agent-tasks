@@ -104,6 +104,7 @@ jobs:
             -v "$PWD/scripts/sandbox-probe.cjs:/probe.cjs:ro" \
             -e EXPECT_SANDBOX="$SANDBOX" \
             -e PROBE_SETUID="$SETUID" \
+            -e PROBE_USER="$PROBE_USER" \
             --entrypoint bash \
             mcr.microsoft.com/playwright:v1.64.1-noble -c '
               set +e
