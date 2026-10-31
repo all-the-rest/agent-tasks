@@ -196,6 +196,11 @@ plus `reasoning_effort: <variant>`; an unknown suffix is rejected before any
 request with a typed `unsupported` error. Variants are opt-in: providers that do
 not accept `reasoning_effort` may reject the request.
 
+### Agent e-mail blocks
+
+Completion mails are composed with the `compose_email` tool and the compact
+[e-mail DSL](../email-dsl.md); rendering lives in `packages/shared/src/email-blocks.ts`.
+
 ### Environment-seeded provider
 
 For unattended deployments the API creates the primary provider on first start

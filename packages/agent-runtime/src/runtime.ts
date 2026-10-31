@@ -169,7 +169,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
   let index = 0;
 
   const allowedTools = [
-    ...(options.emailNotification ? ['add_email_block'] : []),
+    ...(options.emailNotification ? ['compose_email', 'add_email_block'] : []),
     ...(options.allowWebResearch
       ? ['search_web', 'open_url', 'extract_page_text', 'inspect_page', 'click_element', 'navigate_back', 'get_page_title', 'get_current_url', 'extract_links', ...(options.allowForms ? ['fill_form'] : [])]
       : []),

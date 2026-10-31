@@ -22,7 +22,7 @@ runner) against the exact production container posture.
 | `pnpm install --frozen-lockfile` | lockfile accepted | 0 |
 | `pnpm lint` | 0 errors, 0 warnings | 0 |
 | `pnpm -r typecheck` | 10 projects | 0 |
-| `pnpm test:unit` | **179 passed**, 25 files | 0 |
+| `pnpm test:unit` | **185 passed**, 26 files | 0 |
 | `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **53 passed**, 9 files, real PostgreSQL 15.15 | 0 |
 | `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
 | `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
@@ -82,7 +82,8 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41233091151: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
 | 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `65862b7` pushed; CI green | PASS (with the org deviation) |
-| 18 | Agent-composed e-mail blocks (image beside text) | `packages/shared/src/email-blocks.ts`, `packages/agent-runtime/src/tools.ts`, `apps/worker/src/executor.ts`, `apps/worker/src/mailer.ts` | `email-blocks.test.ts` (5): imageText left/right, escaping, http-only URLs, block cap, document; `tools.test.ts`/`runtime.test.ts`: `add_email_block` is offered only for e-mail notifications and returns the blocks; integration `execution.test.ts`: the mock model adds an `imageText` block, the completion mail contains the image/text and the execution link, and the blocks are persisted in `report.email`; CI run 41233091151 keeps the Mailpit check green with the shared builder | PASS |
+| 18 | Agent-composed e-mail blocks (image beside text) | `packages/shared/src/email-blocks.ts`, `packages/agent-runtime/src/tools.ts`, `apps/worker/src/executor.ts`, `apps/worker/src/mailer.ts` | `email-blocks.test.ts` (5): imageText left/right, escaping, http-only URLs, block cap, document; `tools.test.ts`/`runtime.test.ts`: `add_email_block` is offered only for e-mail notifications and returns the blocks; `compose_email` parses the compact DSL (`email-dsl.test.ts`, 5 tests) and is offered only for e-mail notifications; integration `execution.test.ts`: the mock model calls `compose_email` with a heading/paragraph/imageText DSL, the completion mail contains the image/text and the execution link, and the blocks are persisted in `report.email`; CI keeps the Mailpit check green with the shared builder | PASS |
+| 19 | User-focused README with persistent screenshots | `README.md`, `docs/USER_GUIDE.md`, `docs/images/*.png`, `scripts/capture-readme-screenshots.mjs` | 10 committed PNGs captured from the running app (login, dashboard, tasks, task detail, execution report, settings, admin users/providers/settings/audit); README links the product tour and the user guide; `node scripts/capture-readme-screenshots.mjs` regenerates them | PASS |
 
 ## Docker Compose (executed)
 
@@ -268,6 +269,19 @@ injected mailer receives HTML containing the image URL, alt text and body text.
 E-mail compatibility continues to be measured in CI with Mailpit/SpamAssassin:
 run 41233091151 (shared builder) reports spam score 0, 85.6 % supported,
 1.55 % unsupported, 12 warnings and two reset links in the UI check.
+
+The DSL is exposed to the model as the `compose_email` tool, with the grammar in
+the tool schema and the system prompt; `parseEmailDsl` validates every block and
+returns line-numbered errors that the model sees as the tool result. A second
+end-to-end test drives the DSL through the mock model into the rendered mail.
+
+### User guide and screenshots
+
+`docs/USER_GUIDE.md` walks through sign-in, tasks, schedules, reports, e-mail
+notifications and administration. The 10 screenshots under `docs/images/` were
+captured against a seeded local instance with
+`scripts/capture-readme-screenshots.mjs` and are committed, so the README and the
+guide render on GitHub without external assets.
 
 ### Registration setting and environment bootstrap (added on request)
 
