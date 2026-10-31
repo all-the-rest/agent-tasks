@@ -51,6 +51,13 @@ jobs:
         run: pnpm lint
       - name: Typecheck every workspace project
         run: pnpm -r typecheck
+      - name: Validate the deployment stacks
+        run: |
+          set -eu
+          for stack in local e2e production; do
+            sh deployment/stack.sh "$stack" config -q
+            echo "validated deployment/compose.$stack.yaml"
+          done
 
   unit:
     name: Unit tests
