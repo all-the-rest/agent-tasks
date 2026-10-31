@@ -9,6 +9,9 @@ const envSchema = z.object({
   RUNNER_URL: z.string().url().default('http://browser-runner:8081'),
   RUNNER_TOKEN: z.string().min(16),
   SEARXNG_URL: z.string().url().optional(),
+  PUBLIC_BASE_URL: z.string().url().default('http://localhost:8080'),
+  SMTP_URL: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
   /** Root for per-user Codex logins; each owner gets `<root>/<owner-id-hash>`. */
   CODEX_HOME_ROOT: z.string().startsWith('/', 'CODEX_HOME_ROOT must be an absolute path').default(DEFAULT_CODEX_HOME_ROOT),

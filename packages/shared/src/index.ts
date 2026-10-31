@@ -1,3 +1,4 @@
+export * from './email-blocks.js';
 export * from './errors.js';
 export * from './limits.js';
 export * from './net.js';

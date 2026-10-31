@@ -42,7 +42,7 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `ALLOW_REGISTRATION` | api | `false` | no; initial value of the database setting. `true` opens `/register` and direct sign-up as `USER`; the admin UI can change it later |
 | `OPENCODE_GO_API_KEY` | api | — | no; when set (with a model) the API creates an `OpenCode Go` provider and stores the key encrypted on first start |
 | `OPENCODE_GO_BASE_URL` | api | `https://opencode.ai/inference/go/openai/v1` | no |
-| `OPENCODE_GO_MODEL` | api | — | required when `OPENCODE_GO_API_KEY` is set unless `OPENCODE_GO_MODELS` is given |
+| `OPENCODE_GO_MODEL` | api | — | required when `OPENCODE_GO_API_KEY` is set unless `OPENCODE_GO_MODELS` is given; may carry a variant suffix (`model-id#high`) |
 | `OPENCODE_GO_MODELS` | api | — | no; comma-separated list, overrides `OPENCODE_GO_MODEL` |
 | `OPENCODE_GO_NAME` | api | `OpenCode Go` | no; provider name used for idempotency |
 | `SMTP_URL` | api | — | no; when set, reset/verification/invitation mails are sent as multipart plain-text + HTML |

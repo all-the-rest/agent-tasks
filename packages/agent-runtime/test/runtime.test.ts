@@ -119,6 +119,39 @@ describe('agent runtime', () => {
     expect(result.usage.promptTokens).toBeGreaterThan(0);
   });
 
+  it('offers add_email_block for e-mail notifications and returns the blocks', async () => {
+    const provider = new ScriptedProvider([
+      {
+        content: 'adding a block',
+        toolCalls: [
+          {
+            id: '1',
+            name: 'add_email_block',
+            arguments: {
+              type: 'imageText',
+              imageUrl: 'https://example.com/chart.png',
+              alt: 'Chart',
+              text: 'Revenue grew 12%.',
+              side: 'left',
+            },
+          },
+        ],
+      },
+      { content: '## Findings\n\nRevenue grew 12%.', toolCalls: [] },
+    ]);
+    const result = await runAgent({ ...options(provider), emailNotification: true });
+    expect(result.stopReason).toBe('completed');
+    expect(result.emailBlocks).toHaveLength(1);
+    expect(result.emailBlocks[0]).toMatchObject({ type: 'imageText', text: 'Revenue grew 12%.' });
+    expect(provider.calls[0]?.tools?.map((tool) => tool.name)).toContain('add_email_block');
+  });
+
+  it('does not offer add_email_block when the task has no e-mail notification', async () => {
+    const provider = new ScriptedProvider([{ content: 'done', toolCalls: [] }]);
+    await runAgent(options(provider));
+    expect(provider.calls[0]?.tools?.map((tool) => tool.name) ?? []).not.toContain('add_email_block');
+  });
+
   it('refuses a tool that is not in the allowlist', async () => {
     const provider = new ScriptedProvider([
       { content: 'try', toolCalls: [{ id: '1', name: 'run_shell', arguments: { command: 'id' } }] },
@@ -195,6 +228,7 @@ describe('agent runtime', () => {
   it('exposes exactly the documented tools', () => {
     expect(AGENT_TOOLS.map((tool) => tool.name).sort()).toEqual(
       [
+        'add_email_block',
         'click_element',
         'extract_links',
         'extract_page_text',

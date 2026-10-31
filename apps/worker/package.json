@@ -18,10 +18,12 @@
     "pg": "catalog:",
     "pg-boss": "^12.38.0",
     "zod": "catalog:",
-    "drizzle-orm": "^0.45.4"
+    "drizzle-orm": "^0.45.4",
+    "nodemailer": "^10.0.6"
   },
   "devDependencies": {
     "tsx": "catalog:",
-    "tsup": "catalog:"
+    "tsup": "catalog:",
+    "@types/nodemailer": "^7.0.2"
   }
 }

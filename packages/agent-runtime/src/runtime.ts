@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sanitizeText } from '@agent-tasks/shared';
+import type { EmailBlock } from '@agent-tasks/shared';
 import type { ChatMessage, ChatResponse, ToolDefinition, Usage } from '@agent-tasks/ai-providers';
 import type { AiProvider, ProviderContext } from '@agent-tasks/ai-providers';
 import type { BrowserRunnerClient, SearchProvider } from '@agent-tasks/browser-tools';
@@ -50,6 +51,7 @@ export interface AgentRunResult {
   uncertainty: string[];
   steps: AgentStepRecord[];
   usage: Usage;
+  emailBlocks: EmailBlock[];
   stopReason: 'completed' | 'step_limit';
 }
 
@@ -63,6 +65,8 @@ export interface RunAgentOptions {
   timezone: string;
   allowWebResearch: boolean;
   allowForms: boolean;
+  /** Offer the e-mail block tool; the task notifies the owner by e-mail. */
+  emailNotification?: boolean;
   limits: AgentLimits;
   browser: BrowserRunnerClient;
   sessionId: string;
@@ -164,9 +168,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
   let toolCallCount = 0;
   let index = 0;
 
-  const allowedTools = options.allowWebResearch
-    ? ['search_web', 'open_url', 'extract_page_text', 'inspect_page', 'click_element', 'navigate_back', 'get_page_title', 'get_current_url', 'extract_links', ...(options.allowForms ? ['fill_form'] : [])]
-    : [];
+  const allowedTools = [
+    ...(options.emailNotification ? ['add_email_block'] : []),
+    ...(options.allowWebResearch
+      ? ['search_web', 'open_url', 'extract_page_text', 'inspect_page', 'click_element', 'navigate_back', 'get_page_title', 'get_current_url', 'extract_links', ...(options.allowForms ? ['fill_form'] : [])]
+      : []),
+  ];
   const definitions: ToolDefinition[] = toolDefinitions(allowedTools);
 
   const toolContext: ToolContext = {
@@ -177,6 +184,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     visited,
     pageVisits: 0,
     queries,
+    emailBlocks: [],
     limits: options.limits,
     onSource(source) {
       sources.push(source);
@@ -190,6 +198,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     timezone: options.timezone,
     today: now().toISOString().slice(0, 10),
     allowWebResearch: options.allowWebResearch,
+    emailNotification: options.emailNotification === true,
     toolNames: allowedTools,
   });
 
@@ -298,6 +307,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     uncertainty,
     steps,
     usage,
+    emailBlocks: toolContext.emailBlocks,
     stopReason,
   };
 }

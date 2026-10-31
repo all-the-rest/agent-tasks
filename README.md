@@ -154,6 +154,10 @@ pnpm build
   admin settings toggle); onboarding is invite-only with single-use tokens.
   Enabling it opens the `/register` page and a direct sign-up as `USER`; an
   administrator can switch it off at any time.
+- Completion e-mails (task setting "Email me") are composed by the agent: it can
+  add blocks such as an image beside text (`add_email_block`), which are rendered
+  through the shared, email-safe HTML builder. Text is escaped and image/button
+  URLs must be http(s).
 - Sessions are revocable; sign-out invalidates the session on the next request.
 - TOTP MFA (with backup codes) is available and tested end to end.
 - Passwords are hashed by Better Auth; there are no default credentials.

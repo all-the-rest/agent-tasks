@@ -9,6 +9,7 @@ export interface PromptInput {
   timezone: string;
   today: string;
   allowWebResearch: boolean;
+  emailNotification: boolean;
   toolNames: string[];
 }
 
@@ -29,6 +30,9 @@ export function buildSystemPrompt(input: PromptInput): string {
     input.allowWebResearch
       ? `Web research is allowed with these tools: ${input.toolNames.join(', ')}.`
       : 'Web research is disabled for this task. Answer from the prompt alone and state that no external verification was possible.',
+    input.emailNotification
+      ? 'This task notifies the owner by e-mail. You may compose up to 20 e-mail blocks with add_email_block; use imageText for an image beside text. Blocks are independent of the Markdown report.'
+      : '',
     '',
     'Task title: ' + input.title,
   ];

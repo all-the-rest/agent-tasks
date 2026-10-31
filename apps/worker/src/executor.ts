@@ -3,18 +3,20 @@ import { mkdir } from 'node:fs/promises';
 import type { PgBoss } from 'pg-boss';
 import { eq } from 'drizzle-orm';
 import type { Database } from '@agent-tasks/database';
-import { executions, executionSources, executionSteps, providerCredentials, providers, tasks, userPreferences } from '@agent-tasks/database';
+import { executions, executionSources, executionSteps, providerCredentials, providers, tasks, user, userPreferences } from '@agent-tasks/database';
 import { AgentCancelledError, runAgent } from '@agent-tasks/agent-runtime';
 import { BrowserRunnerClient, NoopSearchProvider, SearxngSearchProvider } from '@agent-tasks/browser-tools';
 import type { SearchProvider } from '@agent-tasks/browser-tools';
 import { ProviderError, SecretBox, contextFor, createProvider, redact, resolveCredential } from '@agent-tasks/ai-providers';
-import { limitsSchema, reportToMarkdown, scheduleSchema, systemSettingsSchema } from '@agent-tasks/shared';
+import { limitsSchema, renderEmailDocument, reportToMarkdown, scheduleSchema, systemSettingsSchema } from '@agent-tasks/shared';
 import { claimExecution, countExecutionsToday, countRunningForOwner, heartbeat, isCancelRequested } from './scheduling.js';
 import { settleWithin } from './lifecycle.js';
 import type { SettleResult } from './lifecycle.js';
 import { exceededExecutionLimit } from './quota.js';
 import { resolveProviderConfig } from './codex-home.js';
 import { collectKnownSecrets } from './credentials.js';
+import { createMailer } from './mailer.js';
+import type { Mailer } from './mailer.js';
 import { QUEUE_EXECUTION } from './queues.js';
 import type { WorkerEnv } from './env.js';
 
@@ -23,6 +25,8 @@ export interface ExecutorDeps {
   env: WorkerEnv;
   boss: PgBoss;
   workerId: string;
+  /** Injectable for tests; defaults to SMTP/log based on the environment. */
+  mailer?: Mailer;
 }
 
 const LEASE_SECONDS = 120;
@@ -33,12 +37,16 @@ export const SHUTDOWN_GRACE_MS = 25_000;
 export class Executor {
   private readonly secrets: SecretBox;
   private readonly browser: BrowserRunnerClient;
+  private readonly mailer: Mailer;
   private running = new Map<string, AbortController>();
   private inFlight = new Set<Promise<void>>();
 
   constructor(private readonly deps: ExecutorDeps) {
     this.secrets = new SecretBox(deps.env.SECRETS_ENCRYPTION_KEY, deps.env.SECRETS_ENCRYPTION_KEY_PREVIOUS);
     this.browser = new BrowserRunnerClient({ baseUrl: deps.env.RUNNER_URL, token: deps.env.RUNNER_TOKEN, timeoutMs: 60_000 });
+    this.mailer =
+      deps.mailer ??
+      createMailer({ smtpUrl: deps.env.SMTP_URL, from: deps.env.SMTP_FROM, nodeEnv: deps.env.NODE_ENV });
   }
 
   get activeExecutions(): number {
@@ -179,6 +187,7 @@ export class Executor {
         timezone: task.timezone,
         allowWebResearch: task.allowWebResearch,
         allowForms: false,
+        emailNotification: task.notification === 'email',
         limits,
         browser: this.browser,
         sessionId: browserSessionId ?? randomUUID(),
@@ -213,6 +222,7 @@ export class Executor {
             markdown: result.markdown,
             sources: result.sources,
             uncertainty: result.uncertainty,
+            ...(result.emailBlocks.length > 0 ? { email: { blocks: result.emailBlocks } } : {}),
           },
           usage: result.usage,
           error: result.stopReason === 'step_limit' ? 'completed without a final model answer (step limit)' : null,
@@ -243,6 +253,20 @@ export class Executor {
       );
       await db.update(tasks).set({ lastRunAt: finishedAt }).where(eq(tasks.id, task.id));
       void markdown;
+
+      if (task.notification === 'email') {
+        // A notification failure must never turn a completed execution into a failure.
+        await this.sendCompletionEmail({ task, executionId, result, finishedAt }).catch((error: unknown) => {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'notification_failed',
+              executionId,
+              message: redact(error instanceof Error ? error.message : String(error), knownSecrets),
+            }),
+          );
+        });
+      }
     } catch (error) {
       // The runtime sees this controller as the caller's signal, so an abort caused by our
       // own deadline comes back as `AgentCancelledError('cancelled')`. Re-label it here:
@@ -255,6 +279,31 @@ export class Executor {
       this.running.delete(executionId);
       if (browserSessionId) await this.browser.closeSession(browserSessionId);
     }
+  }
+
+  private async sendCompletionEmail(input: {
+    task: typeof tasks.$inferSelect;
+    executionId: string;
+    result: Awaited<ReturnType<typeof runAgent>>;
+    finishedAt: Date;
+  }): Promise<void> {
+    const rows = await this.deps.db
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.id, input.task.ownerId))
+      .limit(1);
+    const recipient = rows[0]?.email;
+    if (!recipient) return;
+
+    const base = this.deps.env.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    const content = renderEmailDocument({
+      heading: `Task completed: ${input.task.title}`,
+      intro: input.result.summary,
+      blocks: input.result.emailBlocks,
+      action: { label: 'Open execution', url: `${base}/executions/${input.executionId}` },
+      footer: 'You receive this mail because this task is configured to notify you by e-mail.',
+    });
+    await this.mailer.send({ to: recipient, subject: `Task completed: ${input.task.title}`, ...content });
   }
 
   private async failExecution(
