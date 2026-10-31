@@ -11,7 +11,7 @@ const sandbox = process.env.EXPECT_SANDBOX !== '0';
     await browser.close();
     process.exit(0);
   } catch (error) {
-    console.log(`LAUNCH_FAIL ${String(error && error.message ? error.message : error).split('\n')[0]}`);
+    console.log(`LAUNCH_FAIL ${String(error && error.message ? error.message : error)}`);
     process.exit(1);
   }
 })();

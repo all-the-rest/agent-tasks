@@ -105,6 +105,8 @@ jobs:
             -e EXPECT_SANDBOX="$SANDBOX" \
             -e PROBE_SETUID="$SETUID" \
             -e PROBE_USER="$PROBE_USER" \
+            -e 'DEBUG=pw:browser*' \
+            -e PWDEBUG=1 \
             --entrypoint bash \
             mcr.microsoft.com/playwright:v1.64.1-noble -c '
               set +e
