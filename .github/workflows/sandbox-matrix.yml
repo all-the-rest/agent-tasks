@@ -38,10 +38,12 @@ jobs:
             opts: "--cap-drop ALL --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
             sandbox: "1"
             setuid: "no"
+            user: pwuser
           - name: prod-seccomp-sysadmin
             opts: "--cap-drop ALL --cap-add SYS_ADMIN --security-opt no-new-privileges:true --security-opt seccomp=__SECCOMP__"
             sandbox: "1"
             setuid: "no"
+            user: pwuser
           - name: control-nosandbox
             opts: ""
             sandbox: "0"
@@ -93,9 +95,12 @@ jobs:
           OPTS: ${{ matrix.opts }}
           SANDBOX: ${{ matrix.sandbox }}
           SETUID: ${{ matrix.setuid }}
+          PROBE_USER: ${{ matrix.user }}
         run: |
           OPTS=$(printf '%s' "${{ matrix.opts }}" | sed "s|__SECCOMP__|$PWD/docker/seccomp-browser.json|g")
-          docker run --rm $OPTS \
+          USEROPT=""
+          if [ "$PROBE_USER" = pwuser ]; then USEROPT="--user pwuser"; fi
+          docker run --rm $USEROPT $OPTS \
             -v "$PWD/scripts/sandbox-probe.cjs:/probe.cjs:ro" \
             -e EXPECT_SANDBOX="$SANDBOX" \
             -e PROBE_SETUID="$SETUID" \
@@ -111,8 +116,12 @@ jobs:
               fi
               ls -l /ms-playwright/chromium-*/chrome-linux64/chrome_sandbox 2>&1 || true
               npm i --prefix /tmp/pw playwright-core@1.64.1 --no-audit --no-fund --silent
-              chmod -R a+rX /tmp/pw
-              runuser -u pwuser -- env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+              chmod -R a+rX /tmp/pw || true
+              if [ "$PROBE_USER" = pwuser ]; then
+                env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+              else
+                runuser -u pwuser -- env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+              fi
             '
       - name: Launch after enabling unprivileged user namespaces on the host
         if: matrix.name == 'nonroot-userns'
@@ -128,6 +137,10 @@ jobs:
               set +e
               unshare -Ur true; echo "unshare_rc=$?"
               npm i --prefix /tmp/pw playwright-core@1.64.1 --no-audit --no-fund --silent
-              chmod -R a+rX /tmp/pw
-              runuser -u pwuser -- env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+              chmod -R a+rX /tmp/pw || true
+              if [ "$PROBE_USER" = pwuser ]; then
+                env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+              else
+                runuser -u pwuser -- env NODE_PATH=/tmp/pw/node_modules node /probe.cjs
+              fi
             '
