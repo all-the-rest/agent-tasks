@@ -54,6 +54,25 @@ describe('browser runner seccomp profile', () => {
     expect(rule, 'missing the clone(CLONE_NEWUSER) rule').toBeDefined();
   });
 
+  it('allows the zygote renderer fork in new PID and NET namespaces', () => {
+    for (const flag of [0x20000000, 0x40000000]) {
+      const rule = profile.syscalls.find(
+        (candidate) =>
+          candidate.names.includes('clone') &&
+          candidate.action === 'SCMP_ACT_ALLOW' &&
+          candidate.excludes?.caps?.includes('CAP_SYS_ADMIN') &&
+          candidate.args?.some(
+            (arg) =>
+              arg.index === 0 &&
+              arg.op === 'SCMP_CMP_MASKED_EQ' &&
+              arg.value === flag &&
+              arg.valueTwo === flag,
+          ),
+      );
+      expect(rule, `missing clone rule for flag 0x${flag.toString(16)}`).toBeDefined();
+    }
+  });
+
   it('keeps every other namespace operation behind CAP_SYS_ADMIN', () => {
     const unprivileged = profile.syscalls.filter(
       (candidate) =>
