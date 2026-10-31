@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports, no-undef -- standalone probe run inside the Playwright image */
 /* Launch Chromium with the internal sandbox and report the result. */
 const { chromium } = require('playwright-core');
 
