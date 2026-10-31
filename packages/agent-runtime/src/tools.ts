@@ -313,7 +313,7 @@ const MAX_EMAIL_BLOCKS = 20;
 const addEmailBlockTool: AgentTool = {
   name: 'add_email_block',
   description:
-    'Add a block to the e-mail sent to the task owner when this run finishes. Use imageText to place an image beside text; other blocks are heading, paragraph, image, button and divider. Image URLs must be http(s), text is escaped, and at most 20 blocks are accepted.',
+    'Add a block to the e-mail sent to the task owner when this run finishes. Use imageText for an image beside text. Required fields by type: heading {text, level?}; paragraph {text}; image {url, alt?, width?}; imageText {imageUrl, text, alt?, side?, imageWidth?}; button {label, url}; divider {}. URLs must be http(s), text is escaped, and at most 20 blocks are accepted.',
   parameters: {
     type: 'object',
     properties: {
