@@ -14,19 +14,27 @@ if (!adminEmail || !adminPassword) {
   process.exit(1);
 }
 
-let cookie = '';
+let adminCookie = '';
 
-async function call(method, path, body) {
+/**
+ * `session: 'admin'` always uses the preserved administrator session.
+ * `session: 'none'` sends no cookie and does not capture one (open sign-ups would
+ * otherwise replace the admin cookie with the new USER session).
+ */
+async function call(method, path, body, session = 'none') {
+  const useCookie = session === 'admin' ? adminCookie : '';
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
       'content-type': 'application/json',
-      ...(cookie ? { cookie } : {}),
+      ...(useCookie ? { cookie: useCookie } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const setCookies = response.headers.getSetCookie?.() ?? [];
-  if (setCookies.length > 0) cookie = setCookies.map((value) => value.split(';')[0]).join('; ');
+  if (session === 'login' && setCookies.length > 0) {
+    adminCookie = setCookies.map((value) => value.split(';')[0]).join('; ');
+  }
   const text = await response.text();
   let json;
   try {
@@ -46,7 +54,11 @@ function check(condition, message, detail) {
 }
 
 const signUp = (email) =>
-  call('POST', '/api/auth/sign-up/email', { email, password: 'registration-password-123', name: 'Open Registration' });
+  call('POST', '/api/auth/sign-up/email', {
+    email,
+    password: 'registration-password-123',
+    name: 'Open Registration',
+  });
 
 // 1. The env bootstrap created the admin, so setup is complete.
 const status = await call('GET', '/api/setup/status');
@@ -61,13 +73,13 @@ const blocked = await signUp('closed-registration@example.com');
 check(blocked.status === 403, 'sign-up without invitation is refused (403)', blocked);
 
 // 4. The env admin can sign in and is ADMIN.
-const login = await call('POST', '/api/auth/sign-in/email', { email: adminEmail, password: adminPassword });
+const login = await call('POST', '/api/auth/sign-in/email', { email: adminEmail, password: adminPassword }, 'login');
 check(login.status === 200, 'env admin can sign in', login);
-const me = await call('GET', '/api/me');
+const me = await call('GET', '/api/me', undefined, 'admin');
 check(me.json?.user?.role === 'ADMIN', 'env admin has role ADMIN', me.json?.user?.role);
 
 // 5. The OpenCode Go provider was seeded with a shared credential.
-const providers = await call('GET', '/api/admin/providers');
+const providers = await call('GET', '/api/admin/providers', undefined, 'admin');
 const go = Array.isArray(providers.json) ? providers.json.find((provider) => provider.name === 'OpenCode Go') : undefined;
 check(Boolean(go), 'OpenCode Go provider exists');
 check(go?.kind === 'openai-compatible', 'OpenCode Go uses the OpenAI-compatible adapter');
@@ -79,12 +91,12 @@ check(
 );
 
 // 6. The setting is effective at runtime in both directions.
-const opened = await call('PUT', '/api/admin/settings', { allowRegistration: true });
+const opened = await call('PUT', '/api/admin/settings', { allowRegistration: true }, 'admin');
 check(opened.status === 200, 'admin can enable open registration');
 const accepted = await signUp('open-registration@example.com');
 check(accepted.status === 200, 'open sign-up succeeds when enabled (200)', accepted);
 
-const closed = await call('PUT', '/api/admin/settings', { allowRegistration: false });
+const closed = await call('PUT', '/api/admin/settings', { allowRegistration: false }, 'admin');
 check(closed.status === 200, 'admin can disable open registration');
 const refused = await signUp('closed-again@example.com');
 check(refused.status === 403, 'sign-up is refused again after disabling (403)', refused);
