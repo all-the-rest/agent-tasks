@@ -310,6 +310,37 @@ describe('OpenCode Go streaming adapter', () => {
     expect(request.headers['x-opencode-session']).toBe('conv-real-session');
   });
 
+  it('maps a model#variant suffix to reasoning_effort', async () => {
+    const server = await start({ content: 'variant' });
+    const responder = await provider.chat(context(server), {
+      model: 'opencode-go-heavy#high',
+      sessionId: 'conv-variant',
+      messages: [
+        { role: 'system', content: 'variant conversation' },
+        { role: 'user', content: 'hi' },
+      ],
+    });
+    expect(responder.content).toBe('variant');
+    const request = lastRequest(server);
+    expect(request.body?.model).toBe('opencode-go-heavy');
+    expect(request.body?.reasoning_effort).toBe('high');
+  });
+
+  it('rejects an unknown model variant before sending a request', async () => {
+    const server = await start({ content: 'never' });
+    await expect(
+      provider.chat(context(server), {
+        model: 'opencode-go-heavy#turbo',
+        sessionId: 'conv-bad-variant',
+        messages: [
+          { role: 'system', content: 'bad variant' },
+          { role: 'user', content: 'hi' },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'unsupported' });
+    expect(server.requests).toHaveLength(0);
+  });
+
   it('refuses to build headers without a session id', () => {
     expect(() => buildHeaders({ stream: true, userAgent: 'agent-tasks/0.1.0', sessionHeader: 'x-opencode-session', headers: {} }, undefined, '')).toThrow(/session id/i);
     expect(() => buildHeaders({ stream: true, userAgent: 'agent-tasks/0.1.0', sessionHeader: 'x-opencode-session', headers: {} }, undefined, '   ')).toThrow(/session id/i);

@@ -91,12 +91,12 @@ afterAll(async () => {
   await harness.close();
 });
 
-async function seedTask(options: { limits?: Record<string, number>; allowWebResearch?: boolean } = {}): Promise<{ taskId: string; executionId: string; ownerId: string }> {
+async function seedTask(options: { limits?: Record<string, number>; allowWebResearch?: boolean; baseUrl?: string; notification?: 'none' | 'email' } = {}): Promise<{ taskId: string; executionId: string; ownerId: string }> {
   const owner = await harness.db.pool.query(`insert into "user" (id, name, email, email_verified, role) values ($1,'Owner',$2,true,'USER') returning id`, [randomUUID(), `owner-${randomUUID()}@example.com`]);
   const ownerId = owner.rows[0].id;
   const provider = await harness.db.pool.query(
     `insert into providers (id, name, kind, enabled, is_default, config) values ($1,$2,'openai-compatible',true,true,$3) returning id`,
-    [randomUUID(), `Mock OpenAI ${randomUUID()}`, JSON.stringify({ baseUrl: mock?.url, models: [{ id: 'mock-researcher', supportsTools: true }], userAgent: 'agent-tasks/0.1.0', sessionHeader: 'x-opencode-session' })],
+    [randomUUID(), `Mock OpenAI ${randomUUID()}`, JSON.stringify({ baseUrl: options.baseUrl ?? mock?.url, models: [{ id: 'mock-researcher', supportsTools: true }], userAgent: 'agent-tasks/0.1.0', sessionHeader: 'x-opencode-session' })],
   );
   const box = new SecretBox(harness.env.SECRETS_ENCRYPTION_KEY);
   await harness.db.pool.query(
@@ -114,8 +114,8 @@ async function seedTask(options: { limits?: Record<string, number>; allowWebRese
   const limits = options.limits ?? { maxDurationSec: 90, maxAgentSteps: 6, maxPageVisits: 3, maxOutputBytes: 100000, maxToolCalls: 8, maxSearchQueries: 2 };
   await harness.db.pool.query(
     `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification)
-     values ($1,$2,'Live research','What does example.com say about itself? Cite the page.',$3,'mock-researcher',true,$4,'Europe/Vienna',$5,$6,'none')`,
-    [taskId, ownerId, provider.rows[0].id, JSON.stringify({ preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 0 }), JSON.stringify(limits), options.allowWebResearch ?? true],
+     values ($1,$2,'Live research','What does example.com say about itself? Cite the page.',$3,'mock-researcher',true,$4,'Europe/Vienna',$5,$6,$7)`,
+    [taskId, ownerId, provider.rows[0].id, JSON.stringify({ preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 0 }), JSON.stringify(limits), options.allowWebResearch ?? true, options.notification ?? 'none'],
   );
   const executionId = randomUUID();
   await harness.db.pool.query(
@@ -132,6 +132,7 @@ function workerEnv(): WorkerEnv {
     SECRETS_ENCRYPTION_KEY: harness.env.SECRETS_ENCRYPTION_KEY,
     RUNNER_URL: `http://127.0.0.1:${RUNNER_PORT}`,
     RUNNER_TOKEN,
+    PUBLIC_BASE_URL: 'http://localhost:8080',
     WORKER_CONCURRENCY: 1,
     LOG_LEVEL: 'silent',
   };
@@ -161,6 +162,46 @@ async function startFakeSearch(): Promise<{ url: string; close: () => Promise<vo
 }
 
 describe('execution end to end (mock model, real browser, real network policy)', () => {
+  it('sends the completion e-mail with the agent image-text block', async () => {
+    const mailMock = await createMockOpenAiServer({
+      researchSteps: 0,
+      emailBlock: {
+        type: 'imageText',
+        imageUrl: 'https://example.com/chart.png',
+        alt: 'Revenue chart',
+        text: 'Revenue grew 12% in the last quarter.',
+        side: 'left',
+      },
+    });
+    try {
+      const { executionId, ownerId } = await seedTask({ allowWebResearch: false, baseUrl: mailMock.url, notification: 'email' });
+      const sent: Array<{ to: string; subject: string; text: string; html?: string }> = [];
+      const mailer = {
+        kind: 'log' as const,
+        async send(message: { to: string; subject: string; text: string; html?: string }) {
+          sent.push(message);
+        },
+      };
+      const executor = new Executor({ db: harness.db.db, env: workerEnv(), boss: bossStub, workerId: 'test-worker', mailer });
+      await executor.handle(executionId);
+
+      expect(sent).toHaveLength(1);
+      const owner = await harness.db.pool.query('select email from "user" where id = $1', [ownerId]);
+      expect(sent[0]?.to).toBe(owner.rows[0].email);
+      expect(sent[0]?.subject).toContain('Task completed');
+      expect(sent[0]?.html).toContain('https://example.com/chart.png');
+      expect(sent[0]?.html).toContain('Revenue grew 12% in the last quarter.');
+      expect(sent[0]?.html).toContain('Revenue chart');
+      expect(sent[0]?.text).toContain('[image] https://example.com/chart.png');
+      expect(sent[0]?.html).toContain(`/executions/${executionId}`);
+
+      const report = await harness.db.pool.query('select report from executions where id = $1', [executionId]);
+      expect(report.rows[0].report.email.blocks[0]).toMatchObject({ type: 'imageText', side: 'left' });
+    } finally {
+      await mailMock.close();
+    }
+  });
+
   it('runs the agent loop, fetches a real page and persists a sourced report', async () => {
     const { taskId, executionId } = await seedTask();
     const executor = new Executor({ db: harness.db.db, env: workerEnv(), boss: bossStub, workerId: 'test-worker' });

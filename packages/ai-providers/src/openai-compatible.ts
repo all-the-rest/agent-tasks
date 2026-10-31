@@ -109,6 +109,24 @@ export function modelsUrl(baseUrl: string): string {
  * override `content-type`, `accept` or `user-agent`, but cannot silently replace
  * the credential or the conversation id the contract depends on.
  */
+/** Variants are opt-in via `model#variant`; they map to OpenAI's reasoning_effort. */
+export const MODEL_VARIANTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+export type ModelVariant = (typeof MODEL_VARIANTS)[number];
+
+export function parseModelVariant(value: string): { model: string; variant?: ModelVariant } {
+  const index = value.lastIndexOf('#');
+  if (index <= 0 || index === value.length - 1) return { model: value };
+  const model = value.slice(0, index);
+  const variant = value.slice(index + 1).toLowerCase();
+  if (!(MODEL_VARIANTS as readonly string[]).includes(variant)) {
+    throw new ProviderError(
+      'unsupported',
+      `unknown model variant "${variant}"; supported variants: ${MODEL_VARIANTS.join(', ')}`,
+    );
+  }
+  return { model, variant: variant as ModelVariant };
+}
+
 export function buildHeaders(config: HeaderConfig, apiKey: string | undefined, sessionId: string): Record<string, string> {
   if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
     throw new ProviderError('bad_response', 'a stable non-empty session id is required for the provider session header');
@@ -412,16 +430,18 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   async chat(context: ProviderContext, request: ChatRequest): Promise<ChatResponse> {
     const config = readConfig(context);
-    const declared = config.models?.find((model) => model.id === request.model);
+    const { model: modelId, variant } = parseModelVariant(request.model);
+    const declared = config.models?.find((model) => model.id === request.model || model.id === modelId);
     if (request.tools && request.tools.length > 0 && declared && declared.supportsTools === false) {
       throw new ProviderError('unsupported', `model ${request.model} is not declared as tool-capable`);
     }
     const body: Record<string, unknown> = {
-      model: request.model,
+      model: modelId,
       messages: request.messages.map(toOpenAiMessage),
       temperature: request.temperature ?? 0.2,
       stream: config.stream,
     };
+    if (variant) body.reasoning_effort = variant;
     if (config.stream) body.stream_options = { include_usage: true };
     if (request.maxTokens) body.max_tokens = request.maxTokens;
     if (request.tools && request.tools.length > 0) {

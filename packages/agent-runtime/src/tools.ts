@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { checkUrl, NetworkPolicyError } from '@agent-tasks/shared';
+import { checkUrl, emailBlockSchema, NetworkPolicyError } from '@agent-tasks/shared';
+import type { EmailBlock } from '@agent-tasks/shared';
 import type { SearchProvider } from '@agent-tasks/browser-tools';
 import type { BrowserRunnerClient } from '@agent-tasks/browser-tools';
 import type { ToolDefinition } from '@agent-tasks/ai-providers';
@@ -13,6 +14,8 @@ export interface ToolContext {
   /** Number of successful page loads/clicks/navigations, including repeated URLs. */
   pageVisits: number;
   queries: string[];
+  /** E-mail blocks the agent adds for the completion notification. */
+  emailBlocks: EmailBlock[];
   onSource(source: { url: string; title?: string; retrievedAt: string; confidence: 'verified' | 'secondary' | 'unknown'; excerpt?: string }): void;
   limits: { maxPageVisits: number; maxSearchQueries: number; maxOutputBytes: number };
 }
@@ -299,6 +302,96 @@ const extractLinksTool: AgentTool = {
   },
 };
 
+
+const MAX_EMAIL_BLOCKS = 20;
+
+/**
+ * Lets the agent compose the completion e-mail. The model passes flat fields; the
+ * handler assembles the discriminated block, validates it (http(s) URLs, length)
+ * and appends it. `imageText` is the required "image beside text" block.
+ */
+const addEmailBlockTool: AgentTool = {
+  name: 'add_email_block',
+  description:
+    'Add a block to the e-mail sent to the task owner when this run finishes. Use imageText to place an image beside text; other blocks are heading, paragraph, image, button and divider. Image URLs must be http(s), text is escaped, and at most 20 blocks are accepted.',
+  parameters: {
+    type: 'object',
+    properties: {
+      type: {
+        type: 'string',
+        enum: ['heading', 'paragraph', 'image', 'imageText', 'button', 'divider'],
+        description: 'Block type. imageText renders an image next to text.',
+      },
+      text: { type: 'string', description: 'Text for heading, paragraph or imageText.' },
+      level: { type: 'integer', minimum: 1, maximum: 2, default: 2, description: 'Heading level (1 or 2).' },
+      url: { type: 'string', description: 'http(s) URL for image or button.' },
+      imageUrl: { type: 'string', description: 'http(s) image URL for imageText.' },
+      alt: { type: 'string', description: 'Accessible image description.' },
+      side: { type: 'string', enum: ['left', 'right'], default: 'left', description: 'Image side for imageText.' },
+      imageWidth: { type: 'integer', minimum: 80, maximum: 320, default: 200 },
+      width: { type: 'integer', minimum: 40, maximum: 600, default: 600 },
+      label: { type: 'string', description: 'Button label.' },
+    },
+    required: ['type'],
+    additionalProperties: false,
+  },
+  async run(input, context): Promise<ToolOutcome> {
+    const raw = (input ?? {}) as Record<string, unknown>;
+    let candidate: unknown;
+    switch (raw.type) {
+      case 'heading':
+        candidate = { type: 'heading', text: raw.text, level: raw.level ?? 2 };
+        break;
+      case 'paragraph':
+        candidate = { type: 'paragraph', text: raw.text };
+        break;
+      case 'image':
+        candidate = { type: 'image', url: raw.url, alt: raw.alt ?? '', width: raw.width ?? 600 };
+        break;
+      case 'imageText':
+        candidate = {
+          type: 'imageText',
+          imageUrl: raw.imageUrl,
+          alt: raw.alt ?? '',
+          text: raw.text,
+          side: raw.side ?? 'left',
+          imageWidth: raw.imageWidth ?? 200,
+        };
+        break;
+      case 'button':
+        candidate = { type: 'button', label: raw.label, url: raw.url };
+        break;
+      case 'divider':
+        candidate = { type: 'divider' };
+        break;
+      default:
+        return {
+          ok: false,
+          content: 'unsupported email block type; use heading, paragraph, image, imageText, button or divider',
+          preview: 'unsupported email block type',
+          error: 'invalid_arguments',
+        };
+    }
+
+    const parsed = emailBlockSchema.safeParse(candidate);
+    if (!parsed.success) {
+      const details = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+      return { ok: false, content: `invalid email block: ${details}`, preview: 'invalid email block', error: 'invalid_arguments' };
+    }
+    if (context.emailBlocks.length >= MAX_EMAIL_BLOCKS) {
+      return { ok: false, content: `email block limit reached (${MAX_EMAIL_BLOCKS})`, preview: 'email block limit reached', error: 'limit_reached' };
+    }
+
+    context.emailBlocks.push(parsed.data);
+    const preview = parsed.data.type === 'imageText' ? `imageText (${parsed.data.side})` : parsed.data.type;
+    return {
+      ok: true,
+      content: `Email block ${context.emailBlocks.length} added: ${preview}.`,
+      preview: `email block ${context.emailBlocks.length}: ${preview}`,
+    };
+  },
+};
+
 export const AGENT_TOOLS: AgentTool[] = [
   searchTool,
   openUrlTool,
@@ -310,6 +403,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   getPageTitleTool,
   getCurrentUrlTool,
   extractLinksTool,
+  addEmailBlockTool,
 ];
 
 export const TOOL_NAMES = AGENT_TOOLS.map((tool) => tool.name);

@@ -38,6 +38,8 @@ export interface MockOpenAiOptions {
   failWithStatus?: number;
   /** Adds latency so cancellation and timeouts can be exercised. */
   latencyMs?: number;
+  /** Emit one add_email_block tool call before the final answer. */
+  emailBlock?: Record<string, unknown>;
 }
 
 const GENERIC_AGENTS = ['node', 'undici', 'axios', 'openai-node', 'python-requests', 'okhttp', 'curl', 'wget', 'go-http-client'];
@@ -248,6 +250,11 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
     sessionByConversation.set(conversation, String(sessionId));
 
     const toolMessages = messages.filter((message) => message.role === 'tool');
+    const emailBlockRequested = messages.some(
+      (message) =>
+        Array.isArray((message as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls) &&
+        (message as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls?.some((call) => call.function?.name === 'add_email_block'),
+    );
     const lastUser = [...messages].reverse().find((message) => message.role === 'user');
     const research = toolContent(messages);
     const urls = extractUrls(research);
@@ -281,6 +288,19 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
         toolCalls: [toolCall],
         finishReason: 'tool_calls',
         usage: { prompt_tokens: 120, completion_tokens: 24, total_tokens: 144 },
+        allowanceUsd,
+      });
+      return;
+    }
+
+    if (options.emailBlock && !emailBlockRequested) {
+      sendCompletion(response, {
+        stream,
+        model,
+        content: 'I will add an image block to the notification e-mail.',
+        toolCalls: [{ name: 'add_email_block', arguments: options.emailBlock }],
+        finishReason: 'tool_calls',
+        usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
         allowanceUsd,
       });
       return;

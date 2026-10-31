@@ -187,6 +187,15 @@ Then `POST /api/admin/providers/<id>/models/refresh` and
 `kind: openai` uses the same adapter and the same required `baseUrl`; it has no
 preconfigured official URL.
 
+### Model variants (suffix)
+
+Tasks and the seeded model may append a variant to the model id, for example
+`kimi-k3#high`. Supported variants are `none`, `minimal`, `low`, `medium`,
+`high` and `xhigh`. The adapter strips the suffix and sends the base model id
+plus `reasoning_effort: <variant>`; an unknown suffix is rejected before any
+request with a typed `unsupported` error. Variants are opt-in: providers that do
+not accept `reasoning_effort` may reject the request.
+
 ### Environment-seeded provider
 
 For unattended deployments the API creates the primary provider on first start

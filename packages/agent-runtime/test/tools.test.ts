@@ -51,6 +51,7 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     visited: new Set<string>(),
     pageVisits: 0,
     queries: [],
+    emailBlocks: [],
     onSource: () => undefined,
     limits: { maxPageVisits: 5, maxSearchQueries: 5, maxOutputBytes: 50_000 },
     ...overrides,

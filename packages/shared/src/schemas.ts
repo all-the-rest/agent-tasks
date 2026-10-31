@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { limitsSchema } from './limits.js';
+import { emailBlocksSchema } from './email-blocks.js';
 import { scheduleSchema } from './schedule.js';
 import { EXECUTION_STATUSES, REPORT_CONFIDENCE, ROLES } from './status.js';
 
@@ -124,6 +125,8 @@ export const executionReportSchema = z.object({
     )
     .max(50),
   uncertainty: z.array(z.string().max(500)).max(20).default([]),
+  /** Blocks composed by the agent for the completion e-mail. */
+  email: z.object({ blocks: emailBlocksSchema }).optional(),
 });
 export type ExecutionReport = z.infer<typeof executionReportSchema>;
 

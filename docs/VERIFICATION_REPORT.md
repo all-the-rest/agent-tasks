@@ -22,8 +22,8 @@ runner) against the exact production container posture.
 | `pnpm install --frozen-lockfile` | lockfile accepted | 0 |
 | `pnpm lint` | 0 errors, 0 warnings | 0 |
 | `pnpm -r typecheck` | 10 projects | 0 |
-| `pnpm test:unit` | **170 passed**, 24 files | 0 |
-| `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **52 passed**, 9 files, real PostgreSQL 15.15 | 0 |
+| `pnpm test:unit` | **179 passed**, 25 files | 0 |
+| `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **53 passed**, 9 files, real PostgreSQL 15.15 | 0 |
 | `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
 | `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
 | `pnpm exec playwright test` (9 specs, real Chromium, real API/worker/runner, real PostgreSQL) | **9 passed** | 0 |
@@ -81,6 +81,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 164 unit, 48 integration, 34 web, 9 E2E | PASS |
 | 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41230606215: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
+| 18 | Agent-composed e-mail blocks (image beside text) | `packages/shared/src/email-blocks.ts`, `packages/agent-runtime/src/tools.ts`, `apps/worker/src/executor.ts`, `apps/worker/src/mailer.ts` | `email-blocks.test.ts` (5): imageText left/right, escaping, http-only URLs, block cap, document; `tools.test.ts`/`runtime.test.ts`: `add_email_block` is offered only for e-mail notifications and returns the blocks; integration `execution.test.ts`: the mock model adds an `imageText` block, the completion mail contains the image/text and the execution link, and the blocks are persisted in `report.email` | PASS |
 | 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `0a03590` pushed; CI green | PASS (with the org deviation) |
 
 ## Docker Compose (executed)
@@ -247,6 +248,24 @@ The compose E2E job scales the worker service to two containers and runs
 Run 41230606215: `worker-df7551c0` was killed mid-run, `worker-c73ef3f2`
 completed the recovered execution, and the script printed `WORKERS_OK`. The
 surrounding Playwright suite passed 9/9 in the same run.
+
+### Agent-composed e-mail blocks (added on request)
+
+When a task is configured to notify by e-mail, the runtime offers the
+`add_email_block` tool. The agent can add `heading`, `paragraph`, `image`,
+`imageText`, `button` and `divider` blocks; `imageText` is the required
+image-beside-text block. `emailBlockSchema` validates http(s)-only URLs and
+lengths; `renderEmailBlocks`/`renderEmailDocument` in `packages/shared` produce
+table-based inline-styled HTML plus a plain-text alternative. The worker sends
+the completion mail with the execution link, and the transactional templates
+use the same builder. A failed notification is logged and never fails the
+execution.
+
+Tests: five block-rendering tests, tool/runtime tests (the tool is offered only
+when `notification=email`), and an end-to-end integration test in which the mock
+model calls `add_email_block`, the executor stores `report.email.blocks`, and an
+injected mailer receives HTML containing the image URL, alt text and body text.
+E-mail compatibility continues to be measured in CI with Mailpit/SpamAssassin.
 
 ### Registration setting and environment bootstrap (added on request)
 
