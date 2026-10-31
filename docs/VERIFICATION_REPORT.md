@@ -20,7 +20,7 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | `pnpm install --frozen-lockfile` | lockfile accepted | 0 |
 | `pnpm lint` | 0 errors, 0 warnings | 0 |
 | `pnpm -r typecheck` | 10 projects | 0 |
-| `pnpm test:unit` | **153 passed**, 21 files | 0 |
+| `pnpm test:unit` | **160 passed**, 22 files | 0 |
 | `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **48 passed**, 8 files, real PostgreSQL 15.15 | 0 |
 | `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
 | `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
@@ -31,7 +31,7 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | CI compose job (`Browser E2E`, GitHub run 41216069396) | stack started, web served, 9/9 Playwright tests passed (sandbox disabled on that kernel) | 0 |
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 5 of 5 gates | 0 |
-| GitHub Actions run 41221277339 (`1f805f4`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
+| GitHub Actions run 41222770419 (`97487c1`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
 | `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail: **spam score 0**, `IsSpam=false`; **HTML compatibility 87.4 % supported / 1.55 % unsupported / 10 warnings** | 0 |
 | `scripts/verify-mail-ui.mjs` in CI (Playwright + Mailpit UI) | heading/paragraph/CTA/two reset links asserted; `mail-preview.png` artifact (112 kB) | 0 |
 
@@ -169,8 +169,24 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - URL: https://github.com/all-the-rest/agent-tasks (the brief's `Allderest/agent-tasks` does not exist; the `all-the-rest` organisation was used)
 - Visibility: PUBLIC; License: Apache-2.0 (`LICENSE` present)
 - Issues: 14 requirement issues (#1–#14)
-- Commit: `1f805f4` (implementation + HTML mail + compatibility/UI verification) + the commit containing this report
-- CI: run 41221277339 — all 8 jobs successful, including the Mailpit/SpamAssassin and UI checks
+- Commit: `97487c1` (implementation + HTML mail + compatibility/UI verification + OpenCode Go header hardening) + the commit containing this report
+- CI: run 41222770419 — all 8 jobs successful, including the Mailpit/SpamAssassin, UI and OpenCode Go header checks
+
+### OpenCode Go client contract (operator acceptance: fake API)
+
+The official requirements are: a client-specific `User-Agent` (never a generic SDK)
+and a stable `x-opencode-session` per conversation, including auxiliary requests.
+`buildHeaders()` now makes both headers win over arbitrary `config.headers`; an
+empty session id is a typed error; `compatibleConfigSchema` rejects generic agents
+and an empty session header. Tests assert both headers on chat, `/models` and
+health, stable/distinct sessions, spoof resistance, and the schema rules. The
+contract-enforcing fake API is accepted by the operator for this goal; real-account
+values remain unknown.
+
+The Playwright image does **not** solve the separate sandbox blocker: its
+`chrome_sandbox` is mode `0777` (not setuid) and `unshare -Ur` is denied even with
+`--privileged` (probe run 41222309593). The shipped default `RUNNER_CHROMIUM_SANDBOX=true`
+therefore cannot start on this host or the GitHub runner; CI uses `false`.
 
 ### Transactional mail (added after the first verification)
 
