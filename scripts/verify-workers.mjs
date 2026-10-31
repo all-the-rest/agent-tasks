@@ -38,9 +38,14 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let cookie = '';
 
 async function call(method, path, body) {
+  const headers = {
+    origin: base,
+    ...(cookie ? { cookie } : {}),
+    ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+  };
   const response = await fetch(`${base}${path}`, {
     method,
-    headers: { 'content-type': 'application/json', origin: base, ...(cookie ? { cookie } : {}) },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const setCookies = response.headers.getSetCookie?.() ?? [];
