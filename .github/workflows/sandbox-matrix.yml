@@ -14,6 +14,7 @@ jobs:
     steps:
       - name: Inspect and try to enable user namespaces on the host
         run: |
+          set +e
           set -x
           uname -r
           cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo "no unprivileged_userns_clone"
@@ -91,6 +92,7 @@ jobs:
             -e PROBE_SETUID="$SETUID" \
             --entrypoint bash \
             mcr.microsoft.com/playwright:v1.64.1-noble -c '
+              set +e
               set -x
               id
               ls -l /ms-playwright/chromium-*/chrome-linux64/chrome_sandbox 2>&1 || true
@@ -114,6 +116,7 @@ jobs:
             -e EXPECT_SANDBOX=1 \
             --entrypoint bash \
             mcr.microsoft.com/playwright:v1.64.1-noble -c '
+              set +e
               unshare -Ur true; echo "unshare_rc=$?"
               npm i --prefix /tmp/pw playwright-core@1.64.1 --no-audit --no-fund --silent
               chmod -R a+rX /tmp/pw
