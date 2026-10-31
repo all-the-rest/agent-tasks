@@ -86,5 +86,11 @@ MAIL_TO=admin@example.com MAILPIT_URL=http://localhost:8025 \
 ```
 
 The script requests a password reset, waits for the message in Mailpit, asserts a
-plain-text part plus a complete HTML document, and checks the SpamAssassin score
-reported by `GET /api/v1/message/{id}/sa-check` (`Score < 5`, `IsSpam=false`).
+plain-text part plus a complete HTML document, checks the SpamAssassin score
+reported by `GET /api/v1/message/{id}/sa-check` (`Score < 5`, `IsSpam=false`), and
+checks the HTML compatibility report from `GET /api/v1/message/{id}/html-check`
+(default thresholds: supported ≥ 85 %, unsupported ≤ 2 %, warnings ≤ 12).
+
+`node scripts/verify-mail-ui.mjs` additionally renders the message in Mailpit's
+web UI with Playwright, asserts the heading/CTA/two reset links and writes
+`mail-preview.png` (CI uploads it as an artifact).

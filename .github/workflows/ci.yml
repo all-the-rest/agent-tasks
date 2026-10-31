@@ -202,6 +202,18 @@ jobs:
         run: |
           email=$(docker compose exec -T postgres psql -U agent -d agent_tasks -tAc "select email from \"user\" where role = 'ADMIN' order by created_at limit 1" | tr -d '[:space:]')
           MAIL_TO="$email" API_BASE_URL=http://localhost:8080 MAILPIT_URL=http://localhost:8025 MAIL_ORIGIN=http://localhost:8080 node scripts/check-mailpit.mjs
+      - name: Verify the mail in the Mailpit UI
+        run: |
+          email=$(docker compose exec -T postgres psql -U agent -d agent_tasks -tAc "select email from \"user\" where role = 'ADMIN' order by created_at limit 1" | tr -d '[:space:]')
+          MAIL_TO="$email" MAILPIT_URL=http://localhost:8025 MAIL_UI_SCREENSHOT=mail-preview.png node scripts/verify-mail-ui.mjs
+      - name: Upload the Mailpit preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mail-preview
+          path: mail-preview.png
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Upload Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v4
