@@ -91,6 +91,11 @@ export class BrowserPool {
     return this.sessions.size;
   }
 
+  /** Present once `start()` succeeded; proves a browser process is running. */
+  get browserVersion(): string | null {
+    return this.browser?.version() ?? null;
+  }
+
   get blockedRequests(): Array<{ host: string; reason: string; at: number }> {
     return this.proxy?.blocked ?? [];
   }

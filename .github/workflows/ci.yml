@@ -165,10 +165,6 @@ jobs:
             echo "COOKIE_SECURE=false"
             echo "SETUP_TOKEN=$SETUP_TOKEN"
             echo "E2E_SETUP_TOKEN=$SETUP_TOKEN"
-            # GitHub's runner kernel forbids the Chromium sandbox inside the container.
-            # The production default stays true (compose.yaml); the sandbox itself is
-            # therefore NOT VERIFIED in CI.
-            echo "RUNNER_CHROMIUM_SANDBOX=false"
             echo "SMTP_URL=smtp://mailpit:1025"
             echo "E2E_BASE_URL=http://localhost:8080"
           } >> "$GITHUB_ENV"
@@ -186,6 +182,15 @@ jobs:
           docker compose ps
           docker compose logs --no-color --tail=200
           exit 1
+      - name: Assert the Chromium sandbox is enabled
+        run: |
+          set -euo pipefail
+          status=$(docker compose exec -T browser-runner node -e "fetch('http://127.0.0.1:8081/healthz').then(r=>r.json()).then(j=>{if(!j.ok||j.sandbox!==true||!j.browserVersion)process.exit(1);console.log(j.sandbox+' '+j.browserVersion)}).catch(()=>process.exit(1))")
+          echo "runner sandbox: $status"
+          case "$status" in
+            "true "*) ;;
+            *) echo "Chromium did not start with its sandbox enabled" >&2; exit 1 ;;
+          esac
       - name: Point the E2E mock provider at the Docker bridge gateway
         run: |
           gateway=$(docker network inspect agent-tasks_backend --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
