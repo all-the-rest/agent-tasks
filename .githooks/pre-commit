@@ -1,0 +1,32 @@
+#!/bin/sh
+# Fast, local gates. The full suite (integration, E2E, container scans) belongs to
+# CI; this hook catches what is cheap to catch before a commit exists.
+set -eu
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+echo "pre-commit: secret scan"
+if printf '%s\n' "$staged" | xargs -r grep -nIE 'sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY|AUTH_SECRET=[A-Za-z0-9]{16,}' 2>/dev/null; then
+  echo "pre-commit: refusing to commit a secret-looking string" >&2
+  exit 1
+fi
+
+echo "pre-commit: ratchet gates"
+ratchet check --format stylish >/dev/null || { ratchet check; exit 1; }
+
+case "$staged" in
+  *.ts|*.tsx|*.json|*.yaml|*.yml|*.md|*.sh|Dockerfile*|*.css)
+    echo "pre-commit: lint"
+    pnpm lint --quiet || exit 1
+    echo "pre-commit: typecheck"
+    pnpm -r typecheck >/dev/null || { pnpm -r typecheck; exit 1; }
+    ;;
+esac
+
+if command -v codegraph >/dev/null 2>&1 && [ -d .codegraph ]; then
+  echo "pre-commit: codegraph sync"
+  codegraph sync . >/dev/null 2>&1 || echo "pre-commit: codegraph sync skipped"
+fi
+
+echo "pre-commit: ok"

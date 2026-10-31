@@ -1,0 +1,1442 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
+
+msgid "admin.action"
+msgstr "Action"
+
+msgid "admin.active"
+msgstr "Active"
+
+msgid "admin.activeExecutions"
+msgstr "Active executions"
+
+msgid "admin.actor"
+msgstr "Actor"
+
+msgid "admin.addProvider"
+msgstr "Add provider"
+
+msgid "admin.allowRegistration"
+msgstr "Allow open registration"
+
+msgid "admin.apiKey"
+msgstr "API key"
+
+msgid "admin.audit"
+msgstr "Audit log"
+
+msgid "admin.auditHint"
+msgstr "The 200 most recent administrative and security-relevant events."
+
+msgid "admin.autoRefresh"
+msgstr "Auto refresh"
+
+msgid "admin.banned"
+msgstr "Disabled"
+
+msgid "admin.baseUrl"
+msgstr "Base URL"
+
+msgid "admin.browserAllowHttp"
+msgstr "Allow plain HTTP browsing"
+
+msgid "admin.browserAllowedPorts"
+msgstr "Allowed browser ports"
+
+msgid "admin.byStatus"
+msgstr "Executions by status"
+
+msgid "admin.copyLink"
+msgstr "Copy link"
+
+msgid "admin.created"
+msgstr "Created"
+
+msgid "admin.credentialLabel"
+msgstr "Label"
+
+msgid "admin.credentialSaved"
+msgstr "Shared credential saved."
+
+msgid "admin.credentialTitle"
+msgstr "Shared credential for {name}"
+
+msgid "admin.defaultModel"
+msgstr "Default model"
+
+msgid "admin.defaultProvider"
+msgstr "Default provider"
+
+msgid "admin.defaultTimezone"
+msgstr "Default timezone"
+
+msgid "admin.deleteProvider"
+msgstr "Delete provider"
+
+msgid "admin.deleteProviderBody"
+msgstr "Delete “{name}”? Tasks using it must be updated first."
+
+msgid "admin.deleteProviderTitle"
+msgstr "Delete provider"
+
+msgid "admin.demote"
+msgstr "Make user"
+
+msgid "admin.disable"
+msgstr "Disable"
+
+msgid "admin.enable"
+msgstr "Enable"
+
+msgid "admin.executions24h"
+msgstr "Executions (24 h)"
+
+msgid "admin.health"
+msgstr "Health check"
+
+msgid "admin.healthFail"
+msgstr "Provider health check failed."
+
+msgid "admin.healthOk"
+msgstr "Provider is reachable."
+
+msgid "admin.invitations"
+msgstr "Invitations"
+
+msgid "admin.invite"
+msgstr "Send invitation"
+
+msgid "admin.inviteCreated"
+msgstr "Invitation created."
+
+msgid "admin.inviteEmail"
+msgstr "Email address"
+
+msgid "admin.inviteFailed"
+msgstr "The invitation could not be sent."
+
+msgid "admin.inviteLink"
+msgstr "Invitation link"
+
+msgid "admin.inviteLinkHint"
+msgstr "Share this single-use link with the invited person."
+
+msgid "admin.inviteRole"
+msgstr "Role"
+
+msgid "admin.inviting"
+msgstr "Sending…"
+
+msgid "admin.ip"
+msgstr "IP address"
+
+msgid "admin.kindCodex"
+msgstr "Codex"
+
+msgid "admin.kindOllama"
+msgstr "Ollama"
+
+msgid "admin.kindOpenai"
+msgstr "OpenAI"
+
+msgid "admin.kindOpenaiCompatible"
+msgstr "OpenAI-compatible"
+
+msgid "admin.lastUpdated"
+msgstr "Last updated"
+
+msgid "admin.maxConcurrent"
+msgstr "Concurrent executions per user"
+
+msgid "admin.maxPerDay"
+msgstr "Executions per user per day"
+
+msgid "admin.metadata"
+msgstr "Metadata"
+
+msgid "admin.metrics"
+msgstr "Metrics"
+
+msgid "admin.modelsRefreshed"
+msgstr "Models refreshed."
+
+msgid "admin.monitoring"
+msgstr "Monitoring"
+
+msgid "admin.monitoringHint"
+msgstr "Live view of the instance. Refreshes every 15 seconds."
+
+msgid "admin.noAudit"
+msgstr "No audit entries yet."
+
+msgid "admin.noInvitations"
+msgstr "No open invitations."
+
+msgid "admin.noProviders"
+msgstr "No providers configured yet."
+
+msgid "admin.noUsers"
+msgstr "No users found."
+
+msgid "admin.personalCredentialCount"
+msgstr "Personal keys: {count}"
+
+msgid "admin.portInvalid"
+msgstr "Ports must be numbers between 1 and 65535."
+
+msgid "admin.portsHint"
+msgstr "Comma-separated port numbers, for example 80, 443, 8080."
+
+msgid "admin.promote"
+msgstr "Make administrator"
+
+msgid "admin.providerCreated"
+msgstr "Provider created."
+
+msgid "admin.providerDeleted"
+msgstr "Provider deleted."
+
+msgid "admin.providerDialogTitle"
+msgstr "Add provider"
+
+msgid "admin.providerEditTitle"
+msgstr "Edit provider"
+
+msgid "admin.providerEnabled"
+msgstr "Enabled"
+
+msgid "admin.providerHeaders"
+msgstr "Stored headers"
+
+msgid "admin.providerHeadersHint"
+msgstr "Header values are write-only: they are never loaded into this form and stay unchanged when you save."
+
+msgid "admin.providerKind"
+msgstr "Kind"
+
+msgid "admin.providerName"
+msgstr "Name"
+
+msgid "admin.providerSaved"
+msgstr "Provider updated."
+
+msgid "admin.providers"
+msgstr "Providers"
+
+msgid "admin.publicBaseUrl"
+msgstr "Public base URL"
+
+msgid "admin.recentExecutions"
+msgstr "Recent executions"
+
+msgid "admin.refreshModels"
+msgstr "Refresh models"
+
+msgid "admin.revoke"
+msgstr "Revoke"
+
+msgid "admin.revoked"
+msgstr "Invitation revoked."
+
+msgid "admin.saveSettings"
+msgstr "Save settings"
+
+msgid "admin.searchBaseUrl"
+msgstr "Search base URL"
+
+msgid "admin.searchProvider"
+msgstr "Search provider"
+
+msgid "admin.settings"
+msgstr "System settings"
+
+msgid "admin.settingsHint"
+msgstr "Defaults applied to new accounts and execution guardrails."
+
+msgid "admin.settingsInvalid"
+msgstr "Please correct the highlighted settings."
+
+msgid "admin.settingsSaved"
+msgstr "Settings saved."
+
+msgid "admin.settingsTitle"
+msgstr "System settings"
+
+msgid "admin.sharedCredential"
+msgstr "Shared key"
+
+msgid "admin.smtpFrom"
+msgstr "SMTP sender address"
+
+msgid "admin.subtitle"
+msgstr "Instance health, users and provider configuration."
+
+msgid "admin.systemStatus"
+msgstr "System status"
+
+msgid "admin.target"
+msgstr "Target"
+
+msgid "admin.tasksCount"
+msgstr "Tasks"
+
+msgid "admin.title"
+msgstr "Administration"
+
+msgid "admin.userUpdated"
+msgstr "User updated."
+
+msgid "admin.users"
+msgstr "Users"
+
+msgid "admin.usersCount"
+msgstr "Users"
+
+msgid "app.name"
+msgstr "Agent Tasks"
+
+msgid "app.tagline"
+msgstr "Autonomous research, on a schedule"
+
+msgid "auth.acceptFailed"
+msgstr "The invitation could not be accepted."
+
+msgid "auth.acceptInvite"
+msgstr "Create account"
+
+msgid "auth.accepting"
+msgstr "Creating account…"
+
+msgid "auth.accountCreated"
+msgstr "Account created. Signing you in…"
+
+msgid "auth.alreadyConfigured"
+msgstr "This instance is already configured."
+
+msgid "auth.backToLogin"
+msgstr "Back to sign in"
+
+msgid "auth.backupCode"
+msgstr "Backup code"
+
+msgid "auth.backupCodeHint"
+msgstr "Enter one of the single-use backup codes you saved when you enabled two-factor authentication."
+
+msgid "auth.confirmPassword"
+msgstr "Confirm password"
+
+msgid "auth.createAdmin"
+msgstr "Create administrator"
+
+msgid "auth.creating"
+msgstr "Creating…"
+
+msgid "auth.emailPlaceholder"
+msgstr "you@example.com"
+
+msgid "auth.hasAccount"
+msgstr "Already have an account?"
+
+msgid "auth.inviteExpires"
+msgstr "Expires {date}"
+
+msgid "auth.inviteInvalid"
+msgstr "This invitation is invalid or has expired."
+
+msgid "auth.inviteInvalidHint"
+msgstr "Ask an administrator for a new invitation link."
+
+msgid "auth.inviteSubtitle"
+msgstr "Choose a name and password to activate your account."
+
+msgid "auth.inviteTitle"
+msgstr "Accept your invitation"
+
+msgid "auth.invitedAs"
+msgstr "Invitation for {email}"
+
+msgid "auth.loginFailed"
+msgstr "The email or password is incorrect."
+
+msgid "auth.loginSubtitle"
+msgstr "Sign in to manage your scheduled research tasks."
+
+msgid "auth.loginTitle"
+msgstr "Welcome back"
+
+msgid "auth.noAccount"
+msgstr "No account yet?"
+
+msgid "auth.passwordHint"
+msgstr "At least 12 characters."
+
+msgid "auth.passwordMismatch"
+msgstr "The passwords do not match."
+
+msgid "auth.sessionExpired"
+msgstr "Your session expired. Please sign in again."
+
+msgid "auth.setupDone"
+msgstr "Administrator created. You can sign in now."
+
+msgid "auth.setupFailed"
+msgstr "Setup failed. Check the token and try again."
+
+msgid "auth.setupRequired"
+msgstr "First start? Create the administrator account."
+
+msgid "auth.setupSubtitle"
+msgstr "Paste the one-time setup token printed by the server, then choose the administrator credentials."
+
+msgid "auth.setupTitle"
+msgstr "Create the first administrator"
+
+msgid "auth.setupToken"
+msgstr "Setup token"
+
+msgid "auth.setupTokenHint"
+msgstr "The server logs this token once at startup. It is never stored in the browser."
+
+msgid "auth.signIn"
+msgstr "Sign in"
+
+msgid "auth.signingIn"
+msgstr "Signing in…"
+
+msgid "auth.totpCode"
+msgstr "Authentication code"
+
+msgid "auth.totpCodeHint"
+msgstr "Enter the 6-digit code from your authenticator app."
+
+msgid "auth.twoFactorInvalid"
+msgstr "That code is not valid. Try again."
+
+msgid "auth.twoFactorSubtitle"
+msgstr "Your account is protected by a second factor."
+
+msgid "auth.twoFactorTitle"
+msgstr "Two-factor verification"
+
+msgid "auth.twoFactorVerify"
+msgstr "Verify code"
+
+msgid "auth.twoFactorVerifying"
+msgstr "Verifying…"
+
+msgid "auth.useBackupCode"
+msgstr "Use a backup code"
+
+msgid "auth.useTotpCode"
+msgstr "Use an authenticator code"
+
+msgid "common.actions"
+msgstr "Actions"
+
+msgid "common.all"
+msgstr "All"
+
+msgid "common.back"
+msgstr "Back"
+
+msgid "common.cancel"
+msgstr "Cancel"
+
+msgid "common.close"
+msgstr "Close"
+
+msgid "common.closeDialog"
+msgstr "Close dialog"
+
+msgid "common.confirm"
+msgstr "Confirm"
+
+msgid "common.copied"
+msgstr "Copied"
+
+msgid "common.copy"
+msgstr "Copy"
+
+msgid "common.create"
+msgstr "Create"
+
+msgid "common.created"
+msgstr "Created"
+
+msgid "common.delete"
+msgstr "Delete"
+
+msgid "common.deleting"
+msgstr "Deleting…"
+
+msgid "common.details"
+msgstr "Details"
+
+msgid "common.disabled"
+msgstr "Disabled"
+
+msgid "common.download"
+msgstr "Download"
+
+msgid "common.edit"
+msgstr "Edit"
+
+msgid "common.email"
+msgstr "Email"
+
+msgid "common.enabled"
+msgstr "Enabled"
+
+msgid "common.error"
+msgstr "Something went wrong"
+
+msgid "common.errorAlert"
+msgstr "Error"
+
+msgid "common.language"
+msgstr "Language"
+
+msgid "common.loading"
+msgstr "Loading…"
+
+msgid "common.loadingPage"
+msgstr "Loading page"
+
+msgid "common.name"
+msgstr "Name"
+
+msgid "common.never"
+msgstr "Never"
+
+msgid "common.no"
+msgstr "No"
+
+msgid "common.noData"
+msgstr "No data yet"
+
+msgid "common.none"
+msgstr "None"
+
+msgid "common.notAvailable"
+msgstr "Not available"
+
+msgid "common.optional"
+msgstr "optional"
+
+msgid "common.password"
+msgstr "Password"
+
+msgid "common.refresh"
+msgstr "Refresh"
+
+msgid "common.required"
+msgstr "required"
+
+msgid "common.retry"
+msgstr "Retry"
+
+msgid "common.retryNow"
+msgstr "Retry now"
+
+msgid "common.role"
+msgstr "Role"
+
+msgid "common.rows"
+msgstr "rows"
+
+msgid "common.save"
+msgstr "Save"
+
+msgid "common.saveChanges"
+msgstr "Save changes"
+
+msgid "common.saving"
+msgstr "Saving…"
+
+msgid "common.skipToContent"
+msgstr "Skip to content"
+
+msgid "common.status"
+msgstr "Status"
+
+msgid "common.success"
+msgstr "Success"
+
+msgid "common.successAlert"
+msgstr "Success"
+
+msgid "common.theme"
+msgstr "Theme"
+
+msgid "common.timezone"
+msgstr "Timezone"
+
+msgid "common.unknown"
+msgstr "Unknown"
+
+msgid "common.updated"
+msgstr "Updated"
+
+msgid "common.version"
+msgstr "Version"
+
+msgid "common.view"
+msgstr "View"
+
+msgid "common.yes"
+msgstr "Yes"
+
+msgid "confidence.inference"
+msgstr "Inference"
+
+msgid "confidence.secondary"
+msgstr "Secondary"
+
+msgid "confidence.unknown"
+msgstr "Unknown"
+
+msgid "confidence.verified"
+msgstr "Verified"
+
+msgid "dashboard.activeTasks"
+msgstr "Active tasks"
+
+msgid "dashboard.allClear"
+msgstr "All clear"
+
+msgid "dashboard.failures"
+msgstr "Failures"
+
+msgid "dashboard.lastExecution"
+msgstr "Recent activity"
+
+msgid "dashboard.nextRun"
+msgstr "Next run"
+
+msgid "dashboard.noActive"
+msgstr "No active tasks yet."
+
+msgid "dashboard.noExecutions"
+msgstr "Nothing has run yet."
+
+msgid "dashboard.noFailures"
+msgstr "No failures in recent runs."
+
+msgid "dashboard.noPaused"
+msgstr "No paused tasks."
+
+msgid "dashboard.pausedTasks"
+msgstr "Paused tasks"
+
+msgid "dashboard.recentExecutions"
+msgstr "Recent executions"
+
+msgid "dashboard.subtitle"
+msgstr "What is scheduled, what ran, and what needs attention."
+
+msgid "dashboard.title"
+msgstr "Dashboard"
+
+msgid "dashboard.viewExecutions"
+msgstr "View all executions"
+
+msgid "dashboard.viewTasks"
+msgstr "View all tasks"
+
+msgid "errors.actionFailed"
+msgstr "The action failed."
+
+msgid "errors.conflict"
+msgstr "That conflicts with the current state."
+
+msgid "errors.forbidden"
+msgstr "You do not have permission to do that."
+
+msgid "errors.generic"
+msgstr "Something went wrong. Please try again."
+
+msgid "errors.loadFailed"
+msgstr "Could not load this data."
+
+msgid "errors.network"
+msgstr "The server could not be reached."
+
+msgid "errors.notFound"
+msgstr "The requested resource was not found."
+
+msgid "errors.sessionExpired"
+msgstr "Your session expired."
+
+msgid "errors.unauthorized"
+msgstr "Please sign in to continue."
+
+msgid "executions.allStatuses"
+msgstr "All statuses"
+
+msgid "executions.arguments"
+msgstr "Arguments"
+
+msgid "executions.attempt"
+msgstr "Attempt {attempt}"
+
+msgid "executions.back"
+msgstr "Back to executions"
+
+msgid "executions.cancel"
+msgstr "Cancel run"
+
+msgid "executions.cancelBody"
+msgstr "Stop this run? Steps that already finished stay in the timeline."
+
+msgid "executions.cancelTitle"
+msgstr "Cancel execution"
+
+msgid "executions.cancelledMsg"
+msgstr "Cancellation requested."
+
+msgid "executions.cancelling"
+msgstr "Cancelling…"
+
+msgid "executions.detailTitle"
+msgstr "Execution detail"
+
+msgid "executions.duration"
+msgstr "Duration"
+
+msgid "executions.empty"
+msgstr "No executions found"
+
+msgid "executions.emptyHint"
+msgstr "Executions appear here after a task runs or is triggered manually."
+
+msgid "executions.error"
+msgstr "Error"
+
+msgid "executions.execution"
+msgstr "Execution"
+
+msgid "executions.exportJson"
+msgstr "Export JSON"
+
+msgid "executions.exportMarkdown"
+msgstr "Export Markdown"
+
+msgid "executions.filterStatus"
+msgstr "Filter by status"
+
+msgid "executions.finishedAt"
+msgstr "Finished"
+
+msgid "executions.noFailures"
+msgstr "No recent failures."
+
+msgid "executions.noReport"
+msgstr "No report yet. It appears when the run completes."
+
+msgid "executions.noSources"
+msgstr "No sources recorded."
+
+msgid "executions.noSteps"
+msgstr "No steps recorded."
+
+msgid "executions.noVisitedSites"
+msgstr "No pages were visited."
+
+msgid "executions.report"
+msgstr "Report"
+
+msgid "executions.result"
+msgstr "Result"
+
+msgid "executions.resultPreview"
+msgstr "Result preview"
+
+msgid "executions.retriedMsg"
+msgstr "Retry queued."
+
+msgid "executions.retrievedAt"
+msgstr "Retrieved"
+
+msgid "executions.retry"
+msgstr "Retry"
+
+msgid "executions.retryBody"
+msgstr "Queue a new execution of “{title}”?"
+
+msgid "executions.retryTitle"
+msgstr "Retry execution"
+
+msgid "executions.retrying"
+msgstr "Retrying…"
+
+msgid "executions.scheduledFor"
+msgstr "Scheduled for"
+
+msgid "executions.sources"
+msgstr "Sources"
+
+msgid "executions.startedAt"
+msgstr "Started"
+
+msgid "executions.step"
+msgstr "Step"
+
+msgid "executions.steps"
+msgstr "{count} steps"
+
+msgid "executions.subtitle"
+msgstr "Every run, its timeline and its report."
+
+msgid "executions.task"
+msgstr "Task"
+
+msgid "executions.timeline"
+msgstr "Timeline"
+
+msgid "executions.title"
+msgstr "Executions"
+
+msgid "executions.tokens"
+msgstr "{total} tokens"
+
+msgid "executions.tool"
+msgstr "Tool"
+
+msgid "executions.trigger"
+msgstr "Trigger"
+
+msgid "executions.uncertainty"
+msgstr "Uncertainty"
+
+msgid "executions.usage"
+msgstr "Token usage"
+
+msgid "executions.viewExecution"
+msgstr "Open execution"
+
+msgid "executions.visitedSites"
+msgstr "Visited sites"
+
+msgid "executions.waiting"
+msgstr "Waiting for the worker…"
+
+msgid "nav.admin"
+msgstr "Admin"
+
+msgid "nav.administration"
+msgstr "Administration"
+
+msgid "nav.audit"
+msgstr "Audit log"
+
+msgid "nav.closeMenu"
+msgstr "Close navigation"
+
+msgid "nav.dashboard"
+msgstr "Dashboard"
+
+msgid "nav.executions"
+msgstr "Executions"
+
+msgid "nav.logout"
+msgstr "Sign out"
+
+msgid "nav.mainNavigation"
+msgstr "Main navigation"
+
+msgid "nav.monitoring"
+msgstr "Monitoring"
+
+msgid "nav.openMenu"
+msgstr "Open navigation"
+
+msgid "nav.providers"
+msgstr "Providers"
+
+msgid "nav.settings"
+msgstr "Settings"
+
+msgid "nav.signedInAs"
+msgstr "Signed in as"
+
+msgid "nav.tasks"
+msgstr "Tasks"
+
+msgid "nav.toggleTheme"
+msgstr "Toggle color theme"
+
+msgid "nav.users"
+msgstr "Users"
+
+msgid "roles.ADMIN"
+msgstr "Administrator"
+
+msgid "roles.USER"
+msgstr "User"
+
+msgid "settings.account"
+msgstr "Account"
+
+msgid "settings.addKey"
+msgstr "Add key"
+
+msgid "settings.apiKey"
+msgstr "API key"
+
+msgid "settings.appearance"
+msgstr "Appearance"
+
+msgid "settings.backupCodes"
+msgstr "Backup codes"
+
+msgid "settings.backupCodesHint"
+msgstr "Store these single-use codes somewhere safe. They are shown only once."
+
+msgid "settings.confirmTwoFactor"
+msgstr "Confirm and enable"
+
+msgid "settings.connected"
+msgstr "Personal key stored"
+
+msgid "settings.copyBackupCodes"
+msgstr "Copy backup codes"
+
+msgid "settings.copyFailed"
+msgstr "Copying failed. Select the codes manually."
+
+msgid "settings.credentialsHint"
+msgstr "Keys are sent once to the server, encrypted at rest, and never returned to the browser."
+
+msgid "settings.currentPassword"
+msgstr "Current password"
+
+msgid "settings.currentPasswordHint"
+msgstr "The authentication service asks for your password before changing two-factor settings."
+
+msgid "settings.disableTwoFactor"
+msgstr "Disable two-factor authentication"
+
+msgid "settings.disableTwoFactorBody"
+msgstr "Confirm with your current password and a valid authenticator or backup code. The backup code is consumed."
+
+msgid "settings.enableTwoFactor"
+msgstr "Enable two-factor authentication"
+
+msgid "settings.keyLabel"
+msgstr "Label"
+
+msgid "settings.keyRemoved"
+msgstr "Key removed."
+
+msgid "settings.keySaved"
+msgstr "Key saved."
+
+msgid "settings.language"
+msgstr "Language"
+
+msgid "settings.languageHint"
+msgstr "The interface language is stored in this browser as well."
+
+msgid "settings.limitConcurrent"
+msgstr "Concurrent executions: {count}"
+
+msgid "settings.limitDaily"
+msgstr "Executions per day: {count}"
+
+msgid "settings.limitsTitle"
+msgstr "Account limits"
+
+msgid "settings.noProviders"
+msgstr "No providers available."
+
+msgid "settings.notConnected"
+msgstr "No personal key"
+
+msgid "settings.personalCredentials"
+msgstr "Personal provider credentials"
+
+msgid "settings.preferences"
+msgstr "Preferences"
+
+msgid "settings.preferencesHint"
+msgstr "These settings follow your account across devices."
+
+msgid "settings.provider"
+msgstr "Provider"
+
+msgid "settings.removeKey"
+msgstr "Remove key"
+
+msgid "settings.removeKeyBody"
+msgstr "Remove your stored key for {name}? Shared credentials still apply."
+
+msgid "settings.removeKeyTitle"
+msgstr "Remove personal key"
+
+msgid "settings.saveKey"
+msgstr "Save key"
+
+msgid "settings.savePreferences"
+msgstr "Save preferences"
+
+msgid "settings.saved"
+msgstr "Preferences saved."
+
+msgid "settings.subtitle"
+msgstr "Your preferences, language, appearance and API credentials."
+
+msgid "settings.theme"
+msgstr "Theme"
+
+msgid "settings.themeDark"
+msgstr "Dark"
+
+msgid "settings.themeLight"
+msgstr "Light"
+
+msgid "settings.themeSystem"
+msgstr "Match system"
+
+msgid "settings.timezone"
+msgstr "Timezone"
+
+msgid "settings.timezoneHint"
+msgstr "Schedules and report timestamps use this timezone."
+
+msgid "settings.title"
+msgstr "Settings"
+
+msgid "settings.totpSetupHint"
+msgstr "Add this URI to your authenticator app, then confirm the 6-digit code it shows. Two-factor authentication only becomes active after that confirmation."
+
+msgid "settings.totpUri"
+msgstr "Authenticator setup URI"
+
+msgid "settings.twoFactor"
+msgstr "Two-factor authentication"
+
+msgid "settings.twoFactorCode"
+msgstr "Authenticator or backup code"
+
+msgid "settings.twoFactorCodeHint"
+msgstr "A 6-digit authenticator code, or one of your saved backup codes."
+
+msgid "settings.twoFactorCodeInvalid"
+msgstr "The code is not valid."
+
+msgid "settings.twoFactorDisabledHint"
+msgstr "Two-factor authentication is not active for this account."
+
+msgid "settings.twoFactorDisabledMsg"
+msgstr "Two-factor authentication disabled."
+
+msgid "settings.twoFactorEnabledHint"
+msgstr "Signing in requires a code from your authenticator app or a backup code."
+
+msgid "settings.twoFactorEnabledMsg"
+msgstr "Two-factor authentication enabled."
+
+msgid "settings.twoFactorHint"
+msgstr "Require an authenticator code in addition to your password when signing in."
+
+msgid "settings.twoFactorSetupFailed"
+msgstr "Two-factor setup failed."
+
+msgid "status.cancelled"
+msgstr "Cancelled"
+
+msgid "status.completed"
+msgstr "Completed"
+
+msgid "status.failed"
+msgstr "Failed"
+
+msgid "status.queued"
+msgstr "Queued"
+
+msgid "status.running"
+msgstr "Running"
+
+msgid "status.timed_out"
+msgstr "Timed out"
+
+msgid "tasks.advancedSection"
+msgstr "Behaviour"
+
+msgid "tasks.allowWebResearch"
+msgstr "Allow web research"
+
+msgid "tasks.basicSection"
+msgstr "Task"
+
+msgid "tasks.count"
+msgstr "{count} tasks"
+
+msgid "tasks.createFirst"
+msgstr "Create your first task"
+
+msgid "tasks.createdMsg"
+msgstr "Task created."
+
+msgid "tasks.cron"
+msgstr "Cron expression"
+
+msgid "tasks.cronHelp"
+msgstr "Five fields: minute hour day-of-month month weekday."
+
+msgid "tasks.dayOfMonth"
+msgstr "Day of month"
+
+msgid "tasks.deleteBody"
+msgstr "Delete “{title}”? Its execution history stays archived."
+
+msgid "tasks.deleteConfirm"
+msgstr "Delete task"
+
+msgid "tasks.deleteTitle"
+msgstr "Delete task"
+
+msgid "tasks.deleted"
+msgstr "Task deleted."
+
+msgid "tasks.description"
+msgstr "Description"
+
+msgid "tasks.detailTitle"
+msgstr "Task details"
+
+msgid "tasks.duplicate"
+msgstr "Duplicate"
+
+msgid "tasks.duplicateTitle"
+msgstr "Copy of {title}"
+
+msgid "tasks.duplicated"
+msgstr "Task duplicated."
+
+msgid "tasks.editTask"
+msgstr "Edit task"
+
+msgid "tasks.empty"
+msgstr "No tasks yet"
+
+msgid "tasks.emptyHint"
+msgstr "Create a task with a prompt, a model and a schedule to get started."
+
+msgid "tasks.enabled"
+msgstr "Enabled"
+
+msgid "tasks.enabledHelp"
+msgstr "Disabled tasks keep their schedule but never run."
+
+msgid "tasks.executionsTitle"
+msgstr "Executions"
+
+msgid "tasks.formInvalid"
+msgstr "Please correct the highlighted fields."
+
+msgid "tasks.hour"
+msgstr "Hour"
+
+msgid "tasks.lastRun"
+msgstr "Last run"
+
+msgid "tasks.limitsDuration"
+msgstr "Maximum duration (seconds)"
+
+msgid "tasks.limitsOutput"
+msgstr "Maximum output (bytes)"
+
+msgid "tasks.limitsPages"
+msgstr "Maximum page visits"
+
+msgid "tasks.limitsSearches"
+msgstr "Maximum search queries"
+
+msgid "tasks.limitsSection"
+msgstr "Limits"
+
+msgid "tasks.limitsSteps"
+msgstr "Maximum agent steps"
+
+msgid "tasks.limitsToolCalls"
+msgstr "Maximum tool calls"
+
+msgid "tasks.minute"
+msgstr "Minute"
+
+msgid "tasks.model"
+msgstr "Model"
+
+msgid "tasks.newTask"
+msgstr "New task"
+
+msgid "tasks.nextRun"
+msgstr "Next run"
+
+msgid "tasks.noExecutions"
+msgstr "This task has not run yet."
+
+msgid "tasks.noModels"
+msgstr "This provider has no models. Refresh its model list in the admin area."
+
+msgid "tasks.noProviders"
+msgstr "No providers are configured. Ask an administrator to add one."
+
+msgid "tasks.notification"
+msgstr "Notification"
+
+msgid "tasks.notificationEmail"
+msgstr "Email me"
+
+msgid "tasks.notificationNone"
+msgstr "No notification"
+
+msgid "tasks.pause"
+msgstr "Pause"
+
+msgid "tasks.pausedMsg"
+msgstr "Task paused."
+
+msgid "tasks.preset"
+msgstr "Repeat"
+
+msgid "tasks.presetCustom"
+msgstr "Custom cron"
+
+msgid "tasks.presetDaily"
+msgstr "Daily"
+
+msgid "tasks.presetMonthly"
+msgstr "Monthly"
+
+msgid "tasks.presetOnce"
+msgstr "Once"
+
+msgid "tasks.presetWeekdays"
+msgstr "Weekdays"
+
+msgid "tasks.presetWeekly"
+msgstr "Weekly"
+
+msgid "tasks.prompt"
+msgstr "Prompt"
+
+msgid "tasks.promptHelp"
+msgstr "What should the agent research and report? Be specific about the desired outcome."
+
+msgid "tasks.provider"
+msgstr "Provider"
+
+msgid "tasks.providerCredentialHint"
+msgstr "This provider needs a personal API key under Settings."
+
+msgid "tasks.resume"
+msgstr "Resume"
+
+msgid "tasks.resumedMsg"
+msgstr "Task resumed."
+
+msgid "tasks.runAt"
+msgstr "Run at"
+
+msgid "tasks.runNow"
+msgstr "Run now"
+
+msgid "tasks.runQueued"
+msgstr "Execution queued."
+
+msgid "tasks.save"
+msgstr "Save task"
+
+msgid "tasks.saved"
+msgstr "Task saved."
+
+msgid "tasks.schedule"
+msgstr "Schedule"
+
+msgid "tasks.scheduleSection"
+msgstr "Schedule"
+
+msgid "tasks.scheduleSummary.custom"
+msgstr "Cron “{cron}” ({timezone})"
+
+msgid "tasks.scheduleSummary.daily"
+msgstr "Every day at {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.monthly"
+msgstr "Monthly on day {day} at {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.once"
+msgstr "Once at {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.weekdays"
+msgstr "Workdays at {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.weekly"
+msgstr "Every {weekday} at {time} ({timezone})"
+
+msgid "tasks.searchPlaceholder"
+msgstr "Filter by title"
+
+msgid "tasks.selectModel"
+msgstr "Select a model"
+
+msgid "tasks.selectProvider"
+msgstr "Select a provider"
+
+msgid "tasks.subtitle"
+msgstr "Scheduled research jobs and their guardrails."
+
+msgid "tasks.systemHelp"
+msgstr "Optional tone and format rules for the agent."
+
+msgid "tasks.systemInstructions"
+msgstr "System instructions"
+
+msgid "tasks.timezone"
+msgstr "Timezone"
+
+msgid "tasks.title"
+msgstr "Tasks"
+
+msgid "tasks.titleLabel"
+msgstr "Title"
+
+msgid "tasks.titlePlaceholder"
+msgstr "Weekly competitor briefing"
+
+msgid "tasks.viewTask"
+msgstr "Open task"
+
+msgid "tasks.weekdays"
+msgstr "Weekdays"
+
+msgid "toast.created"
+msgstr "Created."
+
+msgid "toast.deleted"
+msgstr "Deleted."
+
+msgid "toast.error"
+msgstr "Action failed."
+
+msgid "toast.saved"
+msgstr "Saved."
+
+msgid "trigger.manual"
+msgstr "Manual"
+
+msgid "trigger.retry"
+msgstr "Retry"
+
+msgid "trigger.schedule"
+msgstr "Schedule"
+
+msgid "validation.cronInvalid"
+msgstr "Use a valid five-field cron expression."
+
+msgid "validation.cronRequired"
+msgstr "Enter a cron expression."
+
+msgid "validation.dayOfMonthRequired"
+msgstr "Choose a day of the month."
+
+msgid "validation.descriptionMax"
+msgstr "The description must be at most 2000 characters."
+
+msgid "validation.emailInvalid"
+msgstr "Enter a valid email address."
+
+msgid "validation.instructionsMax"
+msgstr "The instructions must be at most 8000 characters."
+
+msgid "validation.modelRequired"
+msgstr "Select a model."
+
+msgid "validation.passwordLength"
+msgstr "Use at least 12 characters."
+
+msgid "validation.promptMax"
+msgstr "The prompt must be at most 20000 characters."
+
+msgid "validation.promptMin"
+msgstr "The prompt needs at least 10 characters."
+
+msgid "validation.providerRequired"
+msgstr "Select a provider."
+
+msgid "validation.range"
+msgstr "The value is outside the allowed range."
+
+msgid "validation.required"
+msgstr "This field is required."
+
+msgid "validation.runAtRequired"
+msgstr "Choose the date and time for a one-off run."
+
+msgid "validation.timeInvalid"
+msgstr "Enter a valid time."
+
+msgid "validation.timezoneInvalid"
+msgstr "Enter a valid IANA timezone."
+
+msgid "validation.timezoneRequired"
+msgstr "Select a timezone."
+
+msgid "validation.titleMax"
+msgstr "The title must be at most 160 characters."
+
+msgid "validation.titleMin"
+msgstr "The title needs at least 3 characters."
+
+msgid "validation.weekdaysRequired"
+msgstr "Select at least one weekday."
+
+msgid "validation.weeklyOneDay"
+msgstr "A weekly schedule needs exactly one weekday."
+
+msgid "weekdays.long.0"
+msgstr "Sunday"
+
+msgid "weekdays.long.1"
+msgstr "Monday"
+
+msgid "weekdays.long.2"
+msgstr "Tuesday"
+
+msgid "weekdays.long.3"
+msgstr "Wednesday"
+
+msgid "weekdays.long.4"
+msgstr "Thursday"
+
+msgid "weekdays.long.5"
+msgstr "Friday"
+
+msgid "weekdays.long.6"
+msgstr "Saturday"
+
+msgid "weekdays.short.0"
+msgstr "Sun"
+
+msgid "weekdays.short.1"
+msgstr "Mon"
+
+msgid "weekdays.short.2"
+msgstr "Tue"
+
+msgid "weekdays.short.3"
+msgstr "Wed"
+
+msgid "weekdays.short.4"
+msgstr "Thu"
+
+msgid "weekdays.short.5"
+msgstr "Fri"
+
+msgid "weekdays.short.6"
+msgstr "Sat"

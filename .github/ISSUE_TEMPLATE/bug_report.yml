@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a reproducible defect in Agent Tasks
+title: '[Bug]: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please remove secrets,
+        tokens, API keys and personal data from logs before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the behaviour you observed and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose (released images)
+        - Docker Compose (built from source)
+        - Local development (pnpm dev)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Image tag, release version or git commit SHA.
+      placeholder: v0.1.0 / 1a2b3c4
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and operating system
+      placeholder: Firefox 130 on Debian 13
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: API, worker or browser console output. Redact secrets.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: I removed secrets, tokens and personal data from this report.
+          required: true

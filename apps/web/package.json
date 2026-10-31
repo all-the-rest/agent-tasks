@@ -1,0 +1,45 @@
+{
+  "name": "@agent-tasks/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "i18n:extract": "lingui extract",
+    "i18n:compile": "node scripts/generate-catalogs.mjs",
+    "pretest": "node scripts/generate-catalogs.mjs",
+    "prebuild": "node scripts/generate-catalogs.mjs"
+  },
+  "dependencies": {
+    "@lingui/core": "^6.11.0",
+    "@lingui/message-utils": "^6.11.0",
+    "@agent-tasks/shared": "workspace:*",
+    "@tanstack/react-query": "^5.90.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-hook-form": "^7.64.0",
+    "react-markdown": "^10.1.0",
+    "react-router": "^7.9.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@lingui/cli": "^6.11.0",
+    "@lingui/format-po": "^6.11.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^27.0.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.5",
+    "daisyui": "^5.7.50"
+  }
+}
