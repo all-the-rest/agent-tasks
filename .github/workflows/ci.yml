@@ -165,6 +165,16 @@ jobs:
             echo "COOKIE_SECURE=false"
             echo "SETUP_TOKEN=$SETUP_TOKEN"
             echo "E2E_SETUP_TOKEN=$SETUP_TOKEN"
+            # Environment bootstrap: the stack creates this admin on start, so the
+            # setup screen is skipped and the suite signs in with E2E_ADMIN_*.
+            echo "ADMIN_EMAIL=e2e-admin@example.com"
+            echo "ADMIN_PASSWORD=E2e-admin-password-123!"
+            echo "ADMIN_NAME=E2E Admin"
+            echo "E2E_ADMIN_EMAIL=e2e-admin@example.com"
+            echo "E2E_ADMIN_PASSWORD=E2e-admin-password-123!"
+            echo "ALLOW_REGISTRATION=false"
+            echo "OPENCODE_GO_API_KEY=sk-e2e-opencode-go-test"
+            echo "OPENCODE_GO_MODEL=opencode-go-heavy"
             echo "SMTP_URL=smtp://mailpit:1025"
             echo "E2E_BASE_URL=http://localhost:8080"
           } >> "$GITHUB_ENV"
@@ -191,6 +201,8 @@ jobs:
             "true "*) ;;
             *) echo "Chromium did not start with its sandbox enabled" >&2; exit 1 ;;
           esac
+      - name: Verify env bootstrap and registration setting
+        run: node scripts/verify-env-bootstrap.mjs
       - name: Point the E2E mock provider at the Docker bridge gateway
         run: |
           gateway=$(docker network inspect agent-tasks_backend --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
@@ -203,6 +215,10 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run browser E2E
         run: pnpm test:e2e
+      - name: Verify parallel workers and crash recovery
+        run: |
+          docker compose up -d --scale worker=2
+          node scripts/verify-workers.mjs
       - name: Verify HTML mail and SpamAssassin score
         run: |
           email=$(docker compose exec -T postgres psql -U agent -d agent_tasks -tAc "select email from \"user\" where role = 'ADMIN' order by created_at limit 1" | tr -d '[:space:]')
