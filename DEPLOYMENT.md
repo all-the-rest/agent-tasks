@@ -51,8 +51,8 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `LOG_LEVEL` | api, worker, browser-runner | `info` | no; `fatal`, `error`, `warn`, `info`, `debug` or `trace`; compose forwards it to api and worker only |
 | `TRUST_PROXY` | api | `false` in code, `true` in `compose.yaml` (the stack always sits behind nginx) | no; exactly `true` or `false` |
 | `COOKIE_SECURE` | api | `false` | no; exactly `true` or `false` |
-| `RATE_LIMIT_SIGNIN_MAX` | api | `5` | no, 1–1000; **not forwarded by `compose.yaml`** |
-| `RATE_LIMIT_WINDOW_SECONDS` | api | `60` | no, 10–3600; **not forwarded by `compose.yaml`** |
+| `RATE_LIMIT_SIGNIN_MAX` | api | `5` | no, 1–1000; forwarded by `compose.yaml` |
+| `RATE_LIMIT_WINDOW_SECONDS` | api | `60` | no, 10–3600; forwarded by `compose.yaml` |
 | `RUN_MIGRATIONS` | api | unset (migrations skipped) | no; `compose.yaml` sets `"true"`, and only the exact string `true` runs them |
 | `AGENT_TASKS_ENABLE_CODEX` | ai-providers (Codex) | unset (disabled) | no; `1` opts in; forwarded by `compose.yaml` (default `0`). The worker additionally requires `CODEX_ISOLATED_RUNNER=1` before it will run Codex |
 
