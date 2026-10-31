@@ -30,7 +30,7 @@ runner) against the exact production container posture.
 | `node apps/api/dist/index.js` + worker + runner (production bundles) | healthz OK, setup/login/session role verified | 0 |
 | `node local Ollama 0.40.13 + llama3.2:1b` via `scripts/verify-ollama-local.ts` | real tool call `get_weather {city: "Vienna"}` | 0 |
 | `docker compose config -q` | three app images + postgres + runner (+ search profile) | 0 |
-| CI compose job (`Browser E2E`, GitHub run 41233091151) | stack started with the sandbox **enabled**; runner `/healthz` asserts `sandbox: true`, `browserVersion 156.0.8078.4`; 9/9 Playwright tests passed | 0 |
+| CI compose job (`Browser E2E`, GitHub run 41235394232) | stack started with the sandbox **enabled**; runner `/healthz` asserts `sandbox: true`, `browserVersion 156.0.8078.4`; 9/9 Playwright tests passed | 0 |
 | CI same job: env bootstrap and registration | `ADMIN_EMAIL` admin created, login as ADMIN, `403` without invitation, OpenCode Go provider + shared credential, enable → `200`, disable → `403` (`ENV_BOOTSTRAP_OK`) | 0 |
 | CI same job: two workers and crash recovery | 6 concurrent executions, ≥2 distinct workers, one row each, duplicate `409`; SIGKILL of the owning worker → recovery on the survivor (`WORKERS_OK`) | 0 |
 | Sandbox probe run 41226712667 (`2ce1ac8`) | exact production posture (pwuser; `cap_drop: ALL` + `cap_add: SYS_CHROOT`; `no-new-privileges`; custom seccomp): `LAUNCH_OK version=156.0.8078.4 sandbox=true` **and** `PAGE_OK text=ok` | 0 |
@@ -79,9 +79,9 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 27 web tests (MFA, XSS, live de↔en switch), production build, 9 Playwright flows | PASS |
 | 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers) and CI compose job starts the stack and runs 9/9 E2E | PASS |
 | 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 164 unit, 48 integration, 34 web, 9 E2E | PASS |
-| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41233091151: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/web/runner image builds and security all success | PASS |
+| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41235394232: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
-| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `65862b7` pushed; CI green | PASS (with the org deviation) |
+| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `b7b79fa` pushed; CI green | PASS (with the org deviation) |
 | 18 | Agent-composed e-mail blocks (image beside text) | `packages/shared/src/email-blocks.ts`, `packages/agent-runtime/src/tools.ts`, `apps/worker/src/executor.ts`, `apps/worker/src/mailer.ts` | `email-blocks.test.ts` (5): imageText left/right, escaping, http-only URLs, block cap, document; `tools.test.ts`/`runtime.test.ts`: `add_email_block` is offered only for e-mail notifications and returns the blocks; `compose_email` parses the compact DSL (`email-dsl.test.ts`, 5 tests) and is offered only for e-mail notifications; integration `execution.test.ts`: the mock model calls `compose_email` with a heading/paragraph/imageText DSL, the completion mail contains the image/text and the execution link, and the blocks are persisted in `report.email`; CI keeps the Mailpit check green with the shared builder | PASS |
 | 19 | User-focused README with persistent screenshots | `README.md`, `docs/USER_GUIDE.md`, `docs/images/*.png`, `scripts/capture-readme-screenshots.mjs` | 10 committed PNGs captured from the running app (login, dashboard, tasks, task detail, execution report, settings, admin users/providers/settings/audit); README links the product tour and the user guide; `node scripts/capture-readme-screenshots.mjs` regenerates them | PASS |
 
@@ -198,7 +198,7 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 
 - **OpenCode Go with a real account**: no account/API key available. The adapter is proven against a real HTTP fixture that enforces the documented contract; model ids, allowance values and rate-limit headers of the real service remain unknown.
 - **Codex with a real account**: none available; adapter is opt-in and text-only.
-- **Running Compose stack**: verified locally and in CI (run 41233091151). The
+- **Running Compose stack**: verified locally and in CI (run 41235394232). The
   local host lacks unprivileged user namespaces, so the local stack used the
   documented override; CI runs the shipped `RUNNER_CHROMIUM_SANDBOX=true`
   posture and asserts it.
@@ -210,8 +210,8 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - URL: https://github.com/all-the-rest/agent-tasks (the brief's `Allderest/agent-tasks` does not exist; the `all-the-rest` organisation was used)
 - Visibility: PUBLIC; License: Apache-2.0 (`LICENSE` present)
 - Issues: 14 requirement issues (#1–#14)
-- Commit: `65862b7` (agent e-mail blocks, shared HTML builder, model variant suffix) + the commit containing this report
-- CI: run 41233091151 — all 8 jobs successful, including Browser E2E with the sandbox, env bootstrap, two-worker/crash-recovery, mail blocks/Mailpit/SpamAssassin and UI checks
+- Commit: `b7b79fa` (agent e-mail blocks, shared HTML builder, model variant suffix) + the commit containing this report
+- CI: run 41235394232 — all 8 jobs successful, including Browser E2E with the sandbox, env bootstrap, two-worker/crash-recovery, mail blocks/Mailpit/SpamAssassin and UI checks
 
 ### OpenCode Go client contract (operator acceptance: fake API)
 
@@ -267,7 +267,7 @@ when `notification=email`), and an end-to-end integration test in which the mock
 model calls `add_email_block`, the executor stores `report.email.blocks`, and an
 injected mailer receives HTML containing the image URL, alt text and body text.
 E-mail compatibility continues to be measured in CI with Mailpit/SpamAssassin:
-run 41233091151 (shared builder) reports spam score 0, 85.6 % supported,
+run 41235394232 (shared builder) reports spam score 0, 85.6 % supported,
 1.55 % unsupported, 12 warnings and two reset links in the UI check.
 
 The DSL is exposed to the model as the `compose_email` tool, with the grammar in
@@ -281,7 +281,9 @@ end-to-end test drives the DSL through the mock model into the rendered mail.
 notifications and administration. The 10 screenshots under `docs/images/` were
 captured against a seeded local instance with
 `scripts/capture-readme-screenshots.mjs` and are committed, so the README and the
-guide render on GitHub without external assets.
+guide render on GitHub without external assets. The image references were
+checked against the committed files; CI run 41235394232 keeps the full suite
+green.
 
 ### Registration setting and environment bootstrap (added on request)
 
@@ -339,7 +341,7 @@ All mandatory requirements are backed by executed evidence. The previously open
 Chromium sandbox is proven end to end: probe run 41226712667 starts Chromium with
 `sandbox=true` under the exact production posture (pwuser, `cap_drop: ALL` +
 `cap_add: SYS_CHROOT`, `no-new-privileges`, the shipped seccomp profile) and
-renders a page; CI run 41233091151 runs the Compose stack with
+renders a page; CI run 41235394232 runs the Compose stack with
 `RUNNER_CHROMIUM_SANDBOX=true`, asserts `sandbox: true` from the runner's
 `/healthz` and passes all 9 Playwright E2E tests. The same job proves the
 multi-worker path: two worker containers, six concurrent executions with
