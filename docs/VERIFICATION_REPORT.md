@@ -30,12 +30,14 @@ runner) against the exact production container posture.
 | `node apps/api/dist/index.js` + worker + runner (production bundles) | healthz OK, setup/login/session role verified | 0 |
 | `node local Ollama 0.40.13 + llama3.2:1b` via `scripts/verify-ollama-local.ts` | real tool call `get_weather {city: "Vienna"}` | 0 |
 | `docker compose config -q` | three app images + postgres + runner (+ search profile) | 0 |
+| `deployment/stack.sh {local,e2e,production} config -q` | projects `agent-tasks-local`, `agent-tasks-e2e`, `agent-tasks`; web ports 8090/8180/8080; volumes `agent-tasks-local_postgres-data`, `agent-tasks-e2e_postgres-data`, `agent-tasks_postgres-data`; every service labelled `com.agent-tasks.stack` | 0 |
+| local + E2E stacks started together | `agent-tasks-local-web-1` on 8090 and `agent-tasks-e2e-web-1` on 8180, both `/api/healthz` → `{"ok":true}`; label filters returned only each stack's containers; `down -v` removed only its own volumes | 0 |
 | CI compose job (`Browser E2E`, GitHub run 41235394232) | stack started with the sandbox **enabled**; runner `/healthz` asserts `sandbox: true`, `browserVersion 156.0.8078.4`; 9/9 Playwright tests passed | 0 |
 | CI same job: env bootstrap and registration | `ADMIN_EMAIL` admin created, login as ADMIN, `403` without invitation, OpenCode Go provider + shared credential, enable → `200`, disable → `403` (`ENV_BOOTSTRAP_OK`) | 0 |
 | CI same job: two workers and crash recovery | 6 concurrent executions, ≥2 distinct workers, one row each, duplicate `409`; SIGKILL of the owning worker → recovery on the survivor (`WORKERS_OK`) | 0 |
 | Sandbox probe run 41226712667 (`2ce1ac8`) | exact production posture (pwuser; `cap_drop: ALL` + `cap_add: SYS_CHROOT`; `no-new-privileges`; custom seccomp): `LAUNCH_OK version=156.0.8078.4 sandbox=true` **and** `PAGE_OK text=ok` | 0 |
 | `docker compose build` | see "Docker Compose" below | — |
-| `ratchet check` | 5 of 5 gates | 0 |
+| `ratchet check` | 11 of 11 gates (agent-rules preset + project rules) | 0 |
 | GitHub Actions run 41222770419 (`97487c1`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
 | `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail via the shared builder: **spam score 0**, `IsSpam=false`; **HTML compatibility 85.6 % supported / 12.9 % partial / 1.55 % unsupported / 12 warnings** (thresholds 85/2/12) | 0 |
 | `scripts/verify-mail-ui.mjs` in CI (Playwright + Mailpit UI) | heading/paragraph/CTA/two reset links asserted; `mail-preview.png` artifact (112 kB) | 0 |
@@ -77,7 +79,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 10 | Prompt injection, XSS, CSRF, secret leaks | runtime untrusted wrapper, `rehype-sanitize`, origin hook, `secretBox`, redaction | runtime tests; `markdown-safety.test.tsx`; `auth.test.ts` CSRF; `providers.test.ts` no secret in admin responses; `audit.test.ts`; ciphertext assertion | PASS |
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 27 web tests (MFA, XSS, live de↔en switch), production build, 9 Playwright flows | PASS |
-| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers) and CI compose job starts the stack and runs 9/9 E2E | PASS |
+| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `deployment/`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers); CI compose job starts the stack and runs 9/9 E2E; production/local/E2E stacks render with distinct project names, host ports, volumes and `com.agent-tasks.stack` labels, and local + E2E ran at the same time | PASS |
 | 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 164 unit, 48 integration, 34 web, 9 E2E | PASS |
 | 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41235394232: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
@@ -284,6 +286,29 @@ captured against a seeded local instance with
 guide render on GitHub without external assets. The image references were
 checked against the committed files; CI run 41235394232 keeps the full suite
 green.
+
+### Deployment stacks (added on request)
+
+`deployment/` provides three entrypoints over the shared root `compose.yaml`:
+production (`agent-tasks`), local (`agent-tasks-local`) and E2E
+(`agent-tasks-e2e`). Each include carries its own env file, so project name,
+networks, volumes and host ports are isolated; every service gets the label
+`com.agent-tasks.stack=<stack>`. Local publishes web on 8090 and Mailpit on
+1025/8025, E2E uses 8180 and 1126/8126, production keeps `HTTP_PORT` (default
+8080). `deployment/stack.sh` generates the development secrets once, keeps the
+`SETUP_TOKEN`/`E2E_SETUP_TOKEN` and `ADMIN_PASSWORD`/`E2E_ADMIN_PASSWORD` pairs
+equal, and refuses to start production while a `replace-with-*` placeholder is
+present.
+
+Executed: all three `config -q` variants exited 0; local and E2E were started at
+the same time on the remote Docker daemon and answered `/api/healthz` with
+`{"ok":true}` on 8090 and 8180; `docker ps --filter
+label=com.agent-tasks.stack=local|e2e` returned only the matching containers;
+`down -v` removed each project's own volumes. Because the daemon is remote,
+the published ports were reached through `http://dind:<port>` here; on a normal
+Docker host they are `http://localhost:<port>`. The CI lint job renders all
+three stacks with `deployment/stack.sh <stack> config -q` before the E2E job
+builds the stack.
 
 ### Registration setting and environment bootstrap (added on request)
 

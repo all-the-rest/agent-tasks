@@ -3,7 +3,7 @@ name: agent-tasks
 # Stamped on every container so a running stack is identifiable from
 # `docker ps` / `docker inspect`, independently of the compose project name.
 x-stack-label: &stack-label
-  com.agent-tasks.stack: ${STACK_NAME:-production}
+  com.agent-tasks.stack: ${STACK_NAME:-compose}
 
 x-app-env: &app-env
   NODE_ENV: production
