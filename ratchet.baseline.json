@@ -4,6 +4,9 @@
     "dependency-count": {
       "value": 17
     },
+    "gates-untouched": {
+      "value": 0
+    },
     "no-baked-secret": {
       "value": 0
     },
@@ -15,6 +18,21 @@
     },
     "no-unfinished-marker": {
       "value": 0
+    },
+    "plan-status-line": {
+      "value": 0
+    },
+    "rule-file-max-lines": {
+      "value": 61
+    },
+    "rule-file-name": {
+      "value": 0
+    },
+    "rule-file-present": {
+      "value": 1
+    },
+    "unverified-commits": {
+      "value": 33
     }
   }
 }
