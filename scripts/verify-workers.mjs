@@ -93,6 +93,13 @@ try {
   const login = await call('POST', '/api/auth/sign-in/email', { email: adminEmail, password: adminPassword });
   check(login.status === 200, 'admin signs in');
 
+  // Six executions must be allowed to run at once; the default per-user limit is 2.
+  const settings = await call('PUT', '/api/admin/settings', {
+    maxConcurrentExecutionsPerUser: 10,
+    maxTaskExecutionsPerDay: 100,
+  });
+  check(settings.status === 200, 'per-user concurrency limit raised for the check');
+
   // --- slow mock inside the compose network --------------------------------
   const network = docker('network', 'ls', '--format', '{{.Name}}')
     .split('\n')
