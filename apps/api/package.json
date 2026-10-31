@@ -20,7 +20,7 @@
     "fastify": "catalog:",
     "pg": "catalog:",
     "zod": "catalog:",
-    "nodemailer": "^7.0.9",
+    "nodemailer": "^10.0.6",
     "@types/nodemailer": "^7.0.2",
     "pg-boss": "^12.38.0",
     "drizzle-orm": "^0.45.4"
