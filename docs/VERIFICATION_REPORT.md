@@ -32,7 +32,7 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 5 of 5 gates | 0 |
 | GitHub Actions run 41220413002 (`6d30662`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
-| `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail: HTML 2013 B, text 317 B, **spam score 0.6**, `IsSpam=false` | 0 |
+| `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail: HTML, text, **spam score 0.6**, `IsSpam=false`; **HTML compatibility 87.4 % supported / 1.55 % unsupported / 10 warnings** | 0 |
 
 Reproduction:
 
@@ -54,7 +54,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 2 | TOTP MFA, backup codes | `twoFactor()` plugin; `LoginPage` challenge; `SettingsPage` enable/disable | `auth.test.ts` (enable → verify → sign-in `twoFactorRedirect` → wrong code → valid code), `login-mfa.test.tsx` (4), `settings-mfa.test.tsx` (2) | PASS |
 | 2 | Session revocation, CSRF, rate limits | `cookieCache.enabled=false`, origin hook in `app.ts`, `rateLimit.customRules` | `auth.test.ts` logout 401, CSRF 403, 429 | PASS |
 | 2 | Audit log | `audit_logs`, `context.audit()` | `audit.test.ts`: setup, invite, role change, provider, credential; asserts the credential value never appears | PASS |
-| 2 | Email reset/verification (HTML) | `mailer.ts`, `lib/email-templates.ts`, Better Auth senders | **Mailpit over real SMTP** (CI): multipart text+HTML, complete HTML document, link present, SpamAssassin score 0.6 (`IsSpam=false`); no external provider | PASS (SMTP via Mailpit) |
+| 2 | Email reset/verification (HTML) | `mailer.ts`, `lib/email-templates.ts`, Better Auth senders | **Mailpit over real SMTP** (CI): multipart text+HTML, SpamAssassin score 0.6 (`IsSpam=false`); Mailpit HTML check **87.4 % supported, 1.55 % unsupported, 10 warnings**; Playwright renders the Mailpit UI, asserts heading/button/2 reset links and screenshots it. No external provider | PASS (SMTP + HTML compatibility via Mailpit) |
 | 3 | Multi-user isolation / IDOR | owner-scoped queries, `requireUuid` | `isolation.test.ts` (8 tests: cross-user read/write/run/pause/cancel/export/history, forged owner id, credential isolation, admin bypass) | PASS |
 | 4 | Task CRUD, presets, Europe/Vienna, DST | `packages/shared/src/schedule.ts`, `routes/tasks.ts` | `schedule.test.ts`: spring-forward 03:30, fall-back single booking, one-off past, summer/winter | PASS |
 | 5 | Durable scheduling, no duplicates, leases, recovery | `apps/worker/src/scheduling.ts`, `queues.ts` | `scheduler.test.ts`: idempotent tick, concurrent ticks, DB duplicate rejection, single claim, stale-lease requeue/cancel | PASS |
@@ -179,9 +179,18 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
   href.
 - The optional compose profile `mail` runs Mailpit with a SpamAssassin sidecar.
   CI requests a real reset, fetches the message through Mailpit's API and queries
-  `GET /api/v1/message/{id}/sa-check`: **score 0.6, `IsSpam=false`** (threshold 5),
-  HTML 2013 bytes, text 317 bytes. This is SpamAssassin's score as surfaced by
-  Mailpit, not a Mailpit-only heuristic.
+  `GET /api/v1/message/{id}/sa-check`: **score 0.6, `IsSpam=false`** (threshold 5).
+  This is SpamAssassin's score as surfaced by Mailpit, not a Mailpit-only heuristic.
+- **HTML compatibility** is measured with Mailpit's HTML check (caniemail data):
+  **87.4 % supported, 11.0 % partial, 1.55 % unsupported, 10 warnings**
+  (186 tests, 21 nodes). The main unsupported shares are the `<body>` element
+  (32.7 % of that one finding) and underlined-link `text-decoration` (6.3 %);
+  table layout, inline CSS, `bgcolor` fallbacks and the action link are broadly
+  supported. Thresholds in CI: supported ≥ 85 %, unsupported ≤ 2 %, warnings ≤ 12.
+- **UI verification**: `scripts/verify-mail-ui.mjs` opens the message in the
+  Mailpit UI with Playwright, asserts the heading, paragraph, CTA button and two
+  reset links, and uploads `mail-preview.png`. The UI shows Mailpit's
+  "HTML Check 87%" badge.
 - Unit tests cover the renderer, multipart content and HTML escaping.
 
 ## Final verdict: NOT READY

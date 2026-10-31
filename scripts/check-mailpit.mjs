@@ -18,6 +18,11 @@ const origin = process.env.MAIL_ORIGIN ?? api;
 const email = process.env.MAIL_TO;
 const subject = 'Reset your Agent Tasks password';
 const maxScore = Number(process.env.MAIL_MAX_SPAM_SCORE ?? '5');
+const requireSpam = process.env.MAIL_REQUIRE_SPAM !== '0';
+const minSupported = Number(process.env.MAIL_MIN_HTML_SUPPORTED ?? '85');
+const maxUnsupported = Number(process.env.MAIL_MAX_HTML_UNSUPPORTED ?? '2');
+const maxWarnings = Number(process.env.MAIL_MAX_HTML_WARNINGS ?? '12');
+const fixedMessageId = process.env.MAIL_MESSAGE_ID;
 
 const fail = (message) => {
   console.error(`FAIL: ${message}`);
@@ -28,14 +33,16 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 if (!email) fail('MAIL_TO is required (an existing account address)');
 
 const startedAt = Date.now();
-const request = await fetch(`${api}/api/auth/request-password-reset`, {
-  method: 'POST',
-  headers: { 'content-type': 'application/json', origin },
-  body: JSON.stringify({ email, redirectTo: `${api}/login` }),
-});
-if (!request.ok) fail(`password reset request returned HTTP ${request.status}: ${await request.text()}`);
+if (!fixedMessageId) {
+  const request = await fetch(`${api}/api/auth/request-password-reset`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify({ email, redirectTo: `${api}/login` }),
+  });
+  if (!request.ok) fail(`password reset request returned HTTP ${request.status}: ${await request.text()}`);
+}
 
-let message = null;
+let message = fixedMessageId ? { ID: fixedMessageId } : null;
 for (let attempt = 0; attempt < 40 && !message; attempt += 1) {
   const list = await fetch(`${mailpit}/api/v1/messages?limit=50`).then((response) => response.json());
   message = (list.messages ?? []).find((entry) => {
@@ -54,15 +61,30 @@ if (!String(detail.HTML).includes('<a href="http')) fail('HTML part has no actio
 if (!String(detail.HTML).includes('<!doctype html>')) fail('HTML part is not a complete document');
 
 let spam = null;
-for (let attempt = 0; attempt < 20 && !spam; attempt += 1) {
-  const response = await fetch(`${mailpit}/api/v1/message/${message.ID}/sa-check`);
-  const body = await response.json();
-  if (response.ok && typeof body.Score === 'number') spam = body;
-  else await sleep(750);
+if (requireSpam) {
+  for (let attempt = 0; attempt < 20 && !spam; attempt += 1) {
+    const response = await fetch(`${mailpit}/api/v1/message/${message.ID}/sa-check`);
+    const body = await response.json();
+    if (response.ok && typeof body.Score === 'number') spam = body;
+    else await sleep(750);
+  }
+  if (!spam) fail('Mailpit returned no SpamAssassin score (is spamd running?)');
+  if (spam.IsSpam) fail(`SpamAssassin marked the mail as spam (score ${spam.Score})`);
+  if (spam.Score >= maxScore) fail(`SpamAssassin score ${spam.Score} is not below ${maxScore}`);
 }
-if (!spam) fail('Mailpit returned no SpamAssassin score (is spamd running?)');
-if (spam.IsSpam) fail(`SpamAssassin marked the mail as spam (score ${spam.Score})`);
-if (spam.Score >= maxScore) fail(`SpamAssassin score ${spam.Score} is not below ${maxScore}`);
+
+const htmlCheckResponse = await fetch(`${mailpit}/api/v1/message/${message.ID}/html-check`);
+const htmlCheck = await htmlCheckResponse.json();
+if (!htmlCheckResponse.ok || !htmlCheck.Total) fail('Mailpit returned no HTML compatibility report');
+const total = htmlCheck.Total;
+if (typeof total.Supported !== 'number' || total.Supported < minSupported) {
+  fail(`HTML compatibility ${total.Supported}% is below ${minSupported}%`);
+}
+if (typeof total.Unsupported !== 'number' || total.Unsupported > maxUnsupported) {
+  fail(`HTML unsupported share ${total.Unsupported}% exceeds ${maxUnsupported}%`);
+}
+const warnings = Array.isArray(htmlCheck.Warnings) ? htmlCheck.Warnings : [];
+if (warnings.length > maxWarnings) fail(`${warnings.length} HTML compatibility warnings exceed ${maxWarnings}`);
 
 console.log(
   JSON.stringify(
@@ -73,9 +95,18 @@ console.log(
       subject: detail.Subject,
       htmlBytes: Buffer.byteLength(String(detail.HTML)),
       textBytes: Buffer.byteLength(String(detail.Text)),
-      spamScore: spam.Score,
-      isSpam: spam.IsSpam,
+      spamScore: spam?.Score ?? null,
+      isSpam: spam?.IsSpam ?? null,
       threshold: maxScore,
+      htmlCompatibility: {
+        tests: total.Tests,
+        nodes: total.Nodes,
+        supported: total.Supported,
+        partial: total.Partial,
+        unsupported: total.Unsupported,
+        warnings: warnings.length,
+        warningSlugs: warnings.map((warning) => warning.Slug),
+      },
     },
     null,
     2,
