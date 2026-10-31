@@ -99,7 +99,7 @@ jobs:
         run: |
           OPTS=$(printf '%s' "${{ matrix.opts }}" | sed "s|__SECCOMP__|$PWD/docker/seccomp-browser.json|g")
           USEROPT=""
-          if [ "$PROBE_USER" = pwuser ]; then USEROPT="--user pwuser"; fi
+          if [ "$PROBE_USER" = pwuser ]; then USEROPT="--user pwuser -e HOME=/home/pwuser -e XDG_CONFIG_HOME=/tmp/xdg"; fi
           docker run --rm $USEROPT $OPTS \
             -v "$PWD/scripts/sandbox-probe.cjs:/probe.cjs:ro" \
             -e EXPECT_SANDBOX="$SANDBOX" \
