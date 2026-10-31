@@ -53,7 +53,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 
 | # | Requirement | Implementation | Evidence | Status |
 | --- | --- | --- | --- | --- |
-| 1 | pnpm monorepo, Apache-2.0, CI | `pnpm-workspace.yaml`, `apps/*`, `services/*`, `packages/*`, `LICENSE`, `.github/workflows/ci.yml` | `pnpm install`, `pnpm build`, `pnpm lint`, `pnpm -r typecheck`; `LICENSE` present | PASS (local); CI run NOT VERIFIED until first push |
+| 1 | pnpm monorepo, Apache-2.0, CI | `pnpm-workspace.yaml`, `apps/*`, `services/*`, `packages/*`, `LICENSE`, `.github/workflows/ci.yml` | `pnpm install`, `pnpm build`, `pnpm lint`, `pnpm -r typecheck`; `LICENSE` present | PASS |
 | 2 | Roles, invite-only onboarding, secure bootstrap | `apps/api/src/auth.ts`, `routes/setup.ts`, `routes/admin.ts` | `auth.test.ts`: setup token, single admin under concurrent setup, blocked direct sign-up, single-use invite under concurrency, revoked/expired invite | PASS |
 | 2 | TOTP MFA, backup codes | `twoFactor()` plugin; `LoginPage` challenge; `SettingsPage` enable/disable | `auth.test.ts` (enable → verify → sign-in `twoFactorRedirect` → wrong code → valid code), `login-mfa.test.tsx` (4), `settings-mfa.test.tsx` (2) | PASS |
 | 2 | Session revocation, CSRF, rate limits | `cookieCache.enabled=false`, origin hook in `app.ts`, `rateLimit.customRules` | `auth.test.ts` logout 401, CSRF 403, 429 | PASS |
@@ -76,10 +76,10 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 27 web tests (MFA, XSS, live de↔en switch), production build, 9 Playwright flows | PASS |
 | 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers) and CI compose job starts the stack and runs 9/9 E2E | PASS |
-| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 130 unit, 40 integration, 27 web, 9 E2E | PASS |
-| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41218719813: lint/typecheck, unit, integration, compose E2E, api/web/runner image builds and security all success | PASS |
+| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 164 unit, 48 integration, 34 web, 9 E2E | PASS |
+| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41226712353: lint/typecheck, unit, integration, compose E2E (sandbox enabled), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
-| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `7f76ca4` pushed; CI green | PASS (with the org deviation) |
+| 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `2ce1ac8` pushed; CI green | PASS (with the org deviation) |
 
 ## Docker Compose (executed)
 
