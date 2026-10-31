@@ -34,6 +34,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: prod-seccomp
+            opts: "--cap-drop ALL --security-opt no-new-privileges:true --security-opt seccomp=$PWD/docker/seccomp-browser.json"
+            sandbox: "1"
+            setuid: "no"
+          - name: prod-seccomp-sysadmin
+            opts: "--cap-drop ALL --cap-add SYS_ADMIN --security-opt no-new-privileges:true --security-opt seccomp=$PWD/docker/seccomp-browser.json"
+            sandbox: "1"
+            setuid: "no"
           - name: control-nosandbox
             opts: ""
             sandbox: "0"
