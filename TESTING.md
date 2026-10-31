@@ -75,3 +75,16 @@ is not covered by the current helper.
 
 GitHub Actions runs lint, typecheck, unit, integration (Postgres service), browser E2E
 (compose), image builds, Trivy and gitleaks. See `.github/workflows/ci.yml`.
+
+## Transactional mail (Mailpit + SpamAssassin)
+
+```bash
+docker compose --profile mail up -d
+SMTP_URL=smtp://mailpit:1025 docker compose up -d api   # or run the API on the host
+MAIL_TO=admin@example.com MAILPIT_URL=http://localhost:8025 \
+  node scripts/check-mailpit.mjs
+```
+
+The script requests a password reset, waits for the message in Mailpit, asserts a
+plain-text part plus a complete HTML document, and checks the SpamAssassin score
+reported by `GET /api/v1/message/{id}/sa-check` (`Score < 5`, `IsSpam=false`).

@@ -6,6 +6,7 @@ import { AppError, inviteSchema, roleSchema, systemSettingsSchema } from '@agent
 import type { AppContext } from '../context.js';
 import { saveSettings } from '../context.js';
 import { AUDIT_ACTIONS } from '../lib/audit.js';
+import { renderActionEmail } from '../lib/email-templates.js';
 import { hashToken } from './setup.js';
 import { requireAdmin, requireUser, requireUuid } from '../lib/session.js';
 
@@ -171,11 +172,14 @@ export async function registerAdminRoutes(app: FastifyInstance, context: AppCont
       expiresAt,
     });
     const link = `${env.PUBLIC_BASE_URL.replace(/\/$/, '')}/invite/${token}`;
-    await mailer.send({
-      to: parsed.data.email,
-      subject: 'You are invited to Agent Tasks',
-      text: `An administrator invited you to Agent Tasks.\n\nOpen this single-use link within 7 days:\n${link}\n`,
+    const content = renderActionEmail({
+      heading: 'You are invited to Agent Tasks',
+      paragraphs: ['An administrator invited you to Agent Tasks. Open the single-use link within 7 days to create your account.'],
+      actionLabel: 'Accept invitation',
+      actionUrl: link,
+      footer: 'If you were not expecting this invitation, ignore this mail.',
     });
+    await mailer.send({ to: parsed.data.email, subject: 'You are invited to Agent Tasks', ...content });
     await context.audit({ actorId: admin.id, action: AUDIT_ACTIONS.userInvited, targetType: 'invitation', targetId: id, metadata: { email: parsed.data.email, role: parsed.data.role } });
     reply.code(201);
     return { id, token, expiresAt, link };

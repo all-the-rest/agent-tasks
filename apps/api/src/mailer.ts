@@ -1,7 +1,7 @@
 import { createTransport } from 'nodemailer';
 
 export interface Mailer {
-  send(message: { to: string; subject: string; text: string }): Promise<void>;
+  send(message: { to: string; subject: string; text: string; html?: string }): Promise<void>;
   readonly kind: 'smtp' | 'log';
 }
 
@@ -22,6 +22,7 @@ export function createMailer(options: { smtpUrl?: string; from?: string; nodeEnv
           to: message.to,
           subject: message.subject,
           text: message.text,
+          ...(message.html ? { html: message.html } : {}),
         });
       },
     };

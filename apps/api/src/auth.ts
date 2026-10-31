@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import type { Database } from '@agent-tasks/database';
 import * as schema from '@agent-tasks/database';
 import type { ApiEnv } from './env.js';
+import { renderActionEmail } from './lib/email-templates.js';
 import type { Mailer } from './mailer.js';
 
 export interface AuthDeps {
@@ -33,22 +34,27 @@ export function createAuth({ db, env, mailer }: AuthDeps) {
       maxPasswordLength: 200,
       requireEmailVerification: false,
       async sendResetPassword({ user, url }) {
-        await mailer.send({
-          to: user.email,
-          subject: 'Reset your Agent Tasks password',
-          text: `Use this single-use link to choose a new password:\n\n${url}\n\nIf you did not request it, ignore this mail.`,
+        const content = renderActionEmail({
+          heading: 'Reset your password',
+          paragraphs: ['Use this single-use link to choose a new password. It expires shortly and can be used once.'],
+          actionLabel: 'Choose a new password',
+          actionUrl: url,
+          footer: 'If you did not request this mail, you can ignore it.',
         });
+        await mailer.send({ to: user.email, subject: 'Reset your Agent Tasks password', ...content });
       },
     },
     emailVerification: {
       sendOnSignUp: false,
       autoSignInAfterVerification: false,
       async sendVerificationEmail({ user, url }) {
-        await mailer.send({
-          to: user.email,
-          subject: 'Verify your Agent Tasks address',
-          text: `Verify your address with this single-use link:\n\n${url}`,
+        const content = renderActionEmail({
+          heading: 'Verify your e-mail address',
+          paragraphs: ['Confirm that this address belongs to your Agent Tasks account.'],
+          actionLabel: 'Verify address',
+          actionUrl: url,
         });
+        await mailer.send({ to: user.email, subject: 'Verify your Agent Tasks address', ...content });
       },
     },
     session: {
