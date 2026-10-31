@@ -3,7 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    # Owner decision: docs-only pushes do not start the full pipeline. The local
+    # pre-commit hook still scans staged files for secrets and runs ratchet, so
+    # gitleaks and the rule-file gates are not lost on docs commits. Anything
+    # outside docs/** and markdown still triggers every job.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
 
 permissions:
   contents: read
