@@ -89,6 +89,20 @@ const taskPayload = (title, providerId) => ({
 let mockContainer = null;
 
 try {
+  // Scaling may recreate the api container (config change), so wait for it.
+  await waitFor(
+    'api readiness',
+    async () => {
+      try {
+        return (await fetch(`${base}/api/healthz`)).ok;
+      } catch {
+        return false;
+      }
+    },
+    120_000,
+  );
+  console.log('PASS api is healthy');
+
   // --- admin session -------------------------------------------------------
   const login = await call('POST', '/api/auth/sign-in/email', { email: adminEmail, password: adminPassword });
   check(login.status === 200, 'admin signs in');
