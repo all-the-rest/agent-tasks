@@ -42,7 +42,14 @@ app.addHook('onRequest', async (request, reply) => {
   }
 });
 
-app.get('/healthz', async () => ({ ok: true, sessions: pool.sessionCount }));
+app.get('/healthz', async () => ({
+  ok: true,
+  sessions: pool.sessionCount,
+  // `start()` launches Chromium before the server listens, so a healthy runner with
+  // sandbox=true proves the browser came up with its internal sandbox enabled.
+  sandbox: chromiumSandbox,
+  browserVersion: pool.browserVersion,
+}));
 
 app.get('/v1/blocked', async () => ({ blocked: pool.blockedRequests.slice(-50) }));
 
