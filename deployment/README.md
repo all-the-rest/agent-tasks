@@ -18,7 +18,8 @@ environment file:
 The project name prefixes containers, networks and volumes
 (`agent-tasks-local-api-1`, `agent-tasks-local_postgres-data`). The label makes
 the stack identifiable in `docker ps` and in monitoring even when only a
-container ID is known:
+container ID is known. The root `compose.yaml` (used by CI and the README quick
+start) uses the label `compose` unless `STACK_NAME` is set:
 
 ```bash
 docker ps --filter label=com.agent-tasks.stack=local

@@ -85,7 +85,7 @@ if [ "$stack" != production ] && grep -q '=__GENERATE__$' "$env_file"; then
   echo "stack: generated secrets in $env_file" >&2
 fi
 
-if grep -q 'replace-with' "$env_file"; then
+if grep -qE '^[A-Za-z_][A-Za-z0-9_]*=replace-with' "$env_file"; then
   case " $* " in
     *" config "*) ;;
     *)
