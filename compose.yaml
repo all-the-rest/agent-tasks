@@ -143,6 +143,11 @@ services:
       - no-new-privileges:true
       - seccomp=docker/seccomp-browser.json
     cap_drop: [ALL]
+    # Chromium's user-namespace sandbox chroots into an empty directory after
+    # unshare(CLONE_NEWUSER). The seccomp profile grants chroot only with
+    # CAP_SYS_CHROOT, so the capability must be in the container's bounding set;
+    # the browser process still runs as non-root with no effective capabilities.
+    cap_add: [SYS_CHROOT]
     pids_limit: 256
     mem_limit: ${BROWSER_MEMORY_LIMIT:-1g}
     cpus: ${BROWSER_CPUS:-1.0}
