@@ -1,0 +1,52 @@
+// The gates of this repository. The counting lives in scripts/count.sh, the
+// direction and the monotonicity belong to ratchet.
+//
+// Every gate is a ceiling: the count may fall, never rise. `dependency-count` is
+// the one ratchet with a non-zero baseline — supply-chain debt may only shrink.
+[
+  {
+    "name": "agent-tasks",
+    "rules": {
+      "no-unfinished-marker": {
+        "class": "unfinished work",
+        "incident": "prevention: TODO/FIXME/XXX in shipped source turns a product decision into a silent gap; the brief forbids replacing implementation with TODO comments",
+        "unit": "markers",
+        "direction": "ceiling",
+        "description": "the scope is every .ts/.tsx under apps/, services/ and packages/ without tests, dist and node_modules; the count is a textual match, so a marker inside a string or comment counts too and the count can only be too high",
+        "count": { "command": ["sh", "scripts/count.sh", "no-unfinished-marker"] }
+      },
+      "no-explicit-any": {
+        "class": "type escape hatch",
+        "incident": "prevention: an `any` defeats strict typing at the boundary where a zod schema should have validated the input",
+        "unit": "occurrences",
+        "direction": "ceiling",
+        "description": "the scope is every .ts/.tsx under apps/, services/ and packages/ without tests, dist and node_modules; `: any` and `<any>` are counted textually",
+        "count": { "command": ["sh", "scripts/count.sh", "no-explicit-any"] }
+      },
+      "no-raw-html": {
+        "class": "stored XSS path",
+        "incident": "prevention: a report is untrusted model output; rendering it as raw HTML bypasses rehype-sanitize",
+        "unit": "occurrences",
+        "direction": "ceiling",
+        "description": "the scope is every .ts/.tsx under apps/, services/ and packages/ without tests; only dangerouslySetInnerHTML is counted",
+        "count": { "command": ["sh", "scripts/count.sh", "no-raw-html"] }
+      },
+      "no-baked-secret": {
+        "class": "secret in source",
+        "incident": "prevention: provider keys and GitHub tokens must never reach a commit; the runtime decrypts them from AES-GCM ciphertext",
+        "unit": "occurrences",
+        "direction": "ceiling",
+        "description": "the scope is every .ts/.tsx under apps/, services/ and packages/ without tests; the pattern matches OpenAI-style keys, GitHub tokens and PEM private keys",
+        "count": { "command": ["sh", "scripts/count.sh", "no-baked-secret"] }
+      },
+      "dependency-count": {
+        "class": "supply-chain debt",
+        "incident": "the dependency sections across the eleven workspace projects were written down nowhere, so the count could only grow silently — this baseline records today's number",
+        "unit": "dependency sections",
+        "direction": "ceiling",
+        "description": "the scope is every package.json of the workspace; the count is the number of dependency sections, so adding a project raises it deliberately",
+        "count": { "command": ["sh", "scripts/count.sh", "dependency-count"] }
+      }
+    }
+  }
+]

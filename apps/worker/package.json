@@ -1,0 +1,27 @@
+{
+  "name": "@agent-tasks/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm --target node22 --out-dir dist --clean --sourcemap",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agent-tasks/agent-runtime": "workspace:*",
+    "@agent-tasks/ai-providers": "workspace:*",
+    "@agent-tasks/browser-tools": "workspace:*",
+    "@agent-tasks/database": "workspace:*",
+    "@agent-tasks/shared": "workspace:*",
+    "pg": "catalog:",
+    "pg-boss": "^12.38.0",
+    "zod": "catalog:",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "tsx": "catalog:",
+    "tsup": "catalog:"
+  }
+}

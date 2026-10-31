@@ -1,0 +1,45 @@
+{
+  "type": "module",
+  "name": "agent-tasks",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Self-hosted AI task scheduler with local LLM support, autonomous web research and strict multi-user isolation",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=12.9.1 <13"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter './packages/*' build && pnpm -r --filter './apps/*' build && pnpm -r --filter './services/*' build",
+    "dev": "pnpm --parallel --filter './apps/api' --filter './apps/web' --filter './apps/worker' dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "vitest run --project unit",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test",
+    "test:all": "pnpm test:unit && pnpm test:integration",
+    "db:generate": "pnpm --filter @agent-tasks/database generate",
+    "db:migrate": "pnpm --filter @agent-tasks/database migrate",
+    "gates": "ratchet check",
+    "hooks:install": "sh scripts/install-hooks.sh"
+  },
+  "devDependencies": {
+    "@agent-tasks/agent-runtime": "workspace:*",
+    "@agent-tasks/ai-providers": "workspace:*",
+    "@agent-tasks/browser-tools": "workspace:*",
+    "@agent-tasks/database": "workspace:*",
+    "@agent-tasks/mock-openai": "workspace:*",
+    "@agent-tasks/shared": "workspace:*",
+    "@eslint/js": "^9.39.0",
+    "@playwright/test": "^1.64.1",
+    "@types/node": "catalog:",
+    "drizzle-orm": "^0.45.4",
+    "eslint": "^9.39.0",
+    "fastify": "catalog:",
+    "pg": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "catalog:"
+  }
+}

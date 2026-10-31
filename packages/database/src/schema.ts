@@ -1,0 +1,341 @@
+import {
+  bigint,
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+
+const timestamps = {
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+};
+
+/**
+ * Better Auth hands the adapter ISO strings for its own fields; `mode: 'string'` keeps
+ * that boundary honest instead of forcing every caller to pre-convert dates.
+ */
+const authTimestamps = {
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+};
+
+/* ------------------------------------------------------------------ *
+ * Better Auth tables (snake_case, drizzle adapter with provider "pg")
+ * ------------------------------------------------------------------ */
+
+export const user = pgTable('user', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  image: text('image'),
+  role: text('role').notNull().default('USER'),
+  banned: boolean('banned').notNull().default(false),
+  banReason: text('ban_reason'),
+  banExpires: timestamp('ban_expires', { withTimezone: true, mode: 'date' }),
+  twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
+  ...authTimestamps,
+});
+
+export const session = pgTable(
+  'session',
+  {
+    id: text('id').primaryKey(),
+    token: text('token').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    impersonatedBy: text('impersonated_by'),
+    ...authTimestamps,
+  },
+  (table) => [index('session_user_idx').on(table.userId)],
+);
+
+export const account = pgTable(
+  'account',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true, mode: 'date' }),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true, mode: 'date' }),
+    scope: text('scope'),
+    password: text('password'),
+    ...authTimestamps,
+  },
+  (table) => [index('account_user_idx').on(table.userId)],
+);
+
+export const verification = pgTable('verification', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull(),
+  value: text('value').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+  ...authTimestamps,
+});
+
+export const twoFactor = pgTable('two_factor', {
+  id: text('id').primaryKey(),
+  secret: text('secret').notNull(),
+  backupCodes: text('backup_codes').notNull(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  /** Better Auth's TOTP state machine (schema check enforced by the library). */
+  verified: boolean('verified').notNull().default(false),
+  failedVerificationCount: integer('failed_verification_count').notNull().default(0),
+  lockedUntil: timestamp('locked_until', { withTimezone: true, mode: 'date' }),
+});
+
+export const rateLimit = pgTable('rate_limit', {
+  id: text('id').primaryKey(),
+  key: text('key'),
+  count: integer('count'),
+  /** Epoch milliseconds, as Better Auth defines it. */
+  lastRequest: bigint('last_request', { mode: 'number' }),
+});
+
+/* ------------------------------------------------------------------ *
+ * Application tables
+ * ------------------------------------------------------------------ */
+
+export const systemSettings = pgTable('system_settings', {
+  id: integer('id').primaryKey().default(1),
+  values: jsonb('values').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
+export const userPreferences = pgTable('user_preferences', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  timezone: text('timezone').notNull().default('Europe/Vienna'),
+  locale: text('locale').notNull().default('en'),
+  theme: text('theme').notNull().default('system'),
+  ...timestamps,
+});
+
+export const providers = pgTable(
+  'providers',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    kind: text('kind').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    isDefault: boolean('is_default').notNull().default(false),
+    config: jsonb('config').notNull().default({}),
+    ...timestamps,
+  },
+  (table) => [uniqueIndex('providers_name_unique').on(table.name)],
+);
+
+/**
+ * Credentials are stored as AES-256-GCM ciphertext. `owner_id = null` marks an
+ * administrator-managed credential that may be shared by tasks; a non-null value
+ * marks a personal credential that only its owner may use.
+ */
+export const providerCredentials = pgTable(
+  'provider_credentials',
+  {
+    id: uuid('id').primaryKey(),
+    providerId: uuid('provider_id')
+      .notNull()
+      .references(() => providers.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').references(() => user.id, { onDelete: 'cascade' }),
+    label: text('label').notNull().default('default'),
+    ciphertext: text('ciphertext').notNull(),
+    keyVersion: integer('key_version').notNull().default(1),
+    ...timestamps,
+  },
+  (table) => [uniqueIndex('provider_credentials_scope_unique').on(table.providerId, table.ownerId, table.label)],
+);
+
+export const providerModels = pgTable(
+  'provider_models',
+  {
+    providerId: uuid('provider_id')
+      .notNull()
+      .references(() => providers.id, { onDelete: 'cascade' }),
+    modelId: text('model_id').notNull(),
+    label: text('label').notNull(),
+    supportsTools: boolean('supports_tools').notNull().default(false),
+    contextLength: integer('context_length'),
+    discoveredAt: timestamp('discovered_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.providerId, table.modelId] })],
+);
+
+export const tasks = pgTable(
+  'tasks',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    prompt: text('prompt').notNull(),
+    systemInstructions: text('system_instructions'),
+    providerId: uuid('provider_id')
+      .notNull()
+      .references(() => providers.id, { onDelete: 'restrict' }),
+    model: text('model').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    schedule: jsonb('schedule').notNull(),
+    timezone: text('timezone').notNull(),
+    limits: jsonb('limits').notNull(),
+    allowWebResearch: boolean('allow_web_research').notNull().default(true),
+    notification: text('notification').notNull().default('none'),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true, mode: 'date' }),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true, mode: 'date' }),
+    ...timestamps,
+  },
+  (table) => [
+    index('tasks_owner_idx').on(table.ownerId),
+    index('tasks_due_idx').on(table.enabled, table.nextRunAt),
+  ],
+);
+
+export const executions = pgTable(
+  'executions',
+  {
+    id: uuid('id').primaryKey(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** Denormalised snapshot so history survives later task edits. */
+    taskTitle: text('task_title').notNull(),
+    status: text('status').notNull(),
+    trigger: text('trigger').notNull(),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true, mode: 'date' }),
+    attempt: integer('attempt').notNull().default(1),
+    providerId: uuid('provider_id'),
+    providerName: text('provider_name'),
+    model: text('model'),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
+    durationMs: integer('duration_ms'),
+    error: text('error'),
+    report: jsonb('report'),
+    usage: jsonb('usage'),
+    cancelRequested: boolean('cancel_requested').notNull().default(false),
+    workerId: text('worker_id'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true, mode: 'date' }),
+    ...timestamps,
+  },
+  (table) => [
+    index('executions_task_idx').on(table.taskId, table.createdAt),
+    index('executions_owner_idx').on(table.ownerId, table.createdAt),
+    index('executions_status_idx').on(table.status),
+    // One execution per scheduled occurrence — the durable exactly-once-per-occurrence guard.
+    uniqueIndex('executions_occurrence_unique').on(table.taskId, table.scheduledFor),
+  ],
+);
+
+export const executionSteps = pgTable(
+  'execution_steps',
+  {
+    id: uuid('id').primaryKey(),
+    executionId: uuid('execution_id')
+      .notNull()
+      .references(() => executions.id, { onDelete: 'cascade' }),
+    step: integer('step').notNull(),
+    tool: text('tool').notNull(),
+    args: jsonb('args').notNull().default({}),
+    ok: boolean('ok').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true, mode: 'date' }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
+    durationMs: integer('duration_ms'),
+    error: text('error'),
+    resultPreview: text('result_preview'),
+  },
+  (table) => [index('execution_steps_execution_idx').on(table.executionId, table.step)],
+);
+
+export const executionSources = pgTable(
+  'execution_sources',
+  {
+    id: uuid('id').primaryKey(),
+    executionId: uuid('execution_id')
+      .notNull()
+      .references(() => executions.id, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    title: text('title'),
+    retrievedAt: timestamp('retrieved_at', { withTimezone: true, mode: 'date' }).notNull(),
+    confidence: text('confidence').notNull().default('unknown'),
+    excerpt: text('excerpt'),
+  },
+  (table) => [uniqueIndex('execution_sources_unique').on(table.executionId, table.url)],
+);
+
+export const auditLogs = pgTable(
+  'audit_logs',
+  {
+    id: uuid('id').primaryKey(),
+    actorId: text('actor_id').references(() => user.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    targetType: text('target_type'),
+    targetId: text('target_id'),
+    metadata: jsonb('metadata').notNull().default({}),
+    ip: text('ip'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [index('audit_logs_actor_idx').on(table.actorId, table.createdAt)],
+);
+
+export const invitations = pgTable(
+  'invitations',
+  {
+    id: uuid('id').primaryKey(),
+    email: text('email').notNull(),
+    role: text('role').notNull().default('USER'),
+    tokenHash: text('token_hash').notNull(),
+    invitedBy: text('invited_by').references(() => user.id, { onDelete: 'set null' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true, mode: 'date' }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('invitations_token_unique').on(table.tokenHash)],
+);
+
+export const schema = {
+  user,
+  session,
+  account,
+  verification,
+  twoFactor,
+  rateLimit,
+  systemSettings,
+  userPreferences,
+  providers,
+  providerCredentials,
+  providerModels,
+  tasks,
+  executions,
+  executionSteps,
+  executionSources,
+  auditLogs,
+  invitations,
+};
+
+export type Schema = typeof schema;

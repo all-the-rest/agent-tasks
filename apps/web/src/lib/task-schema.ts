@@ -1,0 +1,82 @@
+import { z } from 'zod';
+import type { TaskInput } from './types';
+import { schedulePayload } from './schedule';
+
+const scheduleFormSchema = z.object({
+  preset: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly', 'custom']),
+  timezone: z.string().min(1, 'validation.timezoneRequired'),
+  runAt: z.string().optional(),
+  hour: z.number().int().min(0, 'validation.timeInvalid').max(23, 'validation.timeInvalid'),
+  minute: z.number().int().min(0, 'validation.timeInvalid').max(59, 'validation.timeInvalid'),
+  weekdays: z.array(z.number().int().min(0).max(6)).optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  cron: z.string().optional(),
+});
+
+const limitsFormSchema = z.object({
+  maxDurationSec: z.number().int().min(30, 'validation.range').max(3600, 'validation.range'),
+  maxAgentSteps: z.number().int().min(1, 'validation.range').max(60, 'validation.range'),
+  maxPageVisits: z.number().int().min(0, 'validation.range').max(40, 'validation.range'),
+  maxOutputBytes: z.number().int().min(1_000, 'validation.range').max(2_000_000, 'validation.range'),
+  maxToolCalls: z.number().int().min(1, 'validation.range').max(120, 'validation.range'),
+  maxSearchQueries: z.number().int().min(0, 'validation.range').max(20, 'validation.range'),
+});
+
+export const taskFormSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .min(3, 'validation.titleMin')
+      .max(160, 'validation.titleMax'),
+    description: z.string().max(2_000, 'validation.descriptionMax'),
+    prompt: z
+      .string()
+      .trim()
+      .min(10, 'validation.promptMin')
+      .max(20_000, 'validation.promptMax'),
+    systemInstructions: z.string().max(8_000, 'validation.instructionsMax'),
+    providerId: z.string().uuid('validation.providerRequired'),
+    model: z.string().min(1, 'validation.modelRequired'),
+    enabled: z.boolean(),
+    schedule: scheduleFormSchema,
+    limits: limitsFormSchema,
+    allowWebResearch: z.boolean(),
+    notification: z.enum(['none', 'email']),
+  })
+  .superRefine((value, ctx) => {
+    const { schedule } = value;
+    if (schedule.preset === 'once' && !schedule.runAt) {
+      ctx.addIssue({ code: 'custom', path: ['schedule', 'runAt'], message: 'validation.runAtRequired' });
+    }
+    if (schedule.preset === 'weekdays' && (schedule.weekdays?.length ?? 0) === 0) {
+      ctx.addIssue({ code: 'custom', path: ['schedule', 'weekdays'], message: 'validation.weekdaysRequired' });
+    }
+    if (schedule.preset === 'weekly' && (schedule.weekdays?.length ?? 0) !== 1) {
+      ctx.addIssue({ code: 'custom', path: ['schedule', 'weekdays'], message: 'validation.weeklyOneDay' });
+    }
+    if (schedule.preset === 'monthly' && schedule.dayOfMonth === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['schedule', 'dayOfMonth'], message: 'validation.dayOfMonthRequired' });
+    }
+    if (schedule.preset === 'custom' && !schedule.cron?.trim()) {
+      ctx.addIssue({ code: 'custom', path: ['schedule', 'cron'], message: 'validation.cronRequired' });
+    }
+  });
+
+export type TaskFormValues = z.infer<typeof taskFormSchema>;
+
+export function toTaskInput(values: TaskFormValues): TaskInput {
+  return {
+    title: values.title.trim(),
+    description: values.description.trim() || undefined,
+    prompt: values.prompt.trim(),
+    systemInstructions: values.systemInstructions.trim() || undefined,
+    providerId: values.providerId,
+    model: values.model,
+    enabled: values.enabled,
+    schedule: schedulePayload(values.schedule),
+    limits: values.limits,
+    allowWebResearch: values.allowWebResearch,
+    notification: values.notification,
+  };
+}

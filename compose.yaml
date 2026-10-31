@@ -1,0 +1,182 @@
+name: agent-tasks
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent}@postgres:5432/${POSTGRES_DB:-agent_tasks}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+  AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
+  SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set SECRETS_ENCRYPTION_KEY in .env}
+  SETUP_TOKEN: ${SETUP_TOKEN:?set SETUP_TOKEN to a random value (openssl rand -hex 32)}
+  AGENT_TASKS_ENABLE_CODEX: ${AGENT_TASKS_ENABLE_CODEX:-0}
+  SMTP_URL: ${SMTP_URL:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  TRUST_PROXY: ${TRUST_PROXY:-true}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  postgres:
+    image: postgres:17.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_tasks}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent} -d ${POSTGRES_DB:-agent_tasks}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      RUN_MIGRATIONS: "true"
+      PORT: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend, frontend]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["node", "apps/worker/dist/index.js"]
+    environment:
+      <<: *app-env
+      RUNNER_URL: http://browser-runner:8081
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?set RUNNER_TOKEN in .env}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      CODEX_HOME_ROOT: /var/lib/agent-tasks/codex
+      CODEX_ISOLATED_RUNNER: ${CODEX_ISOLATED_RUNNER:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      browser-runner:
+        condition: service_started
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      # One login directory per user for the opt-in Codex adapter (owner id subdirectory).
+      - codex-homes:/var/lib/agent-tasks/codex
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    stop_grace_period: 40s
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    networks: [frontend]
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Hardened browser execution: non-root, read-only root, no capabilities, no
+  # published ports, its own throwaway filesystem and a process limit. The worker
+  # reaches it over the internal backend network only.
+  browser-runner:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.runner
+    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/browser-runner:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: "8081"
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?set RUNNER_TOKEN in .env}
+      RUNNER_ALLOW_HTTP: ${RUNNER_ALLOW_HTTP:-true}
+      RUNNER_ALLOWED_PORTS: ${RUNNER_ALLOWED_PORTS:-80,443}
+      RUNNER_MAX_SESSIONS: ${RUNNER_MAX_SESSIONS:-2}
+      # Must exceed the longest task duration (limits.maxDurationSec, max 900 s).
+      RUNNER_SESSION_TTL_MS: ${RUNNER_SESSION_TTL_MS:-900000}
+      # Keep the sandbox on by default. Hosts without user namespaces must opt out
+      # explicitly (RUNNER_CHROMIUM_SANDBOX=false); startup logs the risk.
+      RUNNER_CHROMIUM_SANDBOX: ${RUNNER_CHROMIUM_SANDBOX:-true}
+    networks: [backend]
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /dev/shm:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=docker/seccomp-browser.json
+    cap_drop: [ALL]
+    pids_limit: 256
+    mem_limit: ${BROWSER_MEMORY_LIMIT:-1g}
+    cpus: ${BROWSER_CPUS:-1.0}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8081/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+
+  # Optional, profile "search": self-hosted metasearch used for real web research.
+  searxng:
+    image: searxng/searxng:2026.10.30-ffa88e3ba
+    restart: unless-stopped
+    profiles: [search]
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks: [backend]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+networks:
+  backend:
+    internal: false
+  frontend:
+    internal: false
+
+volumes:
+  postgres-data:
+  codex-homes:

@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+FROM node:22.20.0-bookworm-slim AS build
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+# Corepack bundled with node:22.20.0 launches pnpm through bin/pnpm.cjs, but
+# pnpm 12.x ships bin/pnpm.mjs, so the shim fails with MODULE_NOT_FOUND. Install
+# the exact pinned version with npm instead.
+RUN npm install -g pnpm@12.9.1
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+COPY services ./services
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @agent-tasks/api build && pnpm --filter @agent-tasks/worker build
+
+FROM node:22.20.0-bookworm-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages ./packages
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/apps/api/package.json ./apps/api/package.json
+# tsup externalises runtime dependencies, so each app's own node_modules (pnpm
+# symlinks into the root store) must be present or Node cannot resolve them.
+COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=build /app/apps/worker/dist ./apps/worker/dist
+COPY --from=build /app/apps/worker/package.json ./apps/worker/package.json
+COPY --from=build /app/apps/worker/node_modules ./apps/worker/node_modules
+COPY --from=build /app/packages/database/drizzle ./packages/database/drizzle
+# Named volumes inherit ownership from the image path on first use; the worker runs as
+# `node`, so the per-user Codex home root must belong to it.
+RUN mkdir -p /var/lib/agent-tasks/codex && chown node:node /var/lib/agent-tasks/codex
+USER node
+EXPOSE 8080
+CMD ["node", "apps/api/dist/index.js"]

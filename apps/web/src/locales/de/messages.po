@@ -1,0 +1,1442 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: de\n"
+
+msgid "admin.action"
+msgstr "Aktion"
+
+msgid "admin.active"
+msgstr "Aktiv"
+
+msgid "admin.activeExecutions"
+msgstr "Aktive Ausführungen"
+
+msgid "admin.actor"
+msgstr "Akteur"
+
+msgid "admin.addProvider"
+msgstr "Anbieter hinzufügen"
+
+msgid "admin.allowRegistration"
+msgstr "Offene Registrierung erlauben"
+
+msgid "admin.apiKey"
+msgstr "API-Schlüssel"
+
+msgid "admin.audit"
+msgstr "Audit-Protokoll"
+
+msgid "admin.auditHint"
+msgstr "Die 200 letzten verwaltungs- und sicherheitsrelevanten Ereignisse."
+
+msgid "admin.autoRefresh"
+msgstr "Automatisch aktualisieren"
+
+msgid "admin.banned"
+msgstr "Deaktiviert"
+
+msgid "admin.baseUrl"
+msgstr "Basis-URL"
+
+msgid "admin.browserAllowHttp"
+msgstr "Unverschlüsseltes HTTP erlauben"
+
+msgid "admin.browserAllowedPorts"
+msgstr "Erlaubte Browser-Ports"
+
+msgid "admin.byStatus"
+msgstr "Ausführungen nach Status"
+
+msgid "admin.copyLink"
+msgstr "Link kopieren"
+
+msgid "admin.created"
+msgstr "Erstellt"
+
+msgid "admin.credentialLabel"
+msgstr "Bezeichnung"
+
+msgid "admin.credentialSaved"
+msgstr "Gemeinsamer Schlüssel gespeichert."
+
+msgid "admin.credentialTitle"
+msgstr "Gemeinsamer Schlüssel für {name}"
+
+msgid "admin.defaultModel"
+msgstr "Standardmodell"
+
+msgid "admin.defaultProvider"
+msgstr "Standardanbieter"
+
+msgid "admin.defaultTimezone"
+msgstr "Standardzeitzone"
+
+msgid "admin.deleteProvider"
+msgstr "Anbieter löschen"
+
+msgid "admin.deleteProviderBody"
+msgstr "„{name}“ löschen? Aufgaben, die ihn verwenden, müssen zuerst angepasst werden."
+
+msgid "admin.deleteProviderTitle"
+msgstr "Anbieter löschen"
+
+msgid "admin.demote"
+msgstr "Zum Benutzer machen"
+
+msgid "admin.disable"
+msgstr "Deaktivieren"
+
+msgid "admin.enable"
+msgstr "Aktivieren"
+
+msgid "admin.executions24h"
+msgstr "Ausführungen (24 h)"
+
+msgid "admin.health"
+msgstr "Zustandsprüfung"
+
+msgid "admin.healthFail"
+msgstr "Zustandsprüfung des Anbieters fehlgeschlagen."
+
+msgid "admin.healthOk"
+msgstr "Anbieter ist erreichbar."
+
+msgid "admin.invitations"
+msgstr "Einladungen"
+
+msgid "admin.invite"
+msgstr "Einladung senden"
+
+msgid "admin.inviteCreated"
+msgstr "Einladung erstellt."
+
+msgid "admin.inviteEmail"
+msgstr "E-Mail-Adresse"
+
+msgid "admin.inviteFailed"
+msgstr "Die Einladung konnte nicht gesendet werden."
+
+msgid "admin.inviteLink"
+msgstr "Einladungslink"
+
+msgid "admin.inviteLinkHint"
+msgstr "Teile diesen einmaligen Link mit der eingeladenen Person."
+
+msgid "admin.inviteRole"
+msgstr "Rolle"
+
+msgid "admin.inviting"
+msgstr "Wird gesendet…"
+
+msgid "admin.ip"
+msgstr "IP-Adresse"
+
+msgid "admin.kindCodex"
+msgstr "Codex"
+
+msgid "admin.kindOllama"
+msgstr "Ollama"
+
+msgid "admin.kindOpenai"
+msgstr "OpenAI"
+
+msgid "admin.kindOpenaiCompatible"
+msgstr "OpenAI-kompatibel"
+
+msgid "admin.lastUpdated"
+msgstr "Zuletzt aktualisiert"
+
+msgid "admin.maxConcurrent"
+msgstr "Gleichzeitige Ausführungen pro Benutzer"
+
+msgid "admin.maxPerDay"
+msgstr "Ausführungen pro Benutzer und Tag"
+
+msgid "admin.metadata"
+msgstr "Metadaten"
+
+msgid "admin.metrics"
+msgstr "Kennzahlen"
+
+msgid "admin.modelsRefreshed"
+msgstr "Modelle aktualisiert."
+
+msgid "admin.monitoring"
+msgstr "Überwachung"
+
+msgid "admin.monitoringHint"
+msgstr "Live-Ansicht der Instanz. Aktualisiert alle 15 Sekunden."
+
+msgid "admin.noAudit"
+msgstr "Noch keine Audit-Einträge."
+
+msgid "admin.noInvitations"
+msgstr "Keine offenen Einladungen."
+
+msgid "admin.noProviders"
+msgstr "Noch keine Anbieter konfiguriert."
+
+msgid "admin.noUsers"
+msgstr "Keine Benutzer gefunden."
+
+msgid "admin.personalCredentialCount"
+msgstr "Persönliche Schlüssel: {count}"
+
+msgid "admin.portInvalid"
+msgstr "Ports müssen Zahlen zwischen 1 und 65535 sein."
+
+msgid "admin.portsHint"
+msgstr "Kommagetrennte Portnummern, zum Beispiel 80, 443, 8080."
+
+msgid "admin.promote"
+msgstr "Zum Administrator machen"
+
+msgid "admin.providerCreated"
+msgstr "Anbieter erstellt."
+
+msgid "admin.providerDeleted"
+msgstr "Anbieter gelöscht."
+
+msgid "admin.providerDialogTitle"
+msgstr "Anbieter hinzufügen"
+
+msgid "admin.providerEditTitle"
+msgstr "Anbieter bearbeiten"
+
+msgid "admin.providerEnabled"
+msgstr "Aktiv"
+
+msgid "admin.providerHeaders"
+msgstr "Gespeicherte Header"
+
+msgid "admin.providerHeadersHint"
+msgstr "Header-Werte sind nur schreibbar: Sie werden nie in dieses Formular geladen und bleiben beim Speichern unverändert."
+
+msgid "admin.providerKind"
+msgstr "Art"
+
+msgid "admin.providerName"
+msgstr "Name"
+
+msgid "admin.providerSaved"
+msgstr "Anbieter aktualisiert."
+
+msgid "admin.providers"
+msgstr "Anbieter"
+
+msgid "admin.publicBaseUrl"
+msgstr "Öffentliche Basis-URL"
+
+msgid "admin.recentExecutions"
+msgstr "Letzte Ausführungen"
+
+msgid "admin.refreshModels"
+msgstr "Modelle aktualisieren"
+
+msgid "admin.revoke"
+msgstr "Widerrufen"
+
+msgid "admin.revoked"
+msgstr "Einladung widerrufen."
+
+msgid "admin.saveSettings"
+msgstr "Einstellungen speichern"
+
+msgid "admin.searchBaseUrl"
+msgstr "Such-Basis-URL"
+
+msgid "admin.searchProvider"
+msgstr "Suchanbieter"
+
+msgid "admin.settings"
+msgstr "Systemeinstellungen"
+
+msgid "admin.settingsHint"
+msgstr "Standardwerte für neue Konten und Grenzen für Ausführungen."
+
+msgid "admin.settingsInvalid"
+msgstr "Bitte korrigiere die markierten Einstellungen."
+
+msgid "admin.settingsSaved"
+msgstr "Einstellungen gespeichert."
+
+msgid "admin.settingsTitle"
+msgstr "Systemeinstellungen"
+
+msgid "admin.sharedCredential"
+msgstr "Gemeinsamer Schlüssel"
+
+msgid "admin.smtpFrom"
+msgstr "SMTP-Absenderadresse"
+
+msgid "admin.subtitle"
+msgstr "Instanzzustand, Benutzer und Anbieterkonfiguration."
+
+msgid "admin.systemStatus"
+msgstr "Systemzustand"
+
+msgid "admin.target"
+msgstr "Ziel"
+
+msgid "admin.tasksCount"
+msgstr "Aufgaben"
+
+msgid "admin.title"
+msgstr "Verwaltung"
+
+msgid "admin.userUpdated"
+msgstr "Benutzer aktualisiert."
+
+msgid "admin.users"
+msgstr "Benutzer"
+
+msgid "admin.usersCount"
+msgstr "Benutzer"
+
+msgid "app.name"
+msgstr "Agent Tasks"
+
+msgid "app.tagline"
+msgstr "Autonome Recherche, nach Zeitplan"
+
+msgid "auth.acceptFailed"
+msgstr "Die Einladung konnte nicht angenommen werden."
+
+msgid "auth.acceptInvite"
+msgstr "Konto erstellen"
+
+msgid "auth.accepting"
+msgstr "Konto wird erstellt…"
+
+msgid "auth.accountCreated"
+msgstr "Konto erstellt. Du wirst angemeldet…"
+
+msgid "auth.alreadyConfigured"
+msgstr "Diese Instanz ist bereits eingerichtet."
+
+msgid "auth.backToLogin"
+msgstr "Zurück zur Anmeldung"
+
+msgid "auth.backupCode"
+msgstr "Backup-Code"
+
+msgid "auth.backupCodeHint"
+msgstr "Gib einen der Einmal-Backup-Codes ein, die du beim Einrichten der Zwei-Faktor-Authentifizierung gespeichert hast."
+
+msgid "auth.confirmPassword"
+msgstr "Passwort bestätigen"
+
+msgid "auth.createAdmin"
+msgstr "Administrator anlegen"
+
+msgid "auth.creating"
+msgstr "Wird angelegt…"
+
+msgid "auth.emailPlaceholder"
+msgstr "du@beispiel.at"
+
+msgid "auth.hasAccount"
+msgstr "Bereits ein Konto?"
+
+msgid "auth.inviteExpires"
+msgstr "Läuft ab am {date}"
+
+msgid "auth.inviteInvalid"
+msgstr "Diese Einladung ist ungültig oder abgelaufen."
+
+msgid "auth.inviteInvalidHint"
+msgstr "Bitte einen Administrator um einen neuen Einladungslink."
+
+msgid "auth.inviteSubtitle"
+msgstr "Wähle einen Namen und ein Passwort, um dein Konto zu aktivieren."
+
+msgid "auth.inviteTitle"
+msgstr "Einladung annehmen"
+
+msgid "auth.invitedAs"
+msgstr "Einladung für {email}"
+
+msgid "auth.loginFailed"
+msgstr "E-Mail oder Passwort ist falsch."
+
+msgid "auth.loginSubtitle"
+msgstr "Melde dich an, um deine geplanten Rechercheaufgaben zu verwalten."
+
+msgid "auth.loginTitle"
+msgstr "Willkommen zurück"
+
+msgid "auth.noAccount"
+msgstr "Noch kein Konto?"
+
+msgid "auth.passwordHint"
+msgstr "Mindestens 12 Zeichen."
+
+msgid "auth.passwordMismatch"
+msgstr "Die Passwörter stimmen nicht überein."
+
+msgid "auth.sessionExpired"
+msgstr "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an."
+
+msgid "auth.setupDone"
+msgstr "Administrator angelegt. Du kannst dich jetzt anmelden."
+
+msgid "auth.setupFailed"
+msgstr "Die Einrichtung ist fehlgeschlagen. Prüfe das Token und versuche es erneut."
+
+msgid "auth.setupRequired"
+msgstr "Erster Start? Lege das Administratorkonto an."
+
+msgid "auth.setupSubtitle"
+msgstr "Füge das einmalige Setup-Token ein, das der Server ausgibt, und wähle die Zugangsdaten für den Administrator."
+
+msgid "auth.setupTitle"
+msgstr "Ersten Administrator anlegen"
+
+msgid "auth.setupToken"
+msgstr "Setup-Token"
+
+msgid "auth.setupTokenHint"
+msgstr "Der Server protokolliert dieses Token einmal beim Start. Es wird nie im Browser gespeichert."
+
+msgid "auth.signIn"
+msgstr "Anmelden"
+
+msgid "auth.signingIn"
+msgstr "Anmelden…"
+
+msgid "auth.totpCode"
+msgstr "Authentifizierungscode"
+
+msgid "auth.totpCodeHint"
+msgstr "Gib den 6-stelligen Code aus deiner Authenticator-App ein."
+
+msgid "auth.twoFactorInvalid"
+msgstr "Dieser Code ist ungültig. Bitte erneut versuchen."
+
+msgid "auth.twoFactorSubtitle"
+msgstr "Dieses Konto ist durch einen zweiten Faktor geschützt."
+
+msgid "auth.twoFactorTitle"
+msgstr "Zwei-Faktor-Bestätigung"
+
+msgid "auth.twoFactorVerify"
+msgstr "Code bestätigen"
+
+msgid "auth.twoFactorVerifying"
+msgstr "Wird geprüft…"
+
+msgid "auth.useBackupCode"
+msgstr "Backup-Code verwenden"
+
+msgid "auth.useTotpCode"
+msgstr "Authenticator-Code verwenden"
+
+msgid "common.actions"
+msgstr "Aktionen"
+
+msgid "common.all"
+msgstr "Alle"
+
+msgid "common.back"
+msgstr "Zurück"
+
+msgid "common.cancel"
+msgstr "Abbrechen"
+
+msgid "common.close"
+msgstr "Schließen"
+
+msgid "common.closeDialog"
+msgstr "Dialog schließen"
+
+msgid "common.confirm"
+msgstr "Bestätigen"
+
+msgid "common.copied"
+msgstr "Kopiert"
+
+msgid "common.copy"
+msgstr "Kopieren"
+
+msgid "common.create"
+msgstr "Erstellen"
+
+msgid "common.created"
+msgstr "Erstellt"
+
+msgid "common.delete"
+msgstr "Löschen"
+
+msgid "common.deleting"
+msgstr "Löschen…"
+
+msgid "common.details"
+msgstr "Details"
+
+msgid "common.disabled"
+msgstr "Inaktiv"
+
+msgid "common.download"
+msgstr "Herunterladen"
+
+msgid "common.edit"
+msgstr "Bearbeiten"
+
+msgid "common.email"
+msgstr "E-Mail"
+
+msgid "common.enabled"
+msgstr "Aktiv"
+
+msgid "common.error"
+msgstr "Etwas ist schiefgelaufen"
+
+msgid "common.errorAlert"
+msgstr "Fehler"
+
+msgid "common.language"
+msgstr "Sprache"
+
+msgid "common.loading"
+msgstr "Laden…"
+
+msgid "common.loadingPage"
+msgstr "Seite wird geladen"
+
+msgid "common.name"
+msgstr "Name"
+
+msgid "common.never"
+msgstr "Nie"
+
+msgid "common.no"
+msgstr "Nein"
+
+msgid "common.noData"
+msgstr "Noch keine Daten"
+
+msgid "common.none"
+msgstr "Keine"
+
+msgid "common.notAvailable"
+msgstr "Nicht verfügbar"
+
+msgid "common.optional"
+msgstr "optional"
+
+msgid "common.password"
+msgstr "Passwort"
+
+msgid "common.refresh"
+msgstr "Aktualisieren"
+
+msgid "common.required"
+msgstr "erforderlich"
+
+msgid "common.retry"
+msgstr "Erneut versuchen"
+
+msgid "common.retryNow"
+msgstr "Jetzt erneut versuchen"
+
+msgid "common.role"
+msgstr "Rolle"
+
+msgid "common.rows"
+msgstr "Zeilen"
+
+msgid "common.save"
+msgstr "Speichern"
+
+msgid "common.saveChanges"
+msgstr "Änderungen speichern"
+
+msgid "common.saving"
+msgstr "Speichern…"
+
+msgid "common.skipToContent"
+msgstr "Zum Inhalt springen"
+
+msgid "common.status"
+msgstr "Status"
+
+msgid "common.success"
+msgstr "Erfolg"
+
+msgid "common.successAlert"
+msgstr "Erfolg"
+
+msgid "common.theme"
+msgstr "Design"
+
+msgid "common.timezone"
+msgstr "Zeitzone"
+
+msgid "common.unknown"
+msgstr "Unbekannt"
+
+msgid "common.updated"
+msgstr "Aktualisiert"
+
+msgid "common.version"
+msgstr "Version"
+
+msgid "common.view"
+msgstr "Ansehen"
+
+msgid "common.yes"
+msgstr "Ja"
+
+msgid "confidence.inference"
+msgstr "Schlussfolgerung"
+
+msgid "confidence.secondary"
+msgstr "Sekundär"
+
+msgid "confidence.unknown"
+msgstr "Unbekannt"
+
+msgid "confidence.verified"
+msgstr "Verifiziert"
+
+msgid "dashboard.activeTasks"
+msgstr "Aktive Aufgaben"
+
+msgid "dashboard.allClear"
+msgstr "Alles in Ordnung"
+
+msgid "dashboard.failures"
+msgstr "Fehler"
+
+msgid "dashboard.lastExecution"
+msgstr "Letzte Aktivität"
+
+msgid "dashboard.nextRun"
+msgstr "Nächster Lauf"
+
+msgid "dashboard.noActive"
+msgstr "Noch keine aktiven Aufgaben."
+
+msgid "dashboard.noExecutions"
+msgstr "Es ist noch nichts gelaufen."
+
+msgid "dashboard.noFailures"
+msgstr "Keine Fehler in den letzten Läufen."
+
+msgid "dashboard.noPaused"
+msgstr "Keine pausierten Aufgaben."
+
+msgid "dashboard.pausedTasks"
+msgstr "Pausierte Aufgaben"
+
+msgid "dashboard.recentExecutions"
+msgstr "Letzte Ausführungen"
+
+msgid "dashboard.subtitle"
+msgstr "Was geplant ist, was gelaufen ist und was Aufmerksamkeit braucht."
+
+msgid "dashboard.title"
+msgstr "Übersicht"
+
+msgid "dashboard.viewExecutions"
+msgstr "Alle Ausführungen ansehen"
+
+msgid "dashboard.viewTasks"
+msgstr "Alle Aufgaben ansehen"
+
+msgid "errors.actionFailed"
+msgstr "Die Aktion ist fehlgeschlagen."
+
+msgid "errors.conflict"
+msgstr "Das steht im Konflikt mit dem aktuellen Zustand."
+
+msgid "errors.forbidden"
+msgstr "Du hast keine Berechtigung für diese Aktion."
+
+msgid "errors.generic"
+msgstr "Etwas ist schiefgelaufen. Bitte versuche es erneut."
+
+msgid "errors.loadFailed"
+msgstr "Diese Daten konnten nicht geladen werden."
+
+msgid "errors.network"
+msgstr "Der Server ist nicht erreichbar."
+
+msgid "errors.notFound"
+msgstr "Die angeforderte Ressource wurde nicht gefunden."
+
+msgid "errors.sessionExpired"
+msgstr "Deine Sitzung ist abgelaufen."
+
+msgid "errors.unauthorized"
+msgstr "Bitte melde dich an, um fortzufahren."
+
+msgid "executions.allStatuses"
+msgstr "Alle Status"
+
+msgid "executions.arguments"
+msgstr "Argumente"
+
+msgid "executions.attempt"
+msgstr "Versuch {attempt}"
+
+msgid "executions.back"
+msgstr "Zurück zu den Ausführungen"
+
+msgid "executions.cancel"
+msgstr "Lauf abbrechen"
+
+msgid "executions.cancelBody"
+msgstr "Diesen Lauf stoppen? Bereits abgeschlossene Schritte bleiben in der Zeitleiste."
+
+msgid "executions.cancelTitle"
+msgstr "Ausführung abbrechen"
+
+msgid "executions.cancelledMsg"
+msgstr "Abbruch angefordert."
+
+msgid "executions.cancelling"
+msgstr "Wird abgebrochen…"
+
+msgid "executions.detailTitle"
+msgstr "Ausführungsdetails"
+
+msgid "executions.duration"
+msgstr "Dauer"
+
+msgid "executions.empty"
+msgstr "Keine Ausführungen gefunden"
+
+msgid "executions.emptyHint"
+msgstr "Ausführungen erscheinen hier, sobald eine Aufgabe läuft oder manuell gestartet wird."
+
+msgid "executions.error"
+msgstr "Fehler"
+
+msgid "executions.execution"
+msgstr "Ausführung"
+
+msgid "executions.exportJson"
+msgstr "JSON exportieren"
+
+msgid "executions.exportMarkdown"
+msgstr "Markdown exportieren"
+
+msgid "executions.filterStatus"
+msgstr "Nach Status filtern"
+
+msgid "executions.finishedAt"
+msgstr "Beendet"
+
+msgid "executions.noFailures"
+msgstr "Keine aktuellen Fehler."
+
+msgid "executions.noReport"
+msgstr "Noch kein Bericht. Er erscheint, wenn der Lauf abgeschlossen ist."
+
+msgid "executions.noSources"
+msgstr "Keine Quellen aufgezeichnet."
+
+msgid "executions.noSteps"
+msgstr "Keine Schritte aufgezeichnet."
+
+msgid "executions.noVisitedSites"
+msgstr "Es wurden keine Seiten besucht."
+
+msgid "executions.report"
+msgstr "Bericht"
+
+msgid "executions.result"
+msgstr "Ergebnis"
+
+msgid "executions.resultPreview"
+msgstr "Ergebnisvorschau"
+
+msgid "executions.retriedMsg"
+msgstr "Wiederholung eingereiht."
+
+msgid "executions.retrievedAt"
+msgstr "Abgerufen"
+
+msgid "executions.retry"
+msgstr "Wiederholen"
+
+msgid "executions.retryBody"
+msgstr "Eine neue Ausführung von „{title}“ einreihen?"
+
+msgid "executions.retryTitle"
+msgstr "Ausführung wiederholen"
+
+msgid "executions.retrying"
+msgstr "Wird wiederholt…"
+
+msgid "executions.scheduledFor"
+msgstr "Geplant für"
+
+msgid "executions.sources"
+msgstr "Quellen"
+
+msgid "executions.startedAt"
+msgstr "Gestartet"
+
+msgid "executions.step"
+msgstr "Schritt"
+
+msgid "executions.steps"
+msgstr "{count} Schritte"
+
+msgid "executions.subtitle"
+msgstr "Jeder Lauf, seine Zeitleiste und sein Bericht."
+
+msgid "executions.task"
+msgstr "Aufgabe"
+
+msgid "executions.timeline"
+msgstr "Zeitleiste"
+
+msgid "executions.title"
+msgstr "Ausführungen"
+
+msgid "executions.tokens"
+msgstr "{total} Token"
+
+msgid "executions.tool"
+msgstr "Werkzeug"
+
+msgid "executions.trigger"
+msgstr "Auslöser"
+
+msgid "executions.uncertainty"
+msgstr "Unsicherheiten"
+
+msgid "executions.usage"
+msgstr "Token-Verbrauch"
+
+msgid "executions.viewExecution"
+msgstr "Ausführung öffnen"
+
+msgid "executions.visitedSites"
+msgstr "Besuchte Seiten"
+
+msgid "executions.waiting"
+msgstr "Warte auf den Worker…"
+
+msgid "nav.admin"
+msgstr "Admin"
+
+msgid "nav.administration"
+msgstr "Verwaltung"
+
+msgid "nav.audit"
+msgstr "Audit-Protokoll"
+
+msgid "nav.closeMenu"
+msgstr "Navigation schließen"
+
+msgid "nav.dashboard"
+msgstr "Übersicht"
+
+msgid "nav.executions"
+msgstr "Ausführungen"
+
+msgid "nav.logout"
+msgstr "Abmelden"
+
+msgid "nav.mainNavigation"
+msgstr "Hauptnavigation"
+
+msgid "nav.monitoring"
+msgstr "Überwachung"
+
+msgid "nav.openMenu"
+msgstr "Navigation öffnen"
+
+msgid "nav.providers"
+msgstr "Anbieter"
+
+msgid "nav.settings"
+msgstr "Einstellungen"
+
+msgid "nav.signedInAs"
+msgstr "Angemeldet als"
+
+msgid "nav.tasks"
+msgstr "Aufgaben"
+
+msgid "nav.toggleTheme"
+msgstr "Farbschema wechseln"
+
+msgid "nav.users"
+msgstr "Benutzer"
+
+msgid "roles.ADMIN"
+msgstr "Administrator"
+
+msgid "roles.USER"
+msgstr "Benutzer"
+
+msgid "settings.account"
+msgstr "Konto"
+
+msgid "settings.addKey"
+msgstr "Schlüssel hinzufügen"
+
+msgid "settings.apiKey"
+msgstr "API-Schlüssel"
+
+msgid "settings.appearance"
+msgstr "Darstellung"
+
+msgid "settings.backupCodes"
+msgstr "Backup-Codes"
+
+msgid "settings.backupCodesHint"
+msgstr "Bewahre diese Einmal-Codes sicher auf. Sie werden nur einmal angezeigt."
+
+msgid "settings.confirmTwoFactor"
+msgstr "Bestätigen und aktivieren"
+
+msgid "settings.connected"
+msgstr "Persönlicher Schlüssel gespeichert"
+
+msgid "settings.copyBackupCodes"
+msgstr "Backup-Codes kopieren"
+
+msgid "settings.copyFailed"
+msgstr "Kopieren fehlgeschlagen. Bitte die Codes manuell markieren."
+
+msgid "settings.credentialsHint"
+msgstr "Schlüssel werden einmal an den Server gesendet, verschlüsselt gespeichert und nie an den Browser zurückgegeben."
+
+msgid "settings.currentPassword"
+msgstr "Aktuelles Passwort"
+
+msgid "settings.currentPasswordHint"
+msgstr "Der Authentifizierungsdienst verlangt dein Passwort, bevor Zwei-Faktor-Einstellungen geändert werden."
+
+msgid "settings.disableTwoFactor"
+msgstr "Zwei-Faktor-Authentifizierung deaktivieren"
+
+msgid "settings.disableTwoFactorBody"
+msgstr "Bestätige mit deinem aktuellen Passwort und einem gültigen Authenticator- oder Backup-Code. Der Backup-Code wird verbraucht."
+
+msgid "settings.enableTwoFactor"
+msgstr "Zwei-Faktor-Authentifizierung aktivieren"
+
+msgid "settings.keyLabel"
+msgstr "Bezeichnung"
+
+msgid "settings.keyRemoved"
+msgstr "Schlüssel entfernt."
+
+msgid "settings.keySaved"
+msgstr "Schlüssel gespeichert."
+
+msgid "settings.language"
+msgstr "Sprache"
+
+msgid "settings.languageHint"
+msgstr "Die Sprache der Oberfläche wird zusätzlich in diesem Browser gespeichert."
+
+msgid "settings.limitConcurrent"
+msgstr "Gleichzeitige Ausführungen: {count}"
+
+msgid "settings.limitDaily"
+msgstr "Ausführungen pro Tag: {count}"
+
+msgid "settings.limitsTitle"
+msgstr "Kontogrenzen"
+
+msgid "settings.noProviders"
+msgstr "Keine Anbieter verfügbar."
+
+msgid "settings.notConnected"
+msgstr "Kein persönlicher Schlüssel"
+
+msgid "settings.personalCredentials"
+msgstr "Persönliche Anbieter-Zugangsdaten"
+
+msgid "settings.preferences"
+msgstr "Vorgaben"
+
+msgid "settings.preferencesHint"
+msgstr "Diese Einstellungen folgen deinem Konto über Geräte hinweg."
+
+msgid "settings.provider"
+msgstr "Anbieter"
+
+msgid "settings.removeKey"
+msgstr "Schlüssel entfernen"
+
+msgid "settings.removeKeyBody"
+msgstr "Deinen gespeicherten Schlüssel für {name} entfernen? Gemeinsame Zugangsdaten gelten weiterhin."
+
+msgid "settings.removeKeyTitle"
+msgstr "Persönlichen Schlüssel entfernen"
+
+msgid "settings.saveKey"
+msgstr "Schlüssel speichern"
+
+msgid "settings.savePreferences"
+msgstr "Vorgaben speichern"
+
+msgid "settings.saved"
+msgstr "Vorgaben gespeichert."
+
+msgid "settings.subtitle"
+msgstr "Deine Vorgaben, Sprache, Darstellung und API-Zugangsdaten."
+
+msgid "settings.theme"
+msgstr "Design"
+
+msgid "settings.themeDark"
+msgstr "Dunkel"
+
+msgid "settings.themeLight"
+msgstr "Hell"
+
+msgid "settings.themeSystem"
+msgstr "Systemeinstellung"
+
+msgid "settings.timezone"
+msgstr "Zeitzone"
+
+msgid "settings.timezoneHint"
+msgstr "Zeitpläne und Berichtszeiten verwenden diese Zeitzone."
+
+msgid "settings.title"
+msgstr "Einstellungen"
+
+msgid "settings.totpSetupHint"
+msgstr "Füge diese URI deiner Authenticator-App hinzu und bestätige danach den angezeigten 6-stelligen Code. Erst mit dieser Bestätigung wird die Zwei-Faktor-Authentifizierung aktiv."
+
+msgid "settings.totpUri"
+msgstr "Einrichtungs-URI für die Authenticator-App"
+
+msgid "settings.twoFactor"
+msgstr "Zwei-Faktor-Authentifizierung"
+
+msgid "settings.twoFactorCode"
+msgstr "Authenticator- oder Backup-Code"
+
+msgid "settings.twoFactorCodeHint"
+msgstr "Ein 6-stelliger Authenticator-Code oder einer deiner gespeicherten Backup-Codes."
+
+msgid "settings.twoFactorCodeInvalid"
+msgstr "Der Code ist ungültig."
+
+msgid "settings.twoFactorDisabledHint"
+msgstr "Die Zwei-Faktor-Authentifizierung ist für dieses Konto nicht aktiv."
+
+msgid "settings.twoFactorDisabledMsg"
+msgstr "Zwei-Faktor-Authentifizierung deaktiviert."
+
+msgid "settings.twoFactorEnabledHint"
+msgstr "Die Anmeldung erfordert einen Code aus deiner Authenticator-App oder einen Backup-Code."
+
+msgid "settings.twoFactorEnabledMsg"
+msgstr "Zwei-Faktor-Authentifizierung aktiviert."
+
+msgid "settings.twoFactorHint"
+msgstr "Verlangt bei der Anmeldung zusätzlich zum Passwort einen Code aus der Authenticator-App."
+
+msgid "settings.twoFactorSetupFailed"
+msgstr "Einrichtung der Zwei-Faktor-Authentifizierung fehlgeschlagen."
+
+msgid "status.cancelled"
+msgstr "Abgebrochen"
+
+msgid "status.completed"
+msgstr "Abgeschlossen"
+
+msgid "status.failed"
+msgstr "Fehlgeschlagen"
+
+msgid "status.queued"
+msgstr "Wartend"
+
+msgid "status.running"
+msgstr "Läuft"
+
+msgid "status.timed_out"
+msgstr "Zeitüberschreitung"
+
+msgid "tasks.advancedSection"
+msgstr "Verhalten"
+
+msgid "tasks.allowWebResearch"
+msgstr "Webrecherche erlauben"
+
+msgid "tasks.basicSection"
+msgstr "Aufgabe"
+
+msgid "tasks.count"
+msgstr "{count} Aufgaben"
+
+msgid "tasks.createFirst"
+msgstr "Erste Aufgabe anlegen"
+
+msgid "tasks.createdMsg"
+msgstr "Aufgabe erstellt."
+
+msgid "tasks.cron"
+msgstr "Cron-Ausdruck"
+
+msgid "tasks.cronHelp"
+msgstr "Fünf Felder: Minute Stunde Tag-im-Monat Monat Wochentag."
+
+msgid "tasks.dayOfMonth"
+msgstr "Tag im Monat"
+
+msgid "tasks.deleteBody"
+msgstr "„{title}“ löschen? Der Ausführungsverlauf bleibt archiviert."
+
+msgid "tasks.deleteConfirm"
+msgstr "Aufgabe löschen"
+
+msgid "tasks.deleteTitle"
+msgstr "Aufgabe löschen"
+
+msgid "tasks.deleted"
+msgstr "Aufgabe gelöscht."
+
+msgid "tasks.description"
+msgstr "Beschreibung"
+
+msgid "tasks.detailTitle"
+msgstr "Aufgabendetails"
+
+msgid "tasks.duplicate"
+msgstr "Duplizieren"
+
+msgid "tasks.duplicateTitle"
+msgstr "Kopie von {title}"
+
+msgid "tasks.duplicated"
+msgstr "Aufgabe dupliziert."
+
+msgid "tasks.editTask"
+msgstr "Aufgabe bearbeiten"
+
+msgid "tasks.empty"
+msgstr "Noch keine Aufgaben"
+
+msgid "tasks.emptyHint"
+msgstr "Lege eine Aufgabe mit Prompt, Modell und Zeitplan an, um zu beginnen."
+
+msgid "tasks.enabled"
+msgstr "Aktiv"
+
+msgid "tasks.enabledHelp"
+msgstr "Inaktive Aufgaben behalten ihren Zeitplan, werden aber nie ausgeführt."
+
+msgid "tasks.executionsTitle"
+msgstr "Ausführungen"
+
+msgid "tasks.formInvalid"
+msgstr "Bitte korrigiere die markierten Felder."
+
+msgid "tasks.hour"
+msgstr "Stunde"
+
+msgid "tasks.lastRun"
+msgstr "Letzter Lauf"
+
+msgid "tasks.limitsDuration"
+msgstr "Maximale Dauer (Sekunden)"
+
+msgid "tasks.limitsOutput"
+msgstr "Maximale Ausgabe (Bytes)"
+
+msgid "tasks.limitsPages"
+msgstr "Maximale Seitenaufrufe"
+
+msgid "tasks.limitsSearches"
+msgstr "Maximale Suchanfragen"
+
+msgid "tasks.limitsSection"
+msgstr "Grenzen"
+
+msgid "tasks.limitsSteps"
+msgstr "Maximale Agent-Schritte"
+
+msgid "tasks.limitsToolCalls"
+msgstr "Maximale Tool-Aufrufe"
+
+msgid "tasks.minute"
+msgstr "Minute"
+
+msgid "tasks.model"
+msgstr "Modell"
+
+msgid "tasks.newTask"
+msgstr "Neue Aufgabe"
+
+msgid "tasks.nextRun"
+msgstr "Nächster Lauf"
+
+msgid "tasks.noExecutions"
+msgstr "Diese Aufgabe ist noch nicht gelaufen."
+
+msgid "tasks.noModels"
+msgstr "Dieser Anbieter hat keine Modelle. Aktualisiere die Modellliste im Verwaltungsbereich."
+
+msgid "tasks.noProviders"
+msgstr "Es sind keine Anbieter konfiguriert. Bitte einen Administrator darum bitten."
+
+msgid "tasks.notification"
+msgstr "Benachrichtigung"
+
+msgid "tasks.notificationEmail"
+msgstr "E-Mail senden"
+
+msgid "tasks.notificationNone"
+msgstr "Keine Benachrichtigung"
+
+msgid "tasks.pause"
+msgstr "Pausieren"
+
+msgid "tasks.pausedMsg"
+msgstr "Aufgabe pausiert."
+
+msgid "tasks.preset"
+msgstr "Wiederholung"
+
+msgid "tasks.presetCustom"
+msgstr "Eigener Cron"
+
+msgid "tasks.presetDaily"
+msgstr "Täglich"
+
+msgid "tasks.presetMonthly"
+msgstr "Monatlich"
+
+msgid "tasks.presetOnce"
+msgstr "Einmalig"
+
+msgid "tasks.presetWeekdays"
+msgstr "Werktags"
+
+msgid "tasks.presetWeekly"
+msgstr "Wöchentlich"
+
+msgid "tasks.prompt"
+msgstr "Prompt"
+
+msgid "tasks.promptHelp"
+msgstr "Was soll der Agent recherchieren und berichten? Beschreibe das gewünschte Ergebnis möglichst genau."
+
+msgid "tasks.provider"
+msgstr "Anbieter"
+
+msgid "tasks.providerCredentialHint"
+msgstr "Dieser Anbieter benötigt einen persönlichen API-Schlüssel in den Einstellungen."
+
+msgid "tasks.resume"
+msgstr "Fortsetzen"
+
+msgid "tasks.resumedMsg"
+msgstr "Aufgabe fortgesetzt."
+
+msgid "tasks.runAt"
+msgstr "Ausführen am"
+
+msgid "tasks.runNow"
+msgstr "Jetzt ausführen"
+
+msgid "tasks.runQueued"
+msgstr "Ausführung eingereiht."
+
+msgid "tasks.save"
+msgstr "Aufgabe speichern"
+
+msgid "tasks.saved"
+msgstr "Aufgabe gespeichert."
+
+msgid "tasks.schedule"
+msgstr "Zeitplan"
+
+msgid "tasks.scheduleSection"
+msgstr "Zeitplan"
+
+msgid "tasks.scheduleSummary.custom"
+msgstr "Cron „{cron}“ ({timezone})"
+
+msgid "tasks.scheduleSummary.daily"
+msgstr "Täglich um {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.monthly"
+msgstr "Monatlich am {day}. um {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.once"
+msgstr "Einmalig am {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.weekdays"
+msgstr "Werktags um {time} ({timezone})"
+
+msgid "tasks.scheduleSummary.weekly"
+msgstr "Jeden {weekday} um {time} ({timezone})"
+
+msgid "tasks.searchPlaceholder"
+msgstr "Nach Titel filtern"
+
+msgid "tasks.selectModel"
+msgstr "Modell auswählen"
+
+msgid "tasks.selectProvider"
+msgstr "Anbieter auswählen"
+
+msgid "tasks.subtitle"
+msgstr "Geplante Rechercheaufgaben und ihre Grenzen."
+
+msgid "tasks.systemHelp"
+msgstr "Optionale Vorgaben zu Ton und Format für den Agenten."
+
+msgid "tasks.systemInstructions"
+msgstr "Systemanweisungen"
+
+msgid "tasks.timezone"
+msgstr "Zeitzone"
+
+msgid "tasks.title"
+msgstr "Aufgaben"
+
+msgid "tasks.titleLabel"
+msgstr "Titel"
+
+msgid "tasks.titlePlaceholder"
+msgstr "Wöchentliches Wettbewerbs-Briefing"
+
+msgid "tasks.viewTask"
+msgstr "Aufgabe öffnen"
+
+msgid "tasks.weekdays"
+msgstr "Wochentage"
+
+msgid "toast.created"
+msgstr "Erstellt."
+
+msgid "toast.deleted"
+msgstr "Gelöscht."
+
+msgid "toast.error"
+msgstr "Aktion fehlgeschlagen."
+
+msgid "toast.saved"
+msgstr "Gespeichert."
+
+msgid "trigger.manual"
+msgstr "Manuell"
+
+msgid "trigger.retry"
+msgstr "Wiederholung"
+
+msgid "trigger.schedule"
+msgstr "Zeitplan"
+
+msgid "validation.cronInvalid"
+msgstr "Verwende einen gültigen Cron-Ausdruck mit fünf Feldern."
+
+msgid "validation.cronRequired"
+msgstr "Gib einen Cron-Ausdruck ein."
+
+msgid "validation.dayOfMonthRequired"
+msgstr "Wähle einen Tag im Monat."
+
+msgid "validation.descriptionMax"
+msgstr "Die Beschreibung darf höchstens 2000 Zeichen lang sein."
+
+msgid "validation.emailInvalid"
+msgstr "Gib eine gültige E-Mail-Adresse ein."
+
+msgid "validation.instructionsMax"
+msgstr "Die Anweisungen dürfen höchstens 8000 Zeichen lang sein."
+
+msgid "validation.modelRequired"
+msgstr "Wähle ein Modell."
+
+msgid "validation.passwordLength"
+msgstr "Verwende mindestens 12 Zeichen."
+
+msgid "validation.promptMax"
+msgstr "Der Prompt darf höchstens 20000 Zeichen lang sein."
+
+msgid "validation.promptMin"
+msgstr "Der Prompt braucht mindestens 10 Zeichen."
+
+msgid "validation.providerRequired"
+msgstr "Wähle einen Anbieter."
+
+msgid "validation.range"
+msgstr "Der Wert liegt außerhalb des erlaubten Bereichs."
+
+msgid "validation.required"
+msgstr "Dieses Feld ist erforderlich."
+
+msgid "validation.runAtRequired"
+msgstr "Wähle Datum und Uhrzeit für den einmaligen Lauf."
+
+msgid "validation.timeInvalid"
+msgstr "Gib eine gültige Uhrzeit ein."
+
+msgid "validation.timezoneInvalid"
+msgstr "Gib eine gültige IANA-Zeitzone ein."
+
+msgid "validation.timezoneRequired"
+msgstr "Wähle eine Zeitzone."
+
+msgid "validation.titleMax"
+msgstr "Der Titel darf höchstens 160 Zeichen lang sein."
+
+msgid "validation.titleMin"
+msgstr "Der Titel braucht mindestens 3 Zeichen."
+
+msgid "validation.weekdaysRequired"
+msgstr "Wähle mindestens einen Wochentag."
+
+msgid "validation.weeklyOneDay"
+msgstr "Ein wöchentlicher Zeitplan braucht genau einen Wochentag."
+
+msgid "weekdays.long.0"
+msgstr "Sonntag"
+
+msgid "weekdays.long.1"
+msgstr "Montag"
+
+msgid "weekdays.long.2"
+msgstr "Dienstag"
+
+msgid "weekdays.long.3"
+msgstr "Mittwoch"
+
+msgid "weekdays.long.4"
+msgstr "Donnerstag"
+
+msgid "weekdays.long.5"
+msgstr "Freitag"
+
+msgid "weekdays.long.6"
+msgstr "Samstag"
+
+msgid "weekdays.short.0"
+msgstr "So"
+
+msgid "weekdays.short.1"
+msgstr "Mo"
+
+msgid "weekdays.short.2"
+msgstr "Di"
+
+msgid "weekdays.short.3"
+msgstr "Mi"
+
+msgid "weekdays.short.4"
+msgstr "Do"
+
+msgid "weekdays.short.5"
+msgstr "Fr"
+
+msgid "weekdays.short.6"
+msgstr "Sa"

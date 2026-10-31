@@ -1,0 +1,25 @@
+{
+  "name": "@agent-tasks/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "zod": "catalog:",
+    "@agent-tasks/shared": "workspace:*",
+    "@agent-tasks/ai-providers": "workspace:*",
+    "@agent-tasks/browser-tools": "workspace:*"
+  }
+}
