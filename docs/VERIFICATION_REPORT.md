@@ -31,8 +31,9 @@ namespaces, so Chromium's sandbox cannot start on the bare host.
 | CI compose job (`Browser E2E`, GitHub run 41216069396) | stack started, web served, 9/9 Playwright tests passed (sandbox disabled on that kernel) | 0 |
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 5 of 5 gates | 0 |
-| GitHub Actions run 41220413002 (`6d30662`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
-| `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail: HTML, text, **spam score 0.6**, `IsSpam=false`; **HTML compatibility 87.4 % supported / 1.55 % unsupported / 10 warnings** | 0 |
+| GitHub Actions run 41221277339 (`1f805f4`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
+| `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail: **spam score 0**, `IsSpam=false`; **HTML compatibility 87.4 % supported / 1.55 % unsupported / 10 warnings** | 0 |
+| `scripts/verify-mail-ui.mjs` in CI (Playwright + Mailpit UI) | heading/paragraph/CTA/two reset links asserted; `mail-preview.png` artifact (112 kB) | 0 |
 
 Reproduction:
 
@@ -168,8 +169,8 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 - URL: https://github.com/all-the-rest/agent-tasks (the brief's `Allderest/agent-tasks` does not exist; the `all-the-rest` organisation was used)
 - Visibility: PUBLIC; License: Apache-2.0 (`LICENSE` present)
 - Issues: 14 requirement issues (#1–#14)
-- Commit: `6d30662` (implementation + HTML mail) + the commit containing this report
-- CI: run 41220413002 — all 8 jobs successful, including the Mailpit/SpamAssassin check
+- Commit: `1f805f4` (implementation + HTML mail + compatibility/UI verification) + the commit containing this report
+- CI: run 41221277339 — all 8 jobs successful, including the Mailpit/SpamAssassin and UI checks
 
 ### Transactional mail (added after the first verification)
 
@@ -179,7 +180,7 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
   href.
 - The optional compose profile `mail` runs Mailpit with a SpamAssassin sidecar.
   CI requests a real reset, fetches the message through Mailpit's API and queries
-  `GET /api/v1/message/{id}/sa-check`: **score 0.6, `IsSpam=false`** (threshold 5).
+  `GET /api/v1/message/{id}/sa-check`: **score 0 / 0.6 across runs, `IsSpam=false`** (threshold 5).
   This is SpamAssassin's score as surfaced by Mailpit, not a Mailpit-only heuristic.
 - **HTML compatibility** is measured with Mailpit's HTML check (caniemail data):
   **87.4 % supported, 11.0 % partial, 1.55 % unsupported, 10 warnings**
@@ -189,8 +190,9 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
   supported. Thresholds in CI: supported ≥ 85 %, unsupported ≤ 2 %, warnings ≤ 12.
 - **UI verification**: `scripts/verify-mail-ui.mjs` opens the message in the
   Mailpit UI with Playwright, asserts the heading, paragraph, CTA button and two
-  reset links, and uploads `mail-preview.png`. The UI shows Mailpit's
-  "HTML Check 87%" badge.
+  reset links, and uploads `mail-preview.png`. The UI reported
+  "HTML Check 87%"; the artifact shows the rendered reset mail with button and
+  fallback link.
 - Unit tests cover the renderer, multipart content and HTML escaping.
 
 ## Final verdict: NOT READY
