@@ -165,6 +165,10 @@ jobs:
             echo "COOKIE_SECURE=false"
             echo "SETUP_TOKEN=$SETUP_TOKEN"
             echo "E2E_SETUP_TOKEN=$SETUP_TOKEN"
+            # GitHub's runner kernel forbids the Chromium sandbox inside the container.
+            # The production default stays true (compose.yaml); the sandbox itself is
+            # therefore NOT VERIFIED in CI.
+            echo "RUNNER_CHROMIUM_SANDBOX=false"
             echo "E2E_BASE_URL=http://localhost:8080"
           } >> "$GITHUB_ENV"
       - name: Build and start the compose stack
@@ -258,7 +262,7 @@ jobs:
           # would need write access and is not required to fail the job.
           GITLEAKS_ENABLE_COMMENTS: 'false'
       - name: Scan the filesystem with Trivy
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
