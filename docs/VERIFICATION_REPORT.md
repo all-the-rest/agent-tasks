@@ -39,6 +39,7 @@ runner) against the exact production container posture.
 | `docker compose build` | see "Docker Compose" below | — |
 | `ratchet check` | 11 of 11 gates (agent-rules preset + project rules) | 0 |
 | GitHub Actions run 41222770419 (`97487c1`) | **all 8 jobs success**: lint/typecheck, unit, integration, compose E2E, 3 image builds, security | 0 |
+| GitHub Actions run 41246589101 (`a473fac`) | **all 8 jobs success**: lint/typecheck incl. `Validate the deployment stacks` (local/E2E/production), unit, integration, compose E2E, 3 image builds, gitleaks/Trivy/audit | 0 |
 | `scripts/check-mailpit.mjs` in CI (Mailpit + SpamAssassin) | reset mail via the shared builder: **spam score 0**, `IsSpam=false`; **HTML compatibility 85.6 % supported / 12.9 % partial / 1.55 % unsupported / 12 warnings** (thresholds 85/2/12) | 0 |
 | `scripts/verify-mail-ui.mjs` in CI (Playwright + Mailpit UI) | heading/paragraph/CTA/two reset links asserted; `mail-preview.png` artifact (112 kB) | 0 |
 
@@ -308,7 +309,13 @@ label=com.agent-tasks.stack=local|e2e` returned only the matching containers;
 the published ports were reached through `http://dind:<port>` here; on a normal
 Docker host they are `http://localhost:<port>`. The CI lint job renders all
 three stacks with `deployment/stack.sh <stack> config -q` before the E2E job
-builds the stack.
+builds the stack. Run 41246589101 (`a473fac`) is the final proof: the three
+validations, the Browser E2E job and the security scans all passed.
+
+Gitleaks flagged the `replace-with-*` values in the production template as
+generic API keys. The allowlist now accepts only a secret whose complete value
+is a `replace-with-*` placeholder; a counter-test with a real high-entropy value
+in the same file still produced a finding.
 
 ### Registration setting and environment bootstrap (added on request)
 
