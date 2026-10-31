@@ -1026,6 +1026,7 @@
 				{
 					"index": 0,
 					"value": 268435456,
+					"valueTwo": 268435456,
 					"op": "SCMP_CMP_MASKED_EQ"
 				}
 			],
