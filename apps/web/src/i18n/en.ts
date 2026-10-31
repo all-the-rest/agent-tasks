@@ -120,6 +120,13 @@ export const en = {
       },
     },
     auth: {
+      registerTitle: 'Create your account',
+      registerSubtitle: 'Registration is open on this instance.',
+      register: 'Create account',
+      registering: 'Creating account…',
+      registerFailed: 'The account could not be created.',
+      registerDisabled: 'Registration is disabled',
+      registerDisabledHint: 'Ask an administrator to send you an invitation.',
       loginTitle: 'Welcome back',
       loginSubtitle: 'Sign in to manage your scheduled research tasks.',
       signIn: 'Sign in',

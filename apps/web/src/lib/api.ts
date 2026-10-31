@@ -144,6 +144,8 @@ export const api = {
   auth: {
     signIn: (email: string, password: string) =>
       post<SignInResult>('/api/auth/sign-in/email', { email, password }),
+    signUp: (input: { name: string; email: string; password: string }) =>
+      post<{ user?: { id: string } }>('/api/auth/sign-up/email', input),
     signOut: () => post<void>('/api/auth/sign-out'),
     session: () =>
       get<{ user: SessionUser; session: { id: string; expiresAt: string } } | null>(

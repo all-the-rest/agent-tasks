@@ -22,8 +22,8 @@ runner) against the exact production container posture.
 | `pnpm install --frozen-lockfile` | lockfile accepted | 0 |
 | `pnpm lint` | 0 errors, 0 warnings | 0 |
 | `pnpm -r typecheck` | 10 projects | 0 |
-| `pnpm test:unit` | **164 passed**, 23 files | 0 |
-| `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **48 passed**, 8 files, real PostgreSQL 15.15 | 0 |
+| `pnpm test:unit` | **170 passed**, 24 files | 0 |
+| `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **52 passed**, 9 files, real PostgreSQL 15.15 | 0 |
 | `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
 | `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
 | `pnpm exec playwright test` (9 specs, real Chromium, real API/worker/runner, real PostgreSQL) | **9 passed** | 0 |
@@ -54,7 +54,7 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | # | Requirement | Implementation | Evidence | Status |
 | --- | --- | --- | --- | --- |
 | 1 | pnpm monorepo, Apache-2.0, CI | `pnpm-workspace.yaml`, `apps/*`, `services/*`, `packages/*`, `LICENSE`, `.github/workflows/ci.yml` | `pnpm install`, `pnpm build`, `pnpm lint`, `pnpm -r typecheck`; `LICENSE` present | PASS |
-| 2 | Roles, invite-only onboarding, secure bootstrap | `apps/api/src/auth.ts`, `routes/setup.ts`, `routes/admin.ts` | `auth.test.ts`: setup token, single admin under concurrent setup, blocked direct sign-up, single-use invite under concurrency, revoked/expired invite | PASS |
+| 2 | Roles, invite-only onboarding, secure bootstrap | `apps/api/src/auth.ts`, `routes/setup.ts`, `routes/admin.ts`, `apps/api/src/bootstrap.ts` | `auth.test.ts`: setup token, single admin under concurrent setup, blocked direct sign-up, single-use invite under concurrency, revoked/expired invite. `bootstrap.test.ts`: first admin from `ADMIN_EMAIL`/`ADMIN_PASSWORD` (idempotent, role ADMIN), registration setting opens direct `USER` sign-up only when enabled | PASS |
 | 2 | TOTP MFA, backup codes | `twoFactor()` plugin; `LoginPage` challenge; `SettingsPage` enable/disable | `auth.test.ts` (enable → verify → sign-in `twoFactorRedirect` → wrong code → valid code), `login-mfa.test.tsx` (4), `settings-mfa.test.tsx` (2) | PASS |
 | 2 | Session revocation, CSRF, rate limits | `cookieCache.enabled=false`, origin hook in `app.ts`, `rateLimit.customRules` | `auth.test.ts` logout 401, CSRF 403, 429 | PASS |
 | 2 | Audit log | `audit_logs`, `context.audit()` | `audit.test.ts`: setup, invite, role change, provider, credential; asserts the credential value never appears | PASS |
@@ -227,6 +227,27 @@ shipped and covered by regression tests: seccomp rules for
 `unshare(CLONE_NEWUSER)`, `clone(CLONE_NEWUSER|…)` and the zygote's
 `clone(CLONE_NEWPID/NEWNET)`, plus `CAP_SYS_CHROOT`. Probe run 41226712667 shows
 `LAUNCH_OK sandbox=true` **and** `PAGE_OK` with the exact production posture.
+
+### Registration setting and environment bootstrap (added on request)
+
+- `ALLOW_REGISTRATION` (`false` by default) seeds the database setting on a fresh
+  database; the admin UI can change it later and the env value never overwrites a
+  saved setting. When on, `/register` and `POST /api/auth/sign-up/email` create a
+  `USER` account without an invitation; when off, sign-up still requires a
+  single-use invitation (403 otherwise). The bridge in `app.ts` enforces this, so
+  the UI is not the boundary.
+- `ADMIN_EMAIL`/`ADMIN_PASSWORD` (both or neither, password ≥ 12) create the first
+  administrator on start when no admin exists; `SETUP_TOKEN` remains the fallback.
+  The seed runs under an advisory lock, is idempotent and compensates a failed
+  transaction.
+- `OPENCODE_GO_API_KEY` (+ `OPENCODE_GO_MODEL`/`OPENCODE_GO_MODELS`) seeds the
+  `OpenCode Go` provider once, with the key encrypted at rest via
+  `SECRETS_ENCRYPTION_KEY`; it never updates an existing provider.
+- `.env.production` is a committed template (no real secrets) with
+  `ALLOW_REGISTRATION=false`, the admin bootstrap and OpenCode Go configuration;
+  start it with `docker compose --env-file .env.production up -d`.
+- Tests: `apps/api/test/env.test.ts` (5) and `test/integration/bootstrap.test.ts`
+  (4, including the runtime toggle); local Compose run with the env file is recorded below.
 
 ### Transactional mail (added after the first verification)
 

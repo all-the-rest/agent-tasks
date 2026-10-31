@@ -376,6 +376,27 @@ msgstr "Mindestens 12 Zeichen."
 msgid "auth.passwordMismatch"
 msgstr "Die Passwörter stimmen nicht überein."
 
+msgid "auth.register"
+msgstr "Konto erstellen"
+
+msgid "auth.registerDisabled"
+msgstr "Registrierung ist deaktiviert"
+
+msgid "auth.registerDisabledHint"
+msgstr "Bitte einen Administrator um eine Einladung."
+
+msgid "auth.registerFailed"
+msgstr "Das Konto konnte nicht erstellt werden."
+
+msgid "auth.registerSubtitle"
+msgstr "Die Registrierung ist auf dieser Instanz geöffnet."
+
+msgid "auth.registerTitle"
+msgstr "Konto erstellen"
+
+msgid "auth.registering"
+msgstr "Konto wird erstellt…"
+
 msgid "auth.sessionExpired"
 msgstr "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an."
 

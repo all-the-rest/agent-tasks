@@ -78,11 +78,12 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
 
   /**
    * Better Auth talks the Fetch API; this bridge mounts it under /api/auth and adds
-   * the one policy Better Auth does not know: public registration is closed, so
+   * the registration policy: with `allowRegistration` disabled (the default),
    * POST /api/auth/sign-up/email is only forwarded after the invite token has been
-   * atomically claimed for exactly that address. The claim is released again if
-   * Better Auth refuses the sign-up, and the invite role is applied on success —
-   * the same contract as /api/invitations/accept.
+   * atomically claimed for exactly that address. With it enabled, a direct sign-up
+   * creates a USER account; an invite token may still be supplied to choose a role.
+   * The claim is released again if Better Auth refuses the sign-up, and the invite
+   * role is applied on success — the same contract as /api/invitations/accept.
    */
   const authHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const url = new URL(request.url, context.env.PUBLIC_BASE_URL);
@@ -91,13 +92,17 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     if (isSignUp) {
       const token = request.headers['x-invite-token'];
       const email = (request.body as { email?: string } | undefined)?.email;
-      if (typeof token !== 'string' || !email) throw AppError.forbidden('registration requires an invitation');
-      const invite = await claimInvitation(context.db, token);
-      if (!invite || invite.email.toLowerCase() !== email.toLowerCase()) {
-        if (invite) await releaseInvitation(context.db, invite.id);
-        throw AppError.forbidden('invalid invitation');
+      if (typeof token === 'string') {
+        if (!email) throw AppError.forbidden('registration requires an invitation');
+        const invite = await claimInvitation(context.db, token);
+        if (!invite || invite.email.toLowerCase() !== email.toLowerCase()) {
+          if (invite) await releaseInvitation(context.db, invite.id);
+          throw AppError.forbidden('invalid invitation');
+        }
+        claimed = invite;
+      } else if (!(await context.settings()).allowRegistration) {
+        throw AppError.forbidden('registration requires an invitation');
       }
-      claimed = invite;
     }
 
     const headers = fromNodeHeaders(request.headers);
