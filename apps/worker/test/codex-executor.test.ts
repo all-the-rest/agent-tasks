@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { executions, providerCredentials, providers } from '@agent-tasks/database';
+import { executions, memories, providerCredentials, providers, recommendations } from '@agent-tasks/database';
 import { SecretBox } from '@agent-tasks/ai-providers';
 import type { RunAgentOptions } from '@agent-tasks/agent-runtime';
 import { Executor } from '../src/executor.js';
@@ -19,7 +19,7 @@ vi.mock('@agent-tasks/agent-runtime', async (importOriginal) => {
     ...actual,
     runAgent: async (options: RunAgentOptions) => {
       state.options = options;
-      return { markdown: '# done', summary: 'done', sources: [], uncertainty: [], steps: [], usage: {}, stopReason: 'completed' };
+      return { markdown: '# done', summary: 'done', sources: [], uncertainty: [], steps: [], usage: {}, emailBlocks: [], memoryOps: [], recommendationOps: [], stopReason: 'completed' };
     },
   };
 });
@@ -52,6 +52,7 @@ function fakeDb(input: FakeInput) {
       if (table === providers) return chain([input.provider]);
       if (table === executions) return chain([{ execution: input.execution, task: input.task }]);
       if (table === providerCredentials) return chain(input.credentials);
+      if (table === memories || table === recommendations) return chain([]);
       throw new Error('unexpected select table');
     },
   });

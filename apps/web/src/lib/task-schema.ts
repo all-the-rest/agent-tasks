@@ -43,6 +43,10 @@ export const taskFormSchema = z
     limits: limitsFormSchema,
     allowWebResearch: z.boolean(),
     notification: z.enum(['none', 'email']),
+    memorySettings: z.object({
+      mode: z.enum(['off', 'suggest', 'auto']),
+      contextBytes: z.number().int().min(1_000, 'validation.range').max(100_000, 'validation.range'),
+    }),
   })
   .superRefine((value, ctx) => {
     const { schedule } = value;
@@ -78,5 +82,6 @@ export function toTaskInput(values: TaskFormValues): TaskInput {
     limits: values.limits,
     allowWebResearch: values.allowWebResearch,
     notification: values.notification,
+    memorySettings: values.memorySettings,
   };
 }

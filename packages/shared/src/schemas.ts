@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { limitsSchema } from './limits.js';
+import { memorySettingsSchema, DEFAULT_MEMORY_SETTINGS } from './memory.js';
 import { emailBlocksSchema } from './email-blocks.js';
 import { scheduleSchema } from './schedule.js';
 import { EXECUTION_STATUSES, REPORT_CONFIDENCE, ROLES } from './status.js';
@@ -106,6 +107,7 @@ export const taskInputSchema = z.object({
   limits: limitsSchema,
   allowWebResearch: z.boolean().default(true),
   notification: z.enum(['none', 'email']).default('none'),
+  memorySettings: memorySettingsSchema.default(DEFAULT_MEMORY_SETTINGS),
 });
 
 export const taskUpdateSchema = withoutDefaults(taskInputSchema).partial();

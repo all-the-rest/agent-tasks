@@ -3,12 +3,32 @@ import { mkdir } from 'node:fs/promises';
 import type { PgBoss } from 'pg-boss';
 import { eq } from 'drizzle-orm';
 import type { Database } from '@agent-tasks/database';
-import { executions, executionSources, executionSteps, providerCredentials, providers, tasks, user, userPreferences } from '@agent-tasks/database';
+import {
+  applyTaskLearning,
+  executions,
+  executionSources,
+  executionSteps,
+  loadMemoryContextData,
+  providerCredentials,
+  providers,
+  tasks,
+  user,
+  userPreferences,
+} from '@agent-tasks/database';
 import { AgentCancelledError, runAgent } from '@agent-tasks/agent-runtime';
 import { BrowserRunnerClient, NoopSearchProvider, SearxngSearchProvider } from '@agent-tasks/browser-tools';
 import type { SearchProvider } from '@agent-tasks/browser-tools';
 import { ProviderError, SecretBox, contextFor, createProvider, redact, resolveCredential } from '@agent-tasks/ai-providers';
-import { limitsSchema, renderEmailDocument, reportToMarkdown, scheduleSchema, systemSettingsSchema } from '@agent-tasks/shared';
+import {
+  buildMemoryContext,
+  limitsSchema,
+  parseMemorySettings,
+  renderEmailDocument,
+  reportToMarkdown,
+  scheduleSchema,
+  systemSettingsSchema,
+} from '@agent-tasks/shared';
+import type { MemoryCategory, MemoryContextRecord, MemoryScope, RecommendationContextRecord } from '@agent-tasks/shared';
 import { claimExecution, countExecutionsToday, countRunningForOwner, heartbeat, isCancelRequested } from './scheduling.js';
 import { settleWithin } from './lifecycle.js';
 import type { SettleResult } from './lifecycle.js';
@@ -177,6 +197,46 @@ export class Executor {
       }
 
       const search = this.searchProvider(settings);
+      const memorySettings = parseMemorySettings(task.memorySettings);
+      let memoryContext: string | null = null;
+      if (memorySettings.mode !== 'off') {
+        // Read fresh on every execution: a deleted or edited memory can never be
+        // served from a stale cache, a search index or a previous run's report.
+        const contextData = await loadMemoryContextData(db, task.ownerId, task.id);
+        const globalMemories: MemoryContextRecord[] = contextData.global.map((row) => ({
+          id: row.id,
+          scope: row.scope as MemoryScope,
+          category: row.category as MemoryCategory,
+          content: row.content,
+          semanticKey: row.semanticKey,
+          updatedAt: row.updatedAt,
+        }));
+        const taskMemories: MemoryContextRecord[] = contextData.task.map((row) => ({
+          id: row.id,
+          scope: row.scope as MemoryScope,
+          category: row.category as MemoryCategory,
+          content: row.content,
+          semanticKey: row.semanticKey,
+          updatedAt: row.updatedAt,
+        }));
+        const previousRecommendations: RecommendationContextRecord[] = contextData.recommendations.map((row) => ({
+          id: row.id,
+          semanticKey: row.semanticKey,
+          title: row.title,
+          status: row.status as RecommendationContextRecord['status'],
+          sourceUrl: row.sourceUrl,
+          lastObservedAt: row.lastObservedAt,
+          lastChangedAt: row.lastChangedAt,
+        }));
+        const built = buildMemoryContext({
+          globalMemories,
+          taskMemories,
+          recommendations: previousRecommendations,
+          budgetBytes: memorySettings.contextBytes,
+        });
+        memoryContext = built.text;
+      }
+
       const result = await runAgent({
         provider: adapter,
         providerContext,
@@ -188,6 +248,8 @@ export class Executor {
         allowWebResearch: task.allowWebResearch,
         allowForms: false,
         emailNotification: task.notification === 'email',
+        memoryEnabled: memorySettings.mode !== 'off',
+        memoryContext,
         limits,
         browser: this.browser,
         sessionId: browserSessionId ?? randomUUID(),
@@ -253,6 +315,53 @@ export class Executor {
       );
       await db.update(tasks).set({ lastRunAt: finishedAt }).where(eq(tasks.id, task.id));
       void markdown;
+
+      // Durable memory is written only after the execution was marked completed.
+      // Operations are schema-validated in the worker and applied in one transaction;
+      // a learning failure must never turn a completed execution into a failure.
+      if (result.stopReason === 'completed' && memorySettings.mode !== 'off') {
+        try {
+          const learning = await applyTaskLearning(db, {
+            ownerId: task.ownerId,
+            taskId: task.id,
+            executionId,
+            mode: memorySettings.mode,
+            memoryOps: result.memoryOps,
+            recommendationOps: result.recommendationOps,
+          });
+          if (
+            learning.applied > 0 ||
+            learning.suggested > 0 ||
+            learning.createdRecommendations > 0 ||
+            learning.updatedRecommendations > 0 ||
+            learning.skipped.length > 0
+          ) {
+            console.info(
+              JSON.stringify({
+                level: 'info',
+                event: 'task_memory_learning',
+                executionId,
+                mode: learning.mode,
+                applied: learning.applied,
+                suggested: learning.suggested,
+                skipped: learning.skipped.length,
+                recommendationsCreated: learning.createdRecommendations,
+                recommendationsChanged: learning.updatedRecommendations,
+                recommendationsUnchanged: learning.unchangedRecommendations,
+              }),
+            );
+          }
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'task_memory_learning_failed',
+              executionId,
+              message: redact(error instanceof Error ? error.message : String(error), knownSecrets),
+            }),
+          );
+        }
+      }
 
       if (task.notification === 'email') {
         // A notification failure must never turn a completed execution into a failure.

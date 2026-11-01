@@ -844,6 +844,450 @@ msgstr "Visited sites"
 msgid "executions.waiting"
 msgstr "Waiting for the worker…"
 
+msgid "memory.acceptSuggestion"
+msgstr "Accept"
+
+msgid "memory.action.created"
+msgstr "created"
+
+msgid "memory.action.deleted"
+msgstr "deleted"
+
+msgid "memory.action.skipped"
+msgstr "skipped"
+
+msgid "memory.action.suggested"
+msgstr "suggested"
+
+msgid "memory.action.suggestion_accepted"
+msgstr "suggestion accepted"
+
+msgid "memory.action.suggestion_rejected"
+msgstr "suggestion rejected"
+
+msgid "memory.action.updated"
+msgstr "updated"
+
+msgid "memory.add"
+msgstr "Add memory"
+
+msgid "memory.allCategories"
+msgstr "All categories"
+
+msgid "memory.allTaskHelp"
+msgstr "Task memory across all your tasks. Open a task to create a task-scoped memory or use /learn task there."
+
+msgid "memory.allTaskHint"
+msgstr "This view lists task memory across all your tasks. Select a task to use task-scoped commands."
+
+msgid "memory.allTaskTitle"
+msgstr "All task memories"
+
+msgid "memory.ambiguousBody"
+msgstr "The reference is ambiguous. Select one memory; nothing has been changed yet."
+
+msgid "memory.ambiguousTitle"
+msgstr "Select the exact memory"
+
+msgid "memory.category.constraint"
+msgstr "Constraint"
+
+msgid "memory.category.decision"
+msgstr "Decision"
+
+msgid "memory.category.fact"
+msgstr "Fact"
+
+msgid "memory.category.finding"
+msgstr "Finding"
+
+msgid "memory.category.instruction"
+msgstr "Instruction"
+
+msgid "memory.category.interest"
+msgstr "Interest"
+
+msgid "memory.category.next_action"
+msgstr "Next action"
+
+msgid "memory.category.open_question"
+msgstr "Open question"
+
+msgid "memory.category.preference"
+msgstr "Preference"
+
+msgid "memory.category.progress"
+msgstr "Progress"
+
+msgid "memory.category.recommendation"
+msgstr "Recommendation"
+
+msgid "memory.categoryLabel"
+msgstr "Category"
+
+msgid "memory.changesHelp"
+msgstr "Every manual and automatic change. Deleted content is not retained here."
+
+msgid "memory.changesTitle"
+msgstr "Memory change journal"
+
+msgid "memory.commandDone"
+msgstr "Command completed."
+
+msgid "memory.commandHint"
+msgstr "/learn <text>, /learn task <text>, /memory, /memory global, /memory task, /update <id> <text>, /forget <id|search>, /forget global <id>, /forget task <id>"
+
+msgid "memory.commandLabel"
+msgstr "Slash command"
+
+msgid "memory.commandPlaceholder"
+msgstr "/learn prefers concise reports"
+
+msgid "memory.content"
+msgstr "Content"
+
+msgid "memory.contentHelp"
+msgstr "Plain text. Never store passwords, API keys or session tokens here."
+
+msgid "memory.contextBudget"
+msgstr "Memory context budget (bytes)"
+
+msgid "memory.contextBudgetHelp"
+msgstr "Global instructions are always included in full; other records are prioritised and omissions are reported explicitly."
+
+msgid "memory.createTitle"
+msgstr "Create memory"
+
+msgid "memory.createdAt"
+msgstr "Created"
+
+msgid "memory.createdMsg"
+msgstr "Memory created."
+
+msgid "memory.deleteAllGlobal"
+msgstr "Delete all global memory"
+
+msgid "memory.deleteAllGlobalBody"
+msgstr "Permanently delete every global memory of this account? Task memories are not affected. Future runs will no longer receive these preferences."
+
+msgid "memory.deleteAllGlobalTitle"
+msgstr "Delete all global memory"
+
+msgid "memory.deleteAllTask"
+msgstr "Delete all task memory"
+
+msgid "memory.deleteAllTaskBody"
+msgstr "Permanently delete every memory of this task? Recommendations and execution history are separate and stay until the task itself is deleted."
+
+msgid "memory.deleteAllTaskTitle"
+msgstr "Delete all task memory"
+
+msgid "memory.deleteBody"
+msgstr "Permanently delete memory “{id}”? It is removed from search and from every future run. This cannot be undone."
+
+msgid "memory.deleteConfirm"
+msgstr "Delete permanently"
+
+msgid "memory.deleteTitle"
+msgstr "Delete memory"
+
+msgid "memory.deletedCount"
+msgstr "Deleted {count} memories."
+
+msgid "memory.deletedMsg"
+msgstr "Memory deleted."
+
+msgid "memory.duplicateBody"
+msgstr "Nothing was added. Choose the existing memory to replace its content, or rephrase this memory if it is intentionally different."
+
+msgid "memory.duplicateTitle"
+msgstr "Similar memory already exists"
+
+msgid "memory.editTitle"
+msgstr "Edit memory"
+
+msgid "memory.emptyHint"
+msgstr "Save an instruction with /learn, or create a memory manually."
+
+msgid "memory.emptyTitle"
+msgstr "No memories yet"
+
+msgid "memory.executionChanges"
+msgstr "Memory changes from this run"
+
+msgid "memory.executionChangesHelp"
+msgstr "Structured operations applied after this execution completed."
+
+msgid "memory.executionRecommendations"
+msgstr "Recommendation changes from this run"
+
+msgid "memory.executionSuggestions"
+msgstr "Suggestions awaiting review"
+
+msgid "memory.export"
+msgstr "Export memory"
+
+msgid "memory.firstObserved"
+msgstr "First observed"
+
+msgid "memory.forgetBody"
+msgstr "Permanently delete this memory? It is removed from search, prompts and future runs. Content: “{content}”"
+
+msgid "memory.forgetCandidatesBody"
+msgstr "Several memories match. Nothing has been deleted yet; select one and confirm."
+
+msgid "memory.forgetCandidatesTitle"
+msgstr "Select a memory to forget"
+
+msgid "memory.forgetConfirm"
+msgstr "Forget permanently"
+
+msgid "memory.forgetTitle"
+msgstr "Forget memory"
+
+msgid "memory.forgottenMsg"
+msgstr "Memory permanently deleted."
+
+msgid "memory.globalCount"
+msgstr "Global memories"
+
+msgid "memory.globalHelp"
+msgstr "Preferences, instructions and facts available to every task of this user. Never shared with another user."
+
+msgid "memory.globalScopeNote"
+msgstr "This becomes available to all your tasks. Task-specific instructions still take precedence."
+
+msgid "memory.globalTitle"
+msgstr "Global user memory"
+
+msgid "memory.historyNote"
+msgstr "Deleting a memory removes it from search, prompts and future runs. Execution reports are a separate append-only history and are not rewritten; backups follow the database retention policy."
+
+msgid "memory.lastChanged"
+msgstr "Last changed"
+
+msgid "memory.lastObserved"
+msgstr "Last observed"
+
+msgid "memory.learningMode"
+msgstr "Automatic task learning"
+
+msgid "memory.learningModeHelp"
+msgstr "auto applies validated task-memory updates and recommendation changes after a successful run. suggest queues them for review. off disables learning."
+
+msgid "memory.listed"
+msgstr "This scope has {count} memories."
+
+msgid "memory.listedBoth"
+msgstr "Global: {global}; task: {task}."
+
+msgid "memory.mode.auto"
+msgstr "Automatic"
+
+msgid "memory.mode.off"
+msgstr "Off"
+
+msgid "memory.mode.suggest"
+msgstr "Review suggestions"
+
+msgid "memory.modeAuto"
+msgstr "Apply automatically (show changes)"
+
+msgid "memory.modeOff"
+msgstr "Off"
+
+msgid "memory.modeSuggest"
+msgstr "Suggest for review"
+
+msgid "memory.noChanges"
+msgstr "No memory changes yet."
+
+msgid "memory.noExecutionChanges"
+msgstr "This run did not change durable memory."
+
+msgid "memory.noExecutionRecommendations"
+msgstr "This run did not change recommendations."
+
+msgid "memory.noExecutionSuggestions"
+msgstr "This run did not propose memory changes."
+
+msgid "memory.noHistory"
+msgstr "No recommendation events yet."
+
+msgid "memory.noMatches"
+msgstr "No matching memories"
+
+msgid "memory.noMatchesHint"
+msgstr "Try a different search or category, or create a new memory."
+
+msgid "memory.noPendingSuggestions"
+msgstr "No pending suggestions."
+
+msgid "memory.noRecommendations"
+msgstr "No recommendations yet"
+
+msgid "memory.noRecommendationsHint"
+msgstr "Recurring research tasks create recommendations after a successful run with automatic learning enabled."
+
+msgid "memory.origin.agent"
+msgstr "agent"
+
+msgid "memory.origin.slash_command"
+msgstr "slash command"
+
+msgid "memory.origin.system"
+msgstr "system"
+
+msgid "memory.origin.user"
+msgstr "user"
+
+msgid "memory.originRef"
+msgstr "Origin"
+
+msgid "memory.pending"
+msgstr "Pending"
+
+msgid "memory.recommendationHistory"
+msgstr "Recommendation history"
+
+msgid "memory.recommendationUpdated"
+msgstr "Recommendation status updated."
+
+msgid "memory.recommendationsHelp"
+msgstr "Tracked across runs. User decisions are never overwritten by automatic learning."
+
+msgid "memory.recommendationsTitle"
+msgstr "Recommendations"
+
+msgid "memory.rejectSuggestion"
+msgstr "Reject"
+
+msgid "memory.replaceExisting"
+msgstr "Replace this memory"
+
+msgid "memory.retentionNote"
+msgstr "Memories are deleted only when you delete them. There is no automatic expiry and no silent pruning of current memories."
+
+msgid "memory.reviewInTask"
+msgstr "Review in task"
+
+msgid "memory.runCommand"
+msgstr "Run"
+
+msgid "memory.saved"
+msgstr "Memory saved."
+
+msgid "memory.search"
+msgstr "Search"
+
+msgid "memory.searchPlaceholder"
+msgstr "Search content or stable key"
+
+msgid "memory.selectForget"
+msgstr "Select for deletion"
+
+msgid "memory.selectTaskHint"
+msgstr "Open a task and choose its Memory tab to manage task memory."
+
+msgid "memory.selectUpdate"
+msgstr "Update this memory"
+
+msgid "memory.semanticKey"
+msgstr "Stable key (optional)"
+
+msgid "memory.semanticKeyHelp"
+msgstr "Lets later runs update this record instead of creating a duplicate. Letters, digits, dot, dash, underscore, colon or slash."
+
+msgid "memory.showing"
+msgstr "Showing {count} of {total}"
+
+msgid "memory.status.accepted"
+msgstr "Accepted"
+
+msgid "memory.status.completed"
+msgstr "Completed"
+
+msgid "memory.status.discovered"
+msgstr "Discovered"
+
+msgid "memory.status.recommended"
+msgstr "Recommended"
+
+msgid "memory.status.rejected"
+msgstr "Rejected"
+
+msgid "memory.status.unavailable"
+msgstr "Unavailable"
+
+msgid "memory.statusChanged"
+msgstr "Status changed"
+
+msgid "memory.statusLabel"
+msgstr "Status"
+
+msgid "memory.subtitle"
+msgstr "Durable, editable context for your tasks. Global memory belongs to you alone; task memory stays with one task."
+
+msgid "memory.suggestionAccepted"
+msgstr "Suggestion accepted."
+
+msgid "memory.suggestionRejected"
+msgstr "Suggestion rejected."
+
+msgid "memory.suggestionStatus.accepted"
+msgstr "accepted"
+
+msgid "memory.suggestionStatus.pending"
+msgstr "pending"
+
+msgid "memory.suggestionStatus.rejected"
+msgstr "rejected"
+
+msgid "memory.suggestionsHelp"
+msgstr "Proposed task-memory changes from automatic learning. Accepting writes the memory; rejecting leaves it untouched."
+
+msgid "memory.suggestionsTitle"
+msgstr "Automatic memory suggestions"
+
+msgid "memory.tab.memory"
+msgstr "Memory"
+
+msgid "memory.tab.overview"
+msgstr "Overview"
+
+msgid "memory.tab.recommendations"
+msgstr "Recommendations"
+
+msgid "memory.task"
+msgstr "Task"
+
+msgid "memory.taskCount"
+msgstr "Task memories"
+
+msgid "memory.taskHelp"
+msgstr "Findings, decisions, progress and next steps that survive repeated executions of this task."
+
+msgid "memory.taskScopeNote"
+msgstr "This is available only to this task and its owner."
+
+msgid "memory.taskTitle"
+msgstr "Task memory"
+
+msgid "memory.title"
+msgstr "Memory"
+
+msgid "memory.totalCount"
+msgstr "Total"
+
+msgid "memory.updatedAt"
+msgstr "Updated"
+
+msgid "memory.updatedMsg"
+msgstr "Memory updated."
+
+msgid "memory.userProtected"
+msgstr "user-protected"
+
 msgid "nav.admin"
 msgstr "Admin"
 
@@ -867,6 +1311,9 @@ msgstr "Sign out"
 
 msgid "nav.mainNavigation"
 msgstr "Main navigation"
+
+msgid "nav.memory"
+msgstr "Memory"
 
 msgid "nav.monitoring"
 msgstr "Monitoring"
@@ -1112,7 +1559,7 @@ msgid "tasks.dayOfMonth"
 msgstr "Day of month"
 
 msgid "tasks.deleteBody"
-msgstr "Delete “{title}”? Its execution history stays archived."
+msgstr "Delete “{title}”? This permanently deletes the task, its task memory, its recommendations and change journal. Historical execution reports stay archived."
 
 msgid "tasks.deleteConfirm"
 msgstr "Delete task"

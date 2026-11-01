@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sanitizeText } from '@agent-tasks/shared';
-import type { EmailBlock } from '@agent-tasks/shared';
+import type { AgentMemoryOp, AgentRecommendationOp, EmailBlock } from '@agent-tasks/shared';
 import type { ChatMessage, ChatResponse, ToolDefinition, Usage } from '@agent-tasks/ai-providers';
 import type { AiProvider, ProviderContext } from '@agent-tasks/ai-providers';
 import type { BrowserRunnerClient, SearchProvider } from '@agent-tasks/browser-tools';
@@ -52,6 +52,9 @@ export interface AgentRunResult {
   steps: AgentStepRecord[];
   usage: Usage;
   emailBlocks: EmailBlock[];
+  /** Validated proposals from record_task_memory; persisted by the worker after success. */
+  memoryOps: AgentMemoryOp[];
+  recommendationOps: AgentRecommendationOp[];
   stopReason: 'completed' | 'step_limit';
 }
 
@@ -67,6 +70,10 @@ export interface RunAgentOptions {
   allowForms: boolean;
   /** Offer the e-mail block tool; the task notifies the owner by e-mail. */
   emailNotification?: boolean;
+  /** Offer the structured task-memory and recommendation tools. */
+  memoryEnabled?: boolean;
+  /** Pre-budgeted memory block; empty when the task has memory learning disabled. */
+  memoryContext?: string | null;
   limits: AgentLimits;
   browser: BrowserRunnerClient;
   sessionId: string;
@@ -170,6 +177,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
 
   const allowedTools = [
     ...(options.emailNotification ? ['compose_email', 'add_email_block'] : []),
+    ...(options.memoryEnabled ? ['record_task_memory', 'track_recommendation'] : []),
     ...(options.allowWebResearch
       ? ['search_web', 'open_url', 'extract_page_text', 'inspect_page', 'click_element', 'navigate_back', 'get_page_title', 'get_current_url', 'extract_links', ...(options.allowForms ? ['fill_form'] : [])]
       : []),
@@ -185,6 +193,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     pageVisits: 0,
     queries,
     emailBlocks: [],
+    memoryOps: [],
+    recommendationOps: [],
     limits: options.limits,
     onSource(source) {
       sources.push(source);
@@ -200,6 +210,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     allowWebResearch: options.allowWebResearch,
     emailNotification: options.emailNotification === true,
     toolNames: allowedTools,
+    memoryContext: options.memoryContext ?? null,
   });
 
   const messages: ChatMessage[] = [
@@ -308,6 +319,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     steps,
     usage,
     emailBlocks: toolContext.emailBlocks,
+    memoryOps: toolContext.memoryOps,
+    recommendationOps: toolContext.recommendationOps,
     stopReason,
   };
 }

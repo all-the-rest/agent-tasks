@@ -2,6 +2,7 @@ export * from './email-blocks.js';
 export * from './email-dsl.js';
 export * from './errors.js';
 export * from './limits.js';
+export * from './memory.js';
 export * from './net.js';
 export * from './schedule.js';
 export * from './schemas.js';

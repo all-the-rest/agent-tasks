@@ -67,6 +67,20 @@ not part of the production deployment. See
 5. The final Markdown, sources, uncertainty notes and usage are written to
    `executions`; the browser session is closed.
 
+## Persistent memory
+
+`memories` stores both `global` (one user, all of that user's tasks) and `task`
+(one task) records with scope, category, stable key, origin/provenance,
+`user_edited`, revision and timestamps. `memory_revisions`,
+`memory_tombstones`, `memory_suggestions`, `memory_changes`, `recommendations`
+and `recommendation_events` support versioning, review, recommendation history
+and deletion protection. The worker loads a budgeted context fresh for every run,
+so a deleted or edited record cannot come back from a cache or a prior report.
+The agent exposes only `record_task_memory` and `track_recommendation`; both
+validate a structured schema and are applied after a successful execution in one
+transaction. Global memory is user-only. Details:
+[`docs/memory.md`](docs/memory.md).
+
 ## Why these choices
 
 - **Postgres for jobs** — one store, transactional booking, no extra service to

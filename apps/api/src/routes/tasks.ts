@@ -88,6 +88,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         limits: parsed.data.limits,
         allowWebResearch: parsed.data.allowWebResearch,
         notification: parsed.data.notification,
+        memorySettings: parsed.data.memorySettings,
         nextRunAt: parsed.data.enabled ? nextRunAt : null,
       })
       .returning();
@@ -158,6 +159,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         ...(parsed.data.limits ? { limits: parsed.data.limits } : {}),
         ...(parsed.data.allowWebResearch !== undefined ? { allowWebResearch: parsed.data.allowWebResearch } : {}),
         ...(parsed.data.notification ? { notification: parsed.data.notification } : {}),
+        ...(parsed.data.memorySettings ? { memorySettings: parsed.data.memorySettings } : {}),
         ...(schedule ? { schedule, timezone: schedule.timezone } : {}),
         enabled,
         ...(nextRunAt !== undefined ? { nextRunAt } : {}),

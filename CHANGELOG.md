@@ -4,6 +4,11 @@
 
 ### Added
 
+- Persistent, editable AI memory: global user memory and per-task memory with
+  PostgreSQL full-text search, revisions, provenance, provenance-safe deletion
+  tombstones, export, slash commands (`/learn`, `/memory`, `/update`, `/forget`),
+  deterministic duplicate detection, automatic task learning (`off`/`suggest`/
+  `auto`), structured recommendations with status history, and Memory/Review UI.
 - pnpm monorepo: web, api, worker, browser runner, shared/database/provider/agent packages.
 - Better Auth authentication: invite-only onboarding, secure first-admin bootstrap,
   session revocation, TOTP MFA, rate limiting, password reset and verification mail.

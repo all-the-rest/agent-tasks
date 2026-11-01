@@ -49,6 +49,8 @@ const envSchema = z
     COOKIE_SECURE: z.enum(['true', 'false']).default('false'),
     /** Failed sign-ins per minute and IP before Better Auth answers 429. */
     RATE_LIMIT_SIGNIN_MAX: z.coerce.number().int().min(1).max(1000).default(5),
+    /** Session reads per window and IP; the E2E stack raises this for its multi-context suite. */
+    RATE_LIMIT_SESSION_MAX: z.coerce.number().int().min(1).max(10_000).default(600),
     RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(10).max(3600).default(60),
   })
   .superRefine((value, ctx) => {

@@ -16,4 +16,11 @@ export const AUDIT_ACTIONS = {
   taskUpdated: 'task.updated',
   taskDeleted: 'task.deleted',
   executionCancelled: 'execution.cancelled',
+  memoryCreated: 'memory.created',
+  memoryUpdated: 'memory.updated',
+  memoryDeleted: 'memory.deleted',
+  memoryExported: 'memory.exported',
+  memorySuggestionAccepted: 'memory.suggestion_accepted',
+  memorySuggestionRejected: 'memory.suggestion_rejected',
+  recommendationStatusChanged: 'recommendation.status_changed',
 } as const;

@@ -1,6 +1,24 @@
-import type { ExecutionStatus, Limits, Role } from '@agent-tasks/shared';
+import type {
+  ExecutionStatus,
+  Limits,
+  MemoryCategory,
+  MemoryLearningMode,
+  MemoryScope,
+  MemorySettings,
+  RecommendationStatus,
+  Role,
+} from '@agent-tasks/shared';
 
-export type { ExecutionStatus, Limits, Role };
+export type {
+  ExecutionStatus,
+  Limits,
+  MemoryCategory,
+  MemoryLearningMode,
+  MemoryScope,
+  MemorySettings,
+  RecommendationStatus,
+  Role,
+};
 
 export type SchedulePreset = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
 export type Locale = 'en' | 'de';
@@ -33,6 +51,7 @@ export interface Task {
   limits: Limits;
   allowWebResearch: boolean;
   notification: Notification;
+  memorySettings: MemorySettings;
   nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -51,6 +70,116 @@ export interface TaskInput {
   limits: Limits;
   allowWebResearch: boolean;
   notification: Notification;
+  memorySettings: MemorySettings;
+}
+
+export interface Memory {
+  id: string;
+  ownerId: string;
+  taskId: string | null;
+  scope: MemoryScope;
+  category: MemoryCategory;
+  content: string;
+  semanticKey: string | null;
+  origin: 'user' | 'slash_command' | 'agent' | 'system';
+  originRef: string | null;
+  provenance: Record<string, unknown>;
+  revision: number;
+  userEdited: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryChange {
+  id: string;
+  ownerId: string;
+  taskId: string | null;
+  memoryId: string | null;
+  executionId: string | null;
+  suggestionId: string | null;
+  action: string;
+  scope: MemoryScope;
+  beforeContent: string | null;
+  afterContent: string | null;
+  summary: string | null;
+  createdAt: string;
+}
+
+export interface MemorySuggestion {
+  id: string;
+  ownerId: string;
+  taskId: string;
+  executionId: string | null;
+  targetMemoryId: string | null;
+  operation: string;
+  category: MemoryCategory;
+  content: string;
+  semanticKey: string | null;
+  status: 'pending' | 'accepted' | 'rejected';
+  reason: string | null;
+  provenance: Record<string, unknown>;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+export interface Recommendation {
+  id: string;
+  ownerId: string;
+  taskId: string;
+  semanticKey: string;
+  title: string;
+  description: string;
+  sourceUrl: string | null;
+  status: RecommendationStatus;
+  metadata: Record<string, unknown>;
+  firstObservedAt: string;
+  lastObservedAt: string;
+  lastChangedAt: string;
+  statusChangedAt: string;
+  firstExecutionId: string | null;
+  lastExecutionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecommendationEvent {
+  id: string;
+  recommendationId: string;
+  executionId: string | null;
+  action: string;
+  fromStatus: string | null;
+  toStatus: string | null;
+  changes: Record<string, unknown>;
+  createdAt: string;
+  title: string;
+  semanticKey: string;
+  taskId: string;
+}
+
+export interface MemoryCommandResult {
+  kind: string;
+  message?: string;
+  memory?: Memory;
+  scope?: MemoryScope | 'all' | null;
+  memories?: Memory[];
+  global?: Memory[];
+  task?: Memory[];
+  total?: number;
+  globalTotal?: number;
+  taskTotal?: number;
+  taskId?: string | null;
+  candidates?: Array<{
+    id: string;
+    scope: MemoryScope;
+    taskId: string | null;
+    category: MemoryCategory;
+    content: string;
+    semanticKey: string | null;
+    score?: number;
+    reason?: string;
+    updatedAt: string;
+  }>;
+  id?: string;
 }
 
 export interface SessionUser {

@@ -42,6 +42,10 @@ export interface MockOpenAiOptions {
   emailBlock?: Record<string, unknown>;
   /** Emit one compose_email (DSL) tool call before the final answer. */
   emailDsl?: string;
+  /** Structured task-memory operations emitted once per conversation. */
+  memoryOps?: Array<Record<string, unknown>>;
+  /** Structured recommendation operations emitted once per conversation. */
+  recommendationOps?: Array<Record<string, unknown>>;
 }
 
 const GENERIC_AGENTS = ['node', 'undici', 'axios', 'openai-node', 'python-requests', 'okhttp', 'curl', 'wget', 'go-http-client'];
@@ -259,6 +263,19 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
           (call) => call.function?.name === 'add_email_block' || call.function?.name === 'compose_email',
         ),
     );
+    const taskMemoryRequested = messages.some(
+      (message) =>
+        Array.isArray((message as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls) &&
+        (message as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls?.some(
+          (call) => call.function?.name === 'record_task_memory' || call.function?.name === 'track_recommendation',
+        ),
+    );
+    const systemPrompt = messages
+      .filter((message) => message.role === 'system')
+      .map((message) => String(message.content ?? ''))
+      .join('\n');
+    const sawTaskMemory = /TASK MEMORY/.test(systemPrompt) && /\[task:/.test(systemPrompt);
+    const sawRecommendations = /PREVIOUS RECOMMENDATIONS/.test(systemPrompt) && /\bkey=/.test(systemPrompt);
     const lastUser = [...messages].reverse().find((message) => message.role === 'user');
     const research = toolContent(messages);
     const urls = extractUrls(research);
@@ -292,6 +309,23 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
         toolCalls: [toolCall],
         finishReason: 'tool_calls',
         usage: { prompt_tokens: 120, completion_tokens: 24, total_tokens: 144 },
+        allowanceUsd,
+      });
+      return;
+    }
+
+    if (!taskMemoryRequested && ((options.memoryOps?.length ?? 0) > 0 || (options.recommendationOps?.length ?? 0) > 0)) {
+      const toolCalls = [
+        ...(options.memoryOps ?? []).map((arguments_) => ({ name: 'record_task_memory', arguments: arguments_ })),
+        ...(options.recommendationOps ?? []).map((arguments_) => ({ name: 'track_recommendation', arguments: arguments_ })),
+      ];
+      sendCompletion(response, {
+        stream,
+        model,
+        content: 'I will record structured task memory and recommendation state for the next run.',
+        toolCalls,
+        finishReason: 'tool_calls',
+        usage: { prompt_tokens: 100, completion_tokens: 30, total_tokens: 130 },
         allowanceUsd,
       });
       return;
@@ -332,6 +366,9 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
       '',
       cited.length > 0 ? 'Verified against the pages below.' : 'No page content was available.',
       '',
+      ...(sawTaskMemory ? ['Previous task memory was provided to this run.'] : []),
+      ...(sawRecommendations ? ['Existing tracked recommendations were recognized; unchanged items are not reported as new.'] : []),
+      ...(sawTaskMemory || sawRecommendations ? [''] : []),
       '## Sources',
       '',
       citations || '- none',

@@ -17,7 +17,7 @@ import {
 } from '../components/ui';
 import type { ExecutionSource, ExecutionStep } from '../lib/types';
 
-type Tab = 'report' | 'timeline' | 'sources';
+type Tab = 'report' | 'timeline' | 'sources' | 'memory';
 
 interface VisitedSite {
   url: string;
@@ -102,6 +102,11 @@ export function ExecutionDetailPage() {
       const status = query.state.data?.status;
       return status === 'queued' || status === 'running' ? 5_000 : false;
     },
+  });
+  const memoryReview = useQuery({
+    queryKey: ['execution-memory', id],
+    queryFn: () => api.executions.memory(id),
+    enabled: Boolean(id),
   });
 
   const cancel = useMutation({
@@ -230,7 +235,7 @@ export function ExecutionDetailPage() {
       ) : null}
 
       <div className="tabs tabs-box mb-4 w-full flex-wrap sm:w-auto" role="tablist" aria-label={t('executions.detailTitle')}>
-        {(['report', 'timeline', 'sources'] as const).map((value) => (
+        {(['report', 'timeline', 'sources', 'memory'] as const).map((value) => (
           <button
             key={value}
             type="button"
@@ -245,7 +250,9 @@ export function ExecutionDetailPage() {
               ? t('executions.report')
               : value === 'timeline'
                 ? t('executions.timeline')
-                : t('executions.sources')}
+                : value === 'sources'
+                  ? t('executions.sources')
+                  : t('memory.tab.memory')}
             {value === 'timeline' ? <span className="badge badge-xs ml-1">{steps.length}</span> : null}
             {value === 'sources' ? <span className="badge badge-xs ml-1">{sources.length}</span> : null}
           </button>
@@ -369,6 +376,84 @@ export function ExecutionDetailPage() {
                         {t('executions.retrievedAt')}: {formatDate(source.retrievedAt, i18n.language)}
                       </p>
                       {source.excerpt ? <p className="mt-2 text-xs opacity-80">{source.excerpt}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === 'memory' ? (
+        <section role="tabpanel" id="panel-memory" aria-labelledby="tab-memory" className="flex flex-col gap-5">
+          <div className="card border border-base-300 bg-base-100 shadow-sm">
+            <div className="card-body gap-3 p-5">
+              <h2 className="card-title text-base">{t('memory.executionChanges')}</h2>
+              <p className="text-xs opacity-60">{t('memory.executionChangesHelp')}</p>
+              {memoryReview.isLoading ? (
+                <Spinner />
+              ) : memoryReview.isError ? (
+                <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void memoryReview.refetch()} />
+              ) : (memoryReview.data?.changes.length ?? 0) === 0 ? (
+                <p className="text-sm opacity-60">{t('memory.noExecutionChanges')}</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {memoryReview.data?.changes.map((change) => (
+                    <li key={change.id} className="rounded-box border border-base-300 p-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="badge badge-ghost badge-sm">{t(`memory.action.${change.action}`)}</span>
+                        <span className="opacity-60">{formatDate(change.createdAt, i18n.language)}</span>
+                      </div>
+                      {change.summary ? <p className="mt-1 text-xs opacity-70">{change.summary}</p> : null}
+                      {change.afterContent ? <p className="mt-1 whitespace-pre-wrap">{change.afterContent}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="card border border-base-300 bg-base-100 shadow-sm">
+            <div className="card-body gap-3 p-5">
+              <h2 className="card-title text-base">{t('memory.executionSuggestions')}</h2>
+              {memoryReview.isLoading ? (
+                <Spinner />
+              ) : (memoryReview.data?.suggestions.length ?? 0) === 0 ? (
+                <p className="text-sm opacity-60">{t('memory.noExecutionSuggestions')}</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {memoryReview.data?.suggestions.map((suggestion) => (
+                    <li key={suggestion.id} className="rounded-box border border-warning/40 bg-warning/10 p-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="badge badge-warning badge-sm">{t(`memory.suggestionStatus.${suggestion.status}`)}</span>
+                        <span className="badge badge-ghost badge-sm">{t(`memory.category.${suggestion.category}`)}</span>
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap">{suggestion.content}</p>
+                      <Link className="link-hover mt-1 block text-xs" to={`/tasks/${data.taskId}`}>
+                        {t('memory.reviewInTask')}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="card border border-base-300 bg-base-100 shadow-sm">
+            <div className="card-body gap-3 p-5">
+              <h2 className="card-title text-base">{t('memory.executionRecommendations')}</h2>
+              {memoryReview.isLoading ? (
+                <Spinner />
+              ) : (memoryReview.data?.recommendationEvents.length ?? 0) === 0 ? (
+                <p className="text-sm opacity-60">{t('memory.noExecutionRecommendations')}</p>
+              ) : (
+                <ul className="flex flex-col gap-1 text-sm">
+                  {memoryReview.data?.recommendationEvents.map((event) => (
+                    <li key={event.id} className="flex flex-wrap items-center gap-2 border-b border-base-200 py-1 text-xs">
+                      <span className="badge badge-ghost badge-xs">{event.action}</span>
+                      <span>{event.title}</span>
+                      {event.toStatus ? <span className="opacity-60">{event.toStatus}</span> : null}
                     </li>
                   ))}
                 </ul>

@@ -59,6 +59,44 @@ The detail page repeats the prompt and limits and lists every execution. Use
 **Edit** to change the definition. A task can have at most one queued or running
 execution at a time.
 
+## Memory
+
+Every account has a **global memory** and every task has a **task memory**.
+
+- Open **Memory** in the navigation to search, filter, create, edit, export or
+  delete global memories. Each record shows its stable id, category, origin,
+  revision and timestamps.
+- Open a task and choose **Memory** to manage that task's findings, decisions,
+  progress, open questions and next actions. This tab also shows the change
+  journal and any automatic suggestions awaiting review.
+- The **Recommendations** tab of a task tracks recommendations across runs.
+  Choose `accepted`, `rejected` or `completed` yourself; automatic learning will
+  never overwrite that decision.
+- Use the slash-command field in the header (or on the Memory page / task Memory
+  tab):
+
+  | Command | Meaning |
+  | --- | --- |
+  | `/learn <text>` | save a global instruction or fact |
+  | `/learn global <text>` | explicit global memory |
+  | `/learn task <text>` | save to the current task (needs a selected task) |
+  | `/memory`, `/memory global`, `/memory task` | list memories with stable ids |
+  | `/update <id> <text>` | replace one memory's content |
+  | `/forget <id>` | confirm and permanently delete one memory |
+  | `/forget <text>` | search; select one result and confirm |
+  | `/forget global <id>` / `/forget task <id>` | scope-checked delete |
+
+If `/learn` finds a similar memory, it does not create a duplicate: choose the
+existing record to replace it. Deletion is permanent and removes the record from
+search and future runs; no memory expires automatically. A deleted task also
+deletes its task memory and recommendations after the confirmation dialog.
+
+Task **Edit → Behaviour → Automatic task learning** controls whether a
+successful run applies changes (`auto`), only proposes them (`suggest`), or does
+nothing (`off`). Global memory is only ever changed by you. See
+[`memory.md`](memory.md) for the exact retention, revision, backup and security
+rules.
+
 ## Executions and reports
 
 ![Execution report](images/execution-report.png)

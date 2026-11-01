@@ -14,8 +14,11 @@ import {
   StatusBadge,
   useToast,
 } from '../components/ui';
+import { MemoryManager } from '../components/MemoryManager';
+import { MemoryCommandBar } from '../components/MemoryCommandBar';
 
 type ActionName = 'pause' | 'resume' | 'run' | 'duplicate';
+type Tab = 'overview' | 'memory' | 'recommendations';
 
 export function TaskDetailPage() {
   const { t, i18n } = useTranslation();
@@ -30,6 +33,27 @@ export function TaskDetailPage() {
     queryFn: () => api.tasks.executions(id),
     enabled: Boolean(id),
   });
+  const [tab, setTab] = useState<Tab>('overview');
+  const suggestions = useQuery({
+    queryKey: ['task-suggestions', id],
+    queryFn: () => api.tasks.memorySuggestions(id),
+    enabled: Boolean(id),
+  });
+  const changes = useQuery({
+    queryKey: ['task-changes', id],
+    queryFn: () => api.tasks.memoryChanges(id),
+    enabled: Boolean(id),
+  });
+  const recommendations = useQuery({
+    queryKey: ['task-recommendations', id],
+    queryFn: () => api.recommendations.list(id),
+    enabled: Boolean(id) && tab === 'recommendations',
+  });
+  const recommendationEvents = useQuery({
+    queryKey: ['task-recommendation-events', id],
+    queryFn: () => api.recommendations.events(id),
+    enabled: Boolean(id) && tab === 'recommendations',
+  });
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -38,6 +62,10 @@ export function TaskDetailPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['task', id] }),
       queryClient.invalidateQueries({ queryKey: ['task-executions', id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-suggestions', id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-changes', id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-recommendations', id] }),
+      queryClient.invalidateQueries({ queryKey: ['task-recommendation-events', id] }),
       queryClient.invalidateQueries({ queryKey: ['tasks'] }),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
     ]);
@@ -68,6 +96,33 @@ export function TaskDetailPage() {
       ]);
       showToast(t('tasks.deleted'));
       navigate('/tasks', { replace: true });
+    },
+    onError: (cause) => setActionError(errorMessage(cause)),
+  });
+
+  const reviewSuggestion = useMutation({
+    mutationFn: async ({ suggestionId, decision }: { suggestionId: string; decision: 'accept' | 'reject' }) => {
+      if (decision === 'accept') return api.memory.acceptSuggestion(suggestionId);
+      await api.memory.rejectSuggestion(suggestionId);
+      return { memory: null };
+    },
+    onSuccess: async (_result, variables) => {
+      await invalidate();
+      await queryClient.invalidateQueries({ queryKey: ['memories'] });
+      showToast(t(variables.decision === 'accept' ? 'memory.suggestionAccepted' : 'memory.suggestionRejected'));
+    },
+    onError: (cause) => setActionError(errorMessage(cause)),
+  });
+
+  const setRecommendationStatus = useMutation({
+    mutationFn: ({ recommendationId, status }: { recommendationId: string; status: string }) =>
+      api.recommendations.update(recommendationId, status as import('../lib/types').Recommendation['status']),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['task-recommendations', id] }),
+        queryClient.invalidateQueries({ queryKey: ['task-recommendation-events', id] }),
+      ]);
+      showToast(t('memory.recommendationUpdated'));
     },
     onError: (cause) => setActionError(errorMessage(cause)),
   });
@@ -117,6 +172,26 @@ export function TaskDetailPage() {
         </div>
       ) : null}
 
+      <div role="tablist" className="tabs tabs-box mb-5 w-fit">
+        {(['overview', 'memory', 'recommendations'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            className={`tab ${tab === value ? 'tab-active' : ''}`}
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+          >
+            {t(`memory.tab.${value}`)}
+            {value === 'memory' && (changes.data?.length ?? 0) > 0 ? (
+              <span className="badge badge-ghost badge-xs ml-1">{changes.data?.length}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'overview' ? (
+      <>
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="flex flex-col gap-5 xl:col-span-2">
           <section className="card border border-base-300 bg-base-100 shadow-sm">
@@ -257,6 +332,191 @@ export function TaskDetailPage() {
         <div className="mt-5">
           <EmptyState title={t('tasks.noExecutions')} description={t('executions.emptyHint')} />
         </div>
+      ) : null}
+      </>
+      ) : null}
+
+      {tab === 'memory' ? (
+        <div className="flex flex-col gap-5">
+          <MemoryCommandBar />
+          <MemoryManager scope="task" taskId={data.id} compact />
+
+          <section className="card border border-base-300 bg-base-100 shadow-sm">
+            <div className="card-body gap-3 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="card-title text-base">{t('memory.suggestionsTitle')}</h2>
+                <Link className="btn btn-ghost btn-xs" to={`/tasks/${data.id}/edit`}>
+                  {t('memory.learningMode')}: {t(`memory.mode.${data.memorySettings?.mode ?? 'auto'}`)}
+                </Link>
+              </div>
+              <p className="text-xs opacity-60">{t('memory.suggestionsHelp')}</p>
+              {suggestions.isLoading ? (
+                <Spinner />
+              ) : suggestions.isError ? (
+                <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void suggestions.refetch()} />
+              ) : (suggestions.data ?? []).filter((item) => item.status === 'pending').length === 0 ? (
+                <p className="text-sm opacity-60">{t('memory.noPendingSuggestions')}</p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {(suggestions.data ?? [])
+                    .filter((item) => item.status === 'pending')
+                    .map((suggestion) => (
+                      <li key={suggestion.id} className="rounded-box border border-warning/40 bg-warning/10 p-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="badge badge-warning badge-sm">{t('memory.pending')}</span>
+                          <span className="badge badge-ghost badge-sm">{t(`memory.category.${suggestion.category}`)}</span>
+                          {suggestion.semanticKey ? <span className="font-mono opacity-60">{suggestion.semanticKey}</span> : null}
+                        </div>
+                        <p className="mt-2 whitespace-pre-wrap text-sm">{suggestion.content}</p>
+                        {suggestion.reason ? <p className="mt-1 text-xs opacity-60">{suggestion.reason}</p> : null}
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-primary"
+                            disabled={reviewSuggestion.isPending}
+                            onClick={() => reviewSuggestion.mutate({ suggestionId: suggestion.id, decision: 'accept' })}
+                          >
+                            {t('memory.acceptSuggestion')}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            disabled={reviewSuggestion.isPending}
+                            onClick={() => reviewSuggestion.mutate({ suggestionId: suggestion.id, decision: 'reject' })}
+                          >
+                            {t('memory.rejectSuggestion')}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          <section className="card border border-base-300 bg-base-100 shadow-sm">
+            <div className="card-body gap-3 p-5">
+              <h2 className="card-title text-base">{t('memory.changesTitle')}</h2>
+              <p className="text-xs opacity-60">{t('memory.changesHelp')}</p>
+              {changes.isLoading ? (
+                <Spinner />
+              ) : (changes.data ?? []).length === 0 ? (
+                <p className="text-sm opacity-60">{t('memory.noChanges')}</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {(changes.data ?? []).slice(0, 30).map((change) => (
+                    <li key={change.id} className="rounded-box border border-base-300 p-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="badge badge-ghost badge-sm">{t(`memory.action.${change.action}`)}</span>
+                        <span className="opacity-60">{formatDate(change.createdAt, i18n.language)}</span>
+                        {change.executionId ? (
+                          <Link className="link-hover font-mono opacity-60" to={`/executions/${change.executionId}`}>
+                            {change.executionId.slice(0, 8)}
+                          </Link>
+                        ) : null}
+                      </div>
+                      {change.summary ? <p className="mt-1 text-xs opacity-70">{change.summary}</p> : null}
+                      {change.afterContent ? <p className="mt-1 whitespace-pre-wrap">{change.afterContent}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {tab === 'recommendations' ? (
+        <section className="card border border-base-300 bg-base-100 shadow-sm">
+          <div className="card-body gap-4 p-5">
+            <div>
+              <h2 className="card-title text-base">{t('memory.recommendationsTitle')}</h2>
+              <p className="mt-1 text-xs opacity-60">{t('memory.recommendationsHelp')}</p>
+            </div>
+            {recommendations.isLoading ? (
+              <Spinner />
+            ) : recommendations.isError ? (
+              <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void recommendations.refetch()} />
+            ) : (recommendations.data ?? []).length === 0 ? (
+              <EmptyState title={t('memory.noRecommendations')} description={t('memory.noRecommendationsHint')} />
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {(recommendations.data ?? []).map((recommendation) => (
+                  <li key={recommendation.id} className="rounded-box border border-base-300 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold">{recommendation.title}</h3>
+                        <p className="mt-1 text-sm opacity-80">{recommendation.description}</p>
+                        {recommendation.sourceUrl ? (
+                          <a className="link mt-1 block truncate text-xs" href={recommendation.sourceUrl} target="_blank" rel="noreferrer noopener">
+                            {recommendation.sourceUrl}
+                          </a>
+                        ) : null}
+                        <p className="mt-1 font-mono text-[11px] opacity-50">{recommendation.semanticKey}</p>
+                      </div>
+                      <select
+                        className="select select-sm w-40"
+                        value={recommendation.status}
+                        aria-label={t('memory.statusLabel')}
+                        onChange={(event) =>
+                          setRecommendationStatus.mutate({ recommendationId: recommendation.id, status: event.target.value })
+                        }
+                      >
+                        {(['discovered', 'recommended', 'accepted', 'rejected', 'completed', 'unavailable'] as const).map((status) => (
+                          <option key={status} value={status}>
+                            {t(`memory.status.${status}`)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] opacity-60 sm:grid-cols-4">
+                      <div>
+                        <dt>{t('memory.firstObserved')}</dt>
+                        <dd>{formatDate(recommendation.firstObservedAt, i18n.language)}</dd>
+                      </div>
+                      <div>
+                        <dt>{t('memory.lastObserved')}</dt>
+                        <dd>{formatDate(recommendation.lastObservedAt, i18n.language)}</dd>
+                      </div>
+                      <div>
+                        <dt>{t('memory.lastChanged')}</dt>
+                        <dd>{formatDate(recommendation.lastChangedAt, i18n.language)}</dd>
+                      </div>
+                      <div>
+                        <dt>{t('memory.statusChanged')}</dt>
+                        <dd>{formatDate(recommendation.statusChangedAt, i18n.language)}</dd>
+                      </div>
+                    </dl>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div>
+              <h3 className="text-sm font-semibold">{t('memory.recommendationHistory')}</h3>
+              {recommendationEvents.isLoading ? (
+                <Spinner />
+              ) : (recommendationEvents.data ?? []).length === 0 ? (
+                <p className="mt-2 text-xs opacity-60">{t('memory.noHistory')}</p>
+              ) : (
+                <ul className="mt-2 flex flex-col gap-1 text-xs">
+                  {(recommendationEvents.data ?? []).slice(0, 40).map((event) => (
+                    <li key={event.id} className="flex flex-wrap items-center gap-2 border-b border-base-200 py-1">
+                      <span className="badge badge-ghost badge-xs">{event.action}</span>
+                      <span className="truncate">{event.title}</span>
+                      {event.fromStatus || event.toStatus ? (
+                        <span className="opacity-60">
+                          {event.fromStatus ?? '—'} → {event.toStatus ?? '—'}
+                        </span>
+                      ) : null}
+                      <span className="ml-auto opacity-50">{formatDate(event.createdAt, i18n.language)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
       ) : null}
 
       <ConfirmDialog
