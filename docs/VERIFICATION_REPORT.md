@@ -159,13 +159,15 @@ Release run
 | `ghcr.io/all-the-rest/agent-tasks/api` | `sha256:c15a4cf2474b351a193c055fdc02939235978411146012ffd1a16e8bf5ad8bff` | `sha-dcbc713`, `latest`, `0`, `0.1`, `0.1.0` |
 | `ghcr.io/all-the-rest/agent-tasks/browser-runner` | `sha256:784192606e0458b57ec6189e4eb57dbc2e9fae48bec56008eedf859fea398d9d` | `sha-dcbc713`, `latest`, `0`, `0.1`, `0.1.0` |
 
-Both `Publish` jobs succeeded. The `Make packages public` job had no
-`PACKAGES_TOKEN`, so it only emitted the one-time instructions, and
-`Verify anonymous pull` failed with `unauthorized` because the packages are
-still private. The required operator step is Organization → Packages →
-`agent-tasks/api` and `agent-tasks/browser-runner` → Package settings → Change
-visibility → Public (or add a `PACKAGES_TOKEN` secret and re-run the failed
-jobs). After that the anonymous-pull gate must be re-run green.
+Both `Publish` jobs succeeded. After the two packages were made public, the
+anonymous-pull gate was re-run (attempt 2) and the whole workflow is green:
+`Verify anonymous pull` pulled `api:0.1.0` and `browser-runner:0.1.0` without
+credentials. Direct anonymous manifest checks also return HTTP 200 for
+`0`, `0.1`, `0.1.0` and `latest` on both packages.
+
+Registry download size (amd64, compressed layers): **67.7 MB** for the API and
+**462.8 MB** for the runner; the local uncompressed image sizes are **317 MB**
+and **1.71 GB**. The runner previously used the ~4 GB vendor Playwright image.
 
 Production pins the major line (`IMAGE_TAG=0`) so Watchtower follows compatible
 `0.x` minor and bugfix releases without crossing a breaking major. The production
