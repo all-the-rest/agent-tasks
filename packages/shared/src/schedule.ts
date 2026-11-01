@@ -18,10 +18,12 @@ export const scheduleSchema = z
     runAt: z.string().datetime({ offset: true }).optional(),
     hour: z.number().int().min(0).max(23).default(9),
     minute: z.number().int().min(0).max(59).default(0),
-    /** 0 = Sunday … 6 = Saturday. Used by `weekdays` and `weekly`. */
+    /** 0 = Sunday … 6 = Saturday. Used by `weekdays` and `weekly`; both allow several days. */
     weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
-    /** 1–31. Missing days in short months are skipped by the cron iterator. */
+    /** Legacy single day. Superseded by `daysOfMonth` when that is present. */
     dayOfMonth: z.number().int().min(1).max(31).optional(),
+    /** 1–31. Missing days in short months are skipped by the cron iterator. */
+    daysOfMonth: z.array(z.number().int().min(1).max(31)).max(31).optional(),
     /** 5-field cron expression, local to `timezone`. Only for `preset: "custom"`. */
     cron: z.string().min(5).max(120).optional(),
   })
@@ -29,14 +31,11 @@ export const scheduleSchema = z
     if (value.preset === 'once' && !value.runAt) {
       ctx.addIssue({ code: 'custom', path: ['runAt'], message: 'a one-off schedule needs runAt' });
     }
-    if (value.preset === 'weekdays' && (!value.weekdays || value.weekdays.length === 0)) {
+    if ((value.preset === 'weekdays' || value.preset === 'weekly') && !value.weekdays?.length) {
       ctx.addIssue({ code: 'custom', path: ['weekdays'], message: 'select at least one weekday' });
     }
-    if (value.preset === 'weekly' && (value.weekdays?.length ?? 0) !== 1) {
-      ctx.addIssue({ code: 'custom', path: ['weekdays'], message: 'a weekly schedule needs exactly one weekday' });
-    }
-    if (value.preset === 'monthly' && value.dayOfMonth === undefined) {
-      ctx.addIssue({ code: 'custom', path: ['dayOfMonth'], message: 'a monthly schedule needs a day of month' });
+    if (value.preset === 'monthly' && !monthlyDays(value).length) {
+      ctx.addIssue({ code: 'custom', path: ['daysOfMonth'], message: 'a monthly schedule needs a day of month' });
     }
     if (value.preset === 'custom') {
       if (!value.cron) {
@@ -58,11 +57,17 @@ export const scheduleSchema = z
 export type Schedule = z.input<typeof scheduleSchema>;
 export type ParsedSchedule = z.output<typeof scheduleSchema>;
 
+/** Selected monthly days, preferring the multi-day field over the legacy single day. */
+export function monthlyDays(schedule: Pick<ParsedSchedule, 'daysOfMonth' | 'dayOfMonth'>): number[] {
+  if (schedule.daysOfMonth?.length) return [...new Set(schedule.daysOfMonth)].sort((a, b) => a - b);
+  return schedule.dayOfMonth === undefined ? [] : [schedule.dayOfMonth];
+}
+
 export class ScheduleError extends Error {}
 
 /** Maps a preset to the cron expression evaluated in the schedule's timezone. */
 export function toCron(schedule: ParsedSchedule): string | null {
-  const { preset, minute, hour, weekdays, dayOfMonth, cron } = schedule;
+  const { preset, minute, hour, weekdays, cron } = schedule;
   switch (preset) {
     case 'once':
       return null;
@@ -71,9 +76,9 @@ export function toCron(schedule: ParsedSchedule): string | null {
     case 'weekdays':
       return `${minute} ${hour} * * ${weekdays?.join(',') ?? '1,2,3,4,5'}`;
     case 'weekly':
-      return `${minute} ${hour} * * ${weekdays?.[0] ?? 1}`;
+      return `${minute} ${hour} * * ${weekdays?.join(',') ?? '1'}`;
     case 'monthly':
-      return `${minute} ${hour} ${dayOfMonth ?? 1} * *`;
+      return `${minute} ${hour} ${monthlyDays(schedule).join(',') || '1'} * *`;
     case 'custom':
       return cron ?? null;
   }
@@ -118,9 +123,9 @@ export function describeSchedule(schedule: ParsedSchedule): string {
     case 'weekdays':
       return `weekdays ${time} ${schedule.timezone}`;
     case 'weekly':
-      return `weekly on ${schedule.weekdays?.[0] ?? 1} at ${time} ${schedule.timezone}`;
+      return `weekly on ${schedule.weekdays?.join(',') ?? '1'} at ${time} ${schedule.timezone}`;
     case 'monthly':
-      return `monthly on day ${schedule.dayOfMonth ?? 1} at ${time} ${schedule.timezone}`;
+      return `monthly on day ${monthlyDays(schedule).join(',') || '1'} at ${time} ${schedule.timezone}`;
     case 'custom':
       return `cron ${schedule.cron ?? '?'} (${schedule.timezone})`;
   }

@@ -1558,6 +1558,12 @@ msgstr "Five fields: minute hour day-of-month month weekday."
 msgid "tasks.dayOfMonth"
 msgstr "Day of month"
 
+msgid "tasks.daysOfMonth"
+msgstr "Days of month"
+
+msgid "tasks.daysOfMonthHelp"
+msgstr "Pick one or more days. Short months skip days that do not exist."
+
 msgid "tasks.deleteBody"
 msgstr "Delete “{title}”? This permanently deletes the task, its task memory, its recommendations and change journal. Historical execution reports stay archived."
 
@@ -1736,7 +1742,7 @@ msgid "tasks.scheduleSummary.daily"
 msgstr "Every day at {time} ({timezone})"
 
 msgid "tasks.scheduleSummary.monthly"
-msgstr "Monthly on day {day} at {time} ({timezone})"
+msgstr "Monthly on days {day} at {time} ({timezone})"
 
 msgid "tasks.scheduleSummary.once"
 msgstr "Once at {time} ({timezone})"
@@ -1745,7 +1751,7 @@ msgid "tasks.scheduleSummary.weekdays"
 msgstr "Workdays at {time} ({timezone})"
 
 msgid "tasks.scheduleSummary.weekly"
-msgstr "Every {weekday} at {time} ({timezone})"
+msgstr "On {weekday} at {time} ({timezone})"
 
 msgid "tasks.searchPlaceholder"
 msgstr "Filter by title"
@@ -1764,6 +1770,27 @@ msgstr "Optional tone and format rules for the agent."
 
 msgid "tasks.systemInstructions"
 msgstr "System instructions"
+
+msgid "tasks.time"
+msgstr "Time"
+
+msgid "tasks.timeOfDay"
+msgstr "Time of day"
+
+msgid "tasks.timeOfDayAfternoon"
+msgstr "Afternoon (14:00)"
+
+msgid "tasks.timeOfDayCustom"
+msgstr "Custom time"
+
+msgid "tasks.timeOfDayEvening"
+msgstr "Evening (18:00)"
+
+msgid "tasks.timeOfDayMorning"
+msgstr "Morning (09:00)"
+
+msgid "tasks.timeOfDayNight"
+msgstr "Night (22:00)"
 
 msgid "tasks.timezone"
 msgstr "Timezone"
@@ -1811,7 +1838,7 @@ msgid "validation.cronRequired"
 msgstr "Enter a cron expression."
 
 msgid "validation.dayOfMonthRequired"
-msgstr "Choose a day of the month."
+msgstr "Choose at least one day of the month."
 
 msgid "validation.descriptionMax"
 msgstr "The description must be at most 2000 characters."
@@ -1863,9 +1890,6 @@ msgstr "The title needs at least 3 characters."
 
 msgid "validation.weekdaysRequired"
 msgstr "Select at least one weekday."
-
-msgid "validation.weeklyOneDay"
-msgstr "A weekly schedule needs exactly one weekday."
 
 msgid "weekdays.long.0"
 msgstr "Sunday"

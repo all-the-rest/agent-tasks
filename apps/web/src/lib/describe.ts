@@ -1,8 +1,13 @@
 import type { Translator } from '../i18n';
 import type { TaskSchedule } from './types';
+import { monthlyDays } from './schedule';
 
 function clock(hour: number, minute: number): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function weekdayList(days: number[], t: Translator): string {
+  return days.map((day) => t(`weekdays.short.${day}`)).join(', ');
 }
 
 export function describeSchedule(schedule: TaskSchedule, t: Translator): string {
@@ -19,13 +24,13 @@ export function describeSchedule(schedule: TaskSchedule, t: Translator): string 
       return t('tasks.scheduleSummary.weekdays', { time, timezone: schedule.timezone });
     case 'weekly':
       return t('tasks.scheduleSummary.weekly', {
-        weekday: t(`weekdays.long.${schedule.weekdays?.[0] ?? 1}`),
+        weekday: weekdayList(schedule.weekdays?.length ? schedule.weekdays : [1], t),
         time,
         timezone: schedule.timezone,
       });
     case 'monthly':
       return t('tasks.scheduleSummary.monthly', {
-        day: schedule.dayOfMonth ?? 1,
+        day: monthlyDays(schedule).join(', ') || '1',
         time,
         timezone: schedule.timezone,
       });

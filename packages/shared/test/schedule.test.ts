@@ -7,6 +7,7 @@ const base = {
   minute: 0,
   weekdays: undefined,
   dayOfMonth: undefined,
+  daysOfMonth: undefined,
   runAt: undefined,
   cron: undefined,
 } as const;
@@ -20,14 +21,19 @@ describe('schedule presets', () => {
     expect(toCron(schedule({ preset: 'daily' }))).toBe('0 9 * * *');
     expect(toCron(schedule({ preset: 'weekdays', weekdays: [1, 2, 3, 4, 5] }))).toBe('0 9 * * 1,2,3,4,5');
     expect(toCron(schedule({ preset: 'weekly', weekdays: [3] }))).toBe('0 9 * * 3');
+    expect(toCron(schedule({ preset: 'weekly', weekdays: [1, 3, 5] }))).toBe('0 9 * * 1,3,5');
     expect(toCron(schedule({ preset: 'monthly', dayOfMonth: 15 }))).toBe('0 9 15 * *');
+    expect(toCron(schedule({ preset: 'monthly', daysOfMonth: [1, 15, 28] }))).toBe('0 9 1,15,28 * *');
     expect(toCron(schedule({ preset: 'once', runAt: '2026-11-01T10:00:00Z' }))).toBeNull();
   });
 
   it('rejects invalid cron and impossible presets', () => {
     expect(scheduleSchema.safeParse({ preset: 'custom', timezone: 'Europe/Vienna', cron: 'not a cron' }).success).toBe(false);
     expect(scheduleSchema.safeParse({ preset: 'weekly', timezone: 'Europe/Vienna' }).success).toBe(false);
+    expect(scheduleSchema.safeParse({ preset: 'weekly', timezone: 'Europe/Vienna', weekdays: [] }).success).toBe(false);
+    expect(scheduleSchema.safeParse({ preset: 'weekly', timezone: 'Europe/Vienna', weekdays: [1, 3] }).success).toBe(true);
     expect(scheduleSchema.safeParse({ preset: 'monthly', timezone: 'Europe/Vienna' }).success).toBe(false);
+    expect(scheduleSchema.safeParse({ preset: 'monthly', timezone: 'Europe/Vienna', daysOfMonth: [1, 15] }).success).toBe(true);
     expect(scheduleSchema.safeParse({ preset: 'daily', timezone: 'Mars/Phobos' }).success).toBe(false);
   });
 
@@ -36,6 +42,19 @@ describe('schedule presets', () => {
     expect(summer?.toISOString()).toBe('2026-07-01T07:00:00.000Z');
     const winter = nextOccurrence(schedule({ preset: 'daily' }), new Date('2026-12-01T00:00:00Z'));
     expect(winter?.toISOString()).toBe('2026-12-01T08:00:00.000Z');
+  });
+
+  it('computes the next occurrence for multi-day weekly and monthly schedules', () => {
+    const weekly = nextOccurrence(
+      schedule({ preset: 'weekly', weekdays: [1, 4] }),
+      new Date('2026-07-01T00:00:00Z'), // Wednesday
+    );
+    expect(weekly?.toISOString()).toBe('2026-07-02T07:00:00.000Z'); // Thursday
+    const monthly = nextOccurrence(
+      schedule({ preset: 'monthly', daysOfMonth: [1, 15] }),
+      new Date('2026-07-02T00:00:00Z'),
+    );
+    expect(monthly?.toISOString()).toBe('2026-07-15T07:00:00.000Z');
   });
 
   it('runs a 02:30 job on the spring-forward day at 03:30 local (DST gap)', () => {
@@ -59,5 +78,7 @@ describe('schedule presets', () => {
 
   it('describes a schedule for the UI', () => {
     expect(describeSchedule(schedule({ preset: 'daily' }))).toContain('every day 09:00 Europe/Vienna');
+    expect(describeSchedule(schedule({ preset: 'weekly', weekdays: [1, 3] }))).toContain('weekly on 1,3');
+    expect(describeSchedule(schedule({ preset: 'monthly', daysOfMonth: [1, 15] }))).toContain('monthly on day 1,15');
   });
 });

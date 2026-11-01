@@ -20,6 +20,7 @@ function validValues(overrides: Partial<TaskFormValues> = {}): TaskFormValues {
       minute: 0,
       weekdays: [1],
       dayOfMonth: 1,
+      daysOfMonth: [1],
       cron: '0 9 * * 1',
     },
     limits: {
@@ -62,10 +63,31 @@ describe('taskFormSchema', () => {
 
     const weekly = taskFormSchema.safeParse(
       validValues({
-        schedule: { preset: 'weekly', timezone: 'UTC', hour: 9, minute: 0, weekdays: [1, 2] },
+        schedule: { preset: 'weekly', timezone: 'UTC', hour: 9, minute: 0, weekdays: [] },
       }),
     );
     expect(weekly.success).toBe(false);
+
+    const weeklyMulti = taskFormSchema.safeParse(
+      validValues({
+        schedule: { preset: 'weekly', timezone: 'UTC', hour: 9, minute: 0, weekdays: [1, 3, 5] },
+      }),
+    );
+    expect(weeklyMulti.success).toBe(true);
+
+    const monthly = taskFormSchema.safeParse(
+      validValues({
+        schedule: { preset: 'monthly', timezone: 'UTC', hour: 9, minute: 0, daysOfMonth: [] },
+      }),
+    );
+    expect(monthly.success).toBe(false);
+
+    const monthlyMulti = taskFormSchema.safeParse(
+      validValues({
+        schedule: { preset: 'monthly', timezone: 'UTC', hour: 9, minute: 0, daysOfMonth: [1, 15] },
+      }),
+    );
+    expect(monthlyMulti.success).toBe(true);
 
     const custom = taskFormSchema.safeParse(
       validValues({ schedule: { preset: 'custom', timezone: 'UTC', hour: 9, minute: 0, cron: ' ' } }),

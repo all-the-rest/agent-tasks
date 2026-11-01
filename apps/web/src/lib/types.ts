@@ -33,6 +33,7 @@ export interface TaskSchedule {
   minute: number;
   weekdays?: number[];
   dayOfMonth?: number;
+  daysOfMonth?: number[];
   cron?: string;
 }
 
