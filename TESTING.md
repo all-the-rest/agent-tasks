@@ -71,6 +71,29 @@ The suite starts `packages/mock-openai` and registers it as an
 the test host; a remote Docker daemon needs a reachable address, so that topology
 is not covered by the current helper.
 
+The browser suite is deliberately order-independent (the shared stack still uses one Playwright worker): `beforeAll` bootstraps the
+administrator and the mock provider only, every test opens its own browser
+context, and tasks and global memories created by a test are registered with the
+`cleanup` fixture and deleted even when an assertion fails. Accepted invitation
+users cannot be deleted through the product API, so those tests use unique
+addresses and create no tasks under the invited account.
+
+## Memory tests
+
+- `packages/shared/test/memory.test.ts` and
+  `packages/agent-runtime/test/memory-tools.test.ts` cover command parsing,
+  duplicate detection, secret rejection, context budgeting, tool validation and
+  prompt precedence.
+- `test/integration/memory.test.ts` covers CRUD, cross-session persistence,
+  multi-user and cross-task isolation, `/learn`/`/update`/`/forget`, facade
+  confirmation, search-index invalidation, export, concurrency, suggestions,
+  recommendation decisions, cascade deletion and migration idempotence.
+- `test/integration/memory-execution.test.ts` runs the real executor against the
+  deterministic model endpoint repeatedly (and after edit/delete): it asserts the
+  second system prompt contains the prior task memory, updated memory wins over
+  automatic learning, deleted memory is not restored over two further runs, and
+  recommendations are deduplicated.
+
 ## Determinism
 
 - Unit and integration provider tests use `packages/mock-openai` and the OpenCode Go

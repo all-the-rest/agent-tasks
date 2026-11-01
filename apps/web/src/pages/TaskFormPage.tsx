@@ -20,6 +20,8 @@ import { taskFormSchema, toTaskInput } from '../lib/task-schema';
 import type { TaskFormValues } from '../lib/task-schema';
 import type { Task } from '../lib/types';
 
+const DEFAULT_MEMORY_SETTINGS = { mode: 'auto' as const, contextBytes: 12_000 };
+
 const DEFAULT_LIMITS = {
   maxDurationSec: 300,
   maxAgentSteps: 12,
@@ -42,6 +44,7 @@ function emptyValues(timezone: string): TaskFormValues {
     limits: { ...DEFAULT_LIMITS },
     allowWebResearch: true,
     notification: 'none',
+    memorySettings: { ...DEFAULT_MEMORY_SETTINGS },
   };
 }
 
@@ -67,6 +70,7 @@ function taskValues(task: Task, fallbackTimezone: string): TaskFormValues {
     limits: { ...DEFAULT_LIMITS, ...task.limits },
     allowWebResearch: task.allowWebResearch,
     notification: task.notification,
+    memorySettings: { ...DEFAULT_MEMORY_SETTINGS, ...(task.memorySettings ?? {}) },
   };
 }
 
@@ -497,6 +501,24 @@ export function TaskFormPage() {
             ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={t('memory.learningMode')} htmlFor="task-memory-mode" hint={t('memory.learningModeHelp')}>
+                <select id="task-memory-mode" className="select w-full" {...register('memorySettings.mode')}>
+                  <option value="auto">{t('memory.modeAuto')}</option>
+                  <option value="suggest">{t('memory.modeSuggest')}</option>
+                  <option value="off">{t('memory.modeOff')}</option>
+                </select>
+              </Field>
+              <Field label={t('memory.contextBudget')} htmlFor="task-memory-budget" hint={t('memory.contextBudgetHelp')}>
+                <input
+                  id="task-memory-budget"
+                  type="number"
+                  min={1000}
+                  max={100000}
+                  step={1000}
+                  className="input w-full"
+                  {...register('memorySettings.contextBytes', { valueAsNumber: true })}
+                />
+              </Field>
               <Field label={t('tasks.notification')} htmlFor="task-notification">
                 <select id="task-notification" className="select w-full" {...register('notification')}>
                   <option value="none">{t('tasks.notificationNone')}</option>

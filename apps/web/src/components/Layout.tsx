@@ -6,12 +6,14 @@ import { useTranslation } from '../i18n';
 import { useAuth } from '../lib/auth';
 import { useTheme } from '../lib/theme';
 import { setLanguage } from '../i18n';
+import { MemoryCommandBar } from './MemoryCommandBar';
 import type { Locale } from '../lib/types';
 
 type IconName =
   | 'dashboard'
   | 'tasks'
   | 'executions'
+  | 'memory'
   | 'settings'
   | 'admin'
   | 'users'
@@ -42,6 +44,12 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="m10 8 6 4-6 4Z" />
+    </>
+  ),
+  memory: (
+    <>
+      <path d="M5 4h11a2 2 0 0 1 2 2v14l-4-2.5L10 20l-4-2.5Z" />
+      <path d="M8 8h7M8 12h5" />
     </>
   ),
   settings: (
@@ -122,6 +130,7 @@ const mainNav: NavEntry[] = [
   { to: '/', labelKey: 'nav.dashboard', icon: 'dashboard', end: true },
   { to: '/tasks', labelKey: 'nav.tasks', icon: 'tasks' },
   { to: '/executions', labelKey: 'nav.executions', icon: 'executions' },
+  { to: '/memory', labelKey: 'nav.memory', icon: 'memory' },
   { to: '/settings', labelKey: 'nav.settings', icon: 'settings' },
 ];
 
@@ -215,7 +224,10 @@ export function Layout() {
                 <Icon name="menu" />
               </button>
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="hidden min-w-0 flex-1 md:block">
+              <MemoryCommandBar />
+            </div>
+            <div className="min-w-0 flex-1 md:hidden">
               <Link to="/" className="flex items-center gap-2 lg:hidden" onClick={closeDrawer}>
                 <span className="grid size-8 place-items-center rounded-lg bg-primary text-sm font-black text-primary-content">
                   AT

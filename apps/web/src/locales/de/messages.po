@@ -844,6 +844,450 @@ msgstr "Besuchte Seiten"
 msgid "executions.waiting"
 msgstr "Warte auf den Worker…"
 
+msgid "memory.acceptSuggestion"
+msgstr "Annehmen"
+
+msgid "memory.action.created"
+msgstr "angelegt"
+
+msgid "memory.action.deleted"
+msgstr "gelöscht"
+
+msgid "memory.action.skipped"
+msgstr "übersprungen"
+
+msgid "memory.action.suggested"
+msgstr "vorgeschlagen"
+
+msgid "memory.action.suggestion_accepted"
+msgstr "Vorschlag angenommen"
+
+msgid "memory.action.suggestion_rejected"
+msgstr "Vorschlag abgelehnt"
+
+msgid "memory.action.updated"
+msgstr "aktualisiert"
+
+msgid "memory.add"
+msgstr "Erinnerung hinzufügen"
+
+msgid "memory.allCategories"
+msgstr "Alle Kategorien"
+
+msgid "memory.allTaskHelp"
+msgstr "Aufgabengedächtnis über alle deine Aufgaben. Öffne eine Aufgabe, um dort mit /learn task eine Erinnerung anzulegen."
+
+msgid "memory.allTaskHint"
+msgstr "Diese Ansicht zeigt Aufgabenerinnerungen aller Aufgaben. Wähle eine Aufgabe für aufgabenbezogene Kommandos."
+
+msgid "memory.allTaskTitle"
+msgstr "Alle Aufgabenerinnerungen"
+
+msgid "memory.ambiguousBody"
+msgstr "Die Angabe ist mehrdeutig. Wähle eine Erinnerung; es wurde noch nichts geändert."
+
+msgid "memory.ambiguousTitle"
+msgstr "Exakte Erinnerung auswählen"
+
+msgid "memory.category.constraint"
+msgstr "Einschränkung"
+
+msgid "memory.category.decision"
+msgstr "Entscheidung"
+
+msgid "memory.category.fact"
+msgstr "Fakt"
+
+msgid "memory.category.finding"
+msgstr "Erkenntnis"
+
+msgid "memory.category.instruction"
+msgstr "Anweisung"
+
+msgid "memory.category.interest"
+msgstr "Interesse"
+
+msgid "memory.category.next_action"
+msgstr "Nächster Schritt"
+
+msgid "memory.category.open_question"
+msgstr "Offene Frage"
+
+msgid "memory.category.preference"
+msgstr "Vorliebe"
+
+msgid "memory.category.progress"
+msgstr "Fortschritt"
+
+msgid "memory.category.recommendation"
+msgstr "Empfehlung"
+
+msgid "memory.categoryLabel"
+msgstr "Kategorie"
+
+msgid "memory.changesHelp"
+msgstr "Jede manuelle und automatische Änderung. Gelöschte Inhalte bleiben hier nicht erhalten."
+
+msgid "memory.changesTitle"
+msgstr "Änderungsprotokoll des Gedächtnisses"
+
+msgid "memory.commandDone"
+msgstr "Kommando ausgeführt."
+
+msgid "memory.commandHint"
+msgstr "/learn <Text>, /learn task <Text>, /memory, /memory global, /memory task, /update <ID> <Text>, /forget <ID|Suchtext>, /forget global <ID>, /forget task <ID>"
+
+msgid "memory.commandLabel"
+msgstr "Slash-Kommando"
+
+msgid "memory.commandPlaceholder"
+msgstr "/learn bevorzugt knappe Berichte"
+
+msgid "memory.content"
+msgstr "Inhalt"
+
+msgid "memory.contentHelp"
+msgstr "Reiner Text. Niemals Passwörter, API-Schlüssel oder Session-Tokens speichern."
+
+msgid "memory.contextBudget"
+msgstr "Kontextbudget für Gedächtnis (Bytes)"
+
+msgid "memory.contextBudgetHelp"
+msgstr "Globale Anweisungen werden immer vollständig geladen; andere Einträge werden priorisiert und Auslassungen ausdrücklich gemeldet."
+
+msgid "memory.createTitle"
+msgstr "Erinnerung anlegen"
+
+msgid "memory.createdAt"
+msgstr "Erstellt"
+
+msgid "memory.createdMsg"
+msgstr "Erinnerung angelegt."
+
+msgid "memory.deleteAllGlobal"
+msgstr "Gesamtes globales Gedächtnis löschen"
+
+msgid "memory.deleteAllGlobalBody"
+msgstr "Alle globalen Erinnerungen dieses Kontos dauerhaft löschen? Aufgabenerinnerungen bleiben unberührt. Zukünftige Läufe erhalten diese Vorlieben nicht mehr."
+
+msgid "memory.deleteAllGlobalTitle"
+msgstr "Gesamtes globales Gedächtnis löschen"
+
+msgid "memory.deleteAllTask"
+msgstr "Gesamtes Aufgabengedächtnis löschen"
+
+msgid "memory.deleteAllTaskBody"
+msgstr "Alle Erinnerungen dieser Aufgabe dauerhaft löschen? Empfehlungen und Ausführungshistorie bleiben bestehen, bis die Aufgabe selbst gelöscht wird."
+
+msgid "memory.deleteAllTaskTitle"
+msgstr "Gesamtes Aufgabengedächtnis löschen"
+
+msgid "memory.deleteBody"
+msgstr "Erinnerung „{id}“ dauerhaft löschen? Sie verschwindet aus Suche und zukünftigen Läufen. Das kann nicht rückgängig gemacht werden."
+
+msgid "memory.deleteConfirm"
+msgstr "Dauerhaft löschen"
+
+msgid "memory.deleteTitle"
+msgstr "Erinnerung löschen"
+
+msgid "memory.deletedCount"
+msgstr "{count} Erinnerungen gelöscht."
+
+msgid "memory.deletedMsg"
+msgstr "Erinnerung gelöscht."
+
+msgid "memory.duplicateBody"
+msgstr "Es wurde nichts angelegt. Wähle die bestehende Erinnerung, um ihren Inhalt zu ersetzen, oder formuliere die neue Erinnerung bewusst anders."
+
+msgid "memory.duplicateTitle"
+msgstr "Ähnliche Erinnerung existiert bereits"
+
+msgid "memory.editTitle"
+msgstr "Erinnerung bearbeiten"
+
+msgid "memory.emptyHint"
+msgstr "Speichere eine Anweisung mit /learn oder lege eine Erinnerung manuell an."
+
+msgid "memory.emptyTitle"
+msgstr "Noch keine Erinnerungen"
+
+msgid "memory.executionChanges"
+msgstr "Gedächtnisänderungen dieses Laufs"
+
+msgid "memory.executionChangesHelp"
+msgstr "Strukturierte Operationen, die nach erfolgreichem Abschluss dieser Ausführung angewendet wurden."
+
+msgid "memory.executionRecommendations"
+msgstr "Empfehlungsänderungen dieses Laufs"
+
+msgid "memory.executionSuggestions"
+msgstr "Vorschläge zur Prüfung"
+
+msgid "memory.export"
+msgstr "Gedächtnis exportieren"
+
+msgid "memory.firstObserved"
+msgstr "Zuerst beobachtet"
+
+msgid "memory.forgetBody"
+msgstr "Diese Erinnerung dauerhaft löschen? Sie verschwindet aus Suche, Prompts und zukünftigen Läufen. Inhalt: „{content}“"
+
+msgid "memory.forgetCandidatesBody"
+msgstr "Mehrere Erinnerungen passen. Es wurde noch nichts gelöscht; wähle eine aus und bestätige."
+
+msgid "memory.forgetCandidatesTitle"
+msgstr "Erinnerung zum Vergessen auswählen"
+
+msgid "memory.forgetConfirm"
+msgstr "Dauerhaft vergessen"
+
+msgid "memory.forgetTitle"
+msgstr "Erinnerung vergessen"
+
+msgid "memory.forgottenMsg"
+msgstr "Erinnerung dauerhaft gelöscht."
+
+msgid "memory.globalCount"
+msgstr "Globale Erinnerungen"
+
+msgid "memory.globalHelp"
+msgstr "Vorlieben, Anweisungen und Fakten für alle Aufgaben dieses Users. Niemals für andere User sichtbar."
+
+msgid "memory.globalScopeNote"
+msgstr "Steht allen deinen Aufgaben zur Verfügung. Aufgabenspezifische Anweisungen haben weiterhin Vorrang."
+
+msgid "memory.globalTitle"
+msgstr "Globales Nutzergedächtnis"
+
+msgid "memory.historyNote"
+msgstr "Eine gelöschte Erinnerung verschwindet aus Suche, Prompts und zukünftigen Läufen. Ausführungsberichte sind eine getrennte, fortlaufende Historie und werden nicht umgeschrieben; Backups folgen der Aufbewahrung der Datenbank."
+
+msgid "memory.lastChanged"
+msgstr "Zuletzt geändert"
+
+msgid "memory.lastObserved"
+msgstr "Zuletzt beobachtet"
+
+msgid "memory.learningMode"
+msgstr "Automatisches Aufgabengedächtnis"
+
+msgid "memory.learningModeHelp"
+msgstr "auto übernimmt validierte Aufgaben-Updates und Empfehlungsänderungen nach erfolgreichem Lauf. suggest stellt sie zur Prüfung ein. off deaktiviert das Lernen."
+
+msgid "memory.listed"
+msgstr "Dieser Bereich enthält {count} Erinnerungen."
+
+msgid "memory.listedBoth"
+msgstr "Global: {global}; Aufgabe: {task}."
+
+msgid "memory.mode.auto"
+msgstr "Automatisch"
+
+msgid "memory.mode.off"
+msgstr "Aus"
+
+msgid "memory.mode.suggest"
+msgstr "Vorschläge prüfen"
+
+msgid "memory.modeAuto"
+msgstr "Automatisch übernehmen (Änderungen anzeigen)"
+
+msgid "memory.modeOff"
+msgstr "Aus"
+
+msgid "memory.modeSuggest"
+msgstr "Zur Prüfung vorschlagen"
+
+msgid "memory.noChanges"
+msgstr "Noch keine Gedächtnisänderungen."
+
+msgid "memory.noExecutionChanges"
+msgstr "Dieser Lauf hat das dauerhafte Gedächtnis nicht verändert."
+
+msgid "memory.noExecutionRecommendations"
+msgstr "Dieser Lauf hat keine Empfehlungen verändert."
+
+msgid "memory.noExecutionSuggestions"
+msgstr "Dieser Lauf hat keine Gedächtnisänderungen vorgeschlagen."
+
+msgid "memory.noHistory"
+msgstr "Noch keine Empfehlungsereignisse."
+
+msgid "memory.noMatches"
+msgstr "Keine passenden Erinnerungen"
+
+msgid "memory.noMatchesHint"
+msgstr "Andere Suche oder Kategorie versuchen oder eine neue Erinnerung anlegen."
+
+msgid "memory.noPendingSuggestions"
+msgstr "Keine offenen Vorschläge."
+
+msgid "memory.noRecommendations"
+msgstr "Noch keine Empfehlungen"
+
+msgid "memory.noRecommendationsHint"
+msgstr "Wiederkehrende Rechercheaufgaben legen nach einem erfolgreichen Lauf mit aktivem Lernen Empfehlungen an."
+
+msgid "memory.origin.agent"
+msgstr "Agent"
+
+msgid "memory.origin.slash_command"
+msgstr "Slash-Kommando"
+
+msgid "memory.origin.system"
+msgstr "System"
+
+msgid "memory.origin.user"
+msgstr "User"
+
+msgid "memory.originRef"
+msgstr "Herkunft"
+
+msgid "memory.pending"
+msgstr "Ausstehend"
+
+msgid "memory.recommendationHistory"
+msgstr "Empfehlungsverlauf"
+
+msgid "memory.recommendationUpdated"
+msgstr "Empfehlungsstatus aktualisiert."
+
+msgid "memory.recommendationsHelp"
+msgstr "Über Läufe hinweg verfolgt. Nutzerentscheidungen werden durch automatisches Lernen nie überschrieben."
+
+msgid "memory.recommendationsTitle"
+msgstr "Empfehlungen"
+
+msgid "memory.rejectSuggestion"
+msgstr "Ablehnen"
+
+msgid "memory.replaceExisting"
+msgstr "Diese Erinnerung ersetzen"
+
+msgid "memory.retentionNote"
+msgstr "Erinnerungen werden nur durch dich gelöscht. Es gibt keine automatische Ablaufzeit und kein stilles Entfernen aktueller Erinnerungen."
+
+msgid "memory.reviewInTask"
+msgstr "In der Aufgabe prüfen"
+
+msgid "memory.runCommand"
+msgstr "Ausführen"
+
+msgid "memory.saved"
+msgstr "Erinnerung gespeichert."
+
+msgid "memory.search"
+msgstr "Suchen"
+
+msgid "memory.searchPlaceholder"
+msgstr "Inhalt oder stabilen Schlüssel suchen"
+
+msgid "memory.selectForget"
+msgstr "Zum Löschen auswählen"
+
+msgid "memory.selectTaskHint"
+msgstr "Öffne eine Aufgabe und wähle den Gedächtnis-Tab, um Aufgabenerinnerungen zu verwalten."
+
+msgid "memory.selectUpdate"
+msgstr "Diese Erinnerung aktualisieren"
+
+msgid "memory.semanticKey"
+msgstr "Stabiler Schlüssel (optional)"
+
+msgid "memory.semanticKeyHelp"
+msgstr "Spätere Läufe aktualisieren diesen Eintrag, statt ein Duplikat anzulegen. Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich, Doppelpunkt oder Schrägstrich."
+
+msgid "memory.showing"
+msgstr "{count} von {total} angezeigt"
+
+msgid "memory.status.accepted"
+msgstr "Angenommen"
+
+msgid "memory.status.completed"
+msgstr "Erledigt"
+
+msgid "memory.status.discovered"
+msgstr "Entdeckt"
+
+msgid "memory.status.recommended"
+msgstr "Empfohlen"
+
+msgid "memory.status.rejected"
+msgstr "Abgelehnt"
+
+msgid "memory.status.unavailable"
+msgstr "Nicht verfügbar"
+
+msgid "memory.statusChanged"
+msgstr "Status geändert"
+
+msgid "memory.statusLabel"
+msgstr "Status"
+
+msgid "memory.subtitle"
+msgstr "Dauerhafter, bearbeitbarer Kontext für deine Aufgaben. Das globale Gedächtnis gehört nur dir; Aufgabengedächtnis bleibt bei einer Aufgabe."
+
+msgid "memory.suggestionAccepted"
+msgstr "Vorschlag angenommen."
+
+msgid "memory.suggestionRejected"
+msgstr "Vorschlag abgelehnt."
+
+msgid "memory.suggestionStatus.accepted"
+msgstr "angenommen"
+
+msgid "memory.suggestionStatus.pending"
+msgstr "ausstehend"
+
+msgid "memory.suggestionStatus.rejected"
+msgstr "abgelehnt"
+
+msgid "memory.suggestionsHelp"
+msgstr "Vorgeschlagene Änderungen am Aufgabengedächtnis. Annehmen schreibt die Erinnerung; Ablehnen lässt sie unverändert."
+
+msgid "memory.suggestionsTitle"
+msgstr "Automatische Gedächtnisvorschläge"
+
+msgid "memory.tab.memory"
+msgstr "Gedächtnis"
+
+msgid "memory.tab.overview"
+msgstr "Übersicht"
+
+msgid "memory.tab.recommendations"
+msgstr "Empfehlungen"
+
+msgid "memory.task"
+msgstr "Aufgabe"
+
+msgid "memory.taskCount"
+msgstr "Aufgabenerinnerungen"
+
+msgid "memory.taskHelp"
+msgstr "Erkenntnisse, Entscheidungen, Fortschritt und nächste Schritte über wiederholte Ausführungen dieser Aufgabe hinweg."
+
+msgid "memory.taskScopeNote"
+msgstr "Nur für diese Aufgabe und ihren Besitzer verfügbar."
+
+msgid "memory.taskTitle"
+msgstr "Aufgabengedächtnis"
+
+msgid "memory.title"
+msgstr "Gedächtnis"
+
+msgid "memory.totalCount"
+msgstr "Gesamt"
+
+msgid "memory.updatedAt"
+msgstr "Geändert"
+
+msgid "memory.updatedMsg"
+msgstr "Erinnerung aktualisiert."
+
+msgid "memory.userProtected"
+msgstr "vom User geschützt"
+
 msgid "nav.admin"
 msgstr "Admin"
 
@@ -867,6 +1311,9 @@ msgstr "Abmelden"
 
 msgid "nav.mainNavigation"
 msgstr "Hauptnavigation"
+
+msgid "nav.memory"
+msgstr "Gedächtnis"
 
 msgid "nav.monitoring"
 msgstr "Überwachung"

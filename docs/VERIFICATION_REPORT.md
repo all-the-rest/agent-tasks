@@ -54,6 +54,64 @@ pnpm --filter @agent-tasks/web test && pnpm --filter @agent-tasks/web build
 E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 ```
 
+## Persistent memory (2026-11-01)
+
+Persistent, editable memory is implemented in migration `0003_grey_landau.sql`,
+the shared parser/budget module (`packages/shared/src/memory.ts`), the
+transactional memory service (`packages/database/src/memory.ts`), owner-scoped
+API routes (`apps/api/src/routes/memory.ts`), the worker's structured learning
+step, and the Memory/Review UI. The agent can only emit validated
+`record_task_memory` and `track_recommendation` operations; global memory is
+written exclusively by authenticated user actions.
+
+| Command | Result | Exit |
+| --- | --- | --- |
+| `pnpm lint` | 0 errors, 0 warnings | 0 |
+| `pnpm -r typecheck` | 10 workspace projects | 0 |
+| `pnpm test:unit` | **201 passed**, 28 files (includes parser, duplicate/secret, budget and agent-tool suites) | 0 |
+| `TEST_DATABASE_URL=postgres://agent:agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **73 passed**, 11 files, real PostgreSQL | 0 |
+| `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
+| `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
+| `pnpm exec ratchet check` | 11 of 11 gates | 0 |
+| `pnpm exec playwright test --list` | 11 specs discovered | 0 |
+| Local Playwright run against API/worker/runner/Vite and the deterministic mock | **11/11 passed in 1.0 min** | 0 |
+
+Memory-specific evidence:
+
+- `test/integration/memory.test.ts` (16 tests): CRUD and revisions, re-login
+  persistence, multi-user/cross-task isolation, slash-command parsing and
+  scope errors, duplicate offer + `/update`, ambiguous update-prefix and
+  ambiguous delete-search selection,
+  search-then-confirm `/forget`, scoped forget, secrets, concurrent updates and
+  duplicate creation, suggestion review including deletion of an
+  accepted-suggestion memory (suggestion and journal content scrubbed),
+  pending same-key and cross-key suggestions scrubbed through their journal
+  rows, revision-wide tombstone blocking of pre-edit content, user-authoritative
+  recommendation status, delete-all, task cascade and migration/restart
+  persistence.
+- `test/integration/memory-execution.test.ts` (4 tests): real `Executor` runs
+  against the mock model. The first execution writes a task finding and a
+  recommendation; the second receives both in its system prompt without creating
+  duplicates; a user edit is preserved and blocks automatic overwrite; a deletion
+  creates a tombstone and **two further runs** receive neither the deleted text
+  nor a reconstructed memory (and each records a blocked tombstone attempt);
+  `off` disables learning.
+- `e2e/agent-tasks.spec.ts` adds three browser scenarios: `/learn` survives a new
+  browser context; the next run shows the previous task memory and recognises the
+  tracked recommendation exactly once; editing and deleting the task memory
+  changes the next run's prompt and report. The suite is order-independent (one
+  Playwright worker because the stack is shared): shared setup
+  creates only the administrator/provider, each test owns its browser context and
+  tasks, and a cleanup fixture removes tasks and global memories even on failure.
+  The edit/delete scenario was also run alone (`--grep "edits and deletes a memory"`):
+  **1/1 passed in 17.3 s**, so it does not depend on earlier tests.
+
+Deletion is physical; `memory_revisions` cascade, the change journal is scrubbed
+and the audit log carries ids/scope/category only. A content-free tombstone
+(semantic key + SHA-256 hash) blocks automatic resurrection. Historical
+execution reports and database backups are documented as a separate retention
+domain in `docs/memory.md`.
+
 ## Requirements
 
 | # | Requirement | Implementation | Evidence | Status |
@@ -79,9 +137,9 @@ E2E_BASE_URL=http://127.0.0.1:8099 E2E_SETUP_TOKEN=... pnpm exec playwright test
 | 9 | Chromium sandbox, non-root, read-only, no socket | `compose.yaml` (`RUNNER_CHROMIUM_SANDBOX=true`, `cap_drop: ALL` + `cap_add: SYS_CHROOT`, custom seccomp), `docker/seccomp-browser.json`, `browser.ts` | Probe run 41226712667: **`LAUNCH_OK sandbox=true` + `PAGE_OK`** with pwuser, no SYS_ADMIN, `no-new-privileges`, read-only, the custom profile; CI asserts `/healthz` `sandbox: true` and passes 9/9 E2E; `docker inspect`: uid 1001, read-only, no socket; loopback/private egress refused | PASS |
 | 10 | Prompt injection, XSS, CSRF, secret leaks | runtime untrusted wrapper, `rehype-sanitize`, origin hook, `secretBox`, redaction | runtime tests; `markdown-safety.test.tsx`; `auth.test.ts` CSRF; `providers.test.ts` no secret in admin responses; `audit.test.ts`; ciphertext assertion | PASS |
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
-| 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 27 web tests (MFA, XSS, live de↔en switch), production build, 9 Playwright flows | PASS |
+| 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 34 web tests (MFA, XSS, live de↔en switch), production build, 11 Playwright flows (local memory run 11/11) | PASS |
 | 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `deployment/`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers); CI compose job starts the stack and runs 9/9 E2E; production/local/E2E stacks render with distinct project names, host ports, volumes and `com.agent-tasks.stack` labels, and local + E2E ran at the same time | PASS |
-| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 164 unit, 48 integration, 34 web, 9 E2E | PASS |
+| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 201 unit, 73 integration, 34 web, 11 E2E (local memory run) | PASS |
 | 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41235394232: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
 | 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `b7b79fa` pushed; CI green | PASS (with the org deviation) |

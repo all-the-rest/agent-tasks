@@ -1,6 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -202,6 +204,12 @@ export const tasks = pgTable(
     limits: jsonb('limits').notNull(),
     allowWebResearch: boolean('allow_web_research').notNull().default(true),
     notification: text('notification').notNull().default('none'),
+    /**
+     * Per-task automatic learning policy: `off`, `suggest` (review queue) or
+     * `auto` (apply validated operations and show them in the change log).
+     * `contextBytes` caps the memory block injected into a run.
+     */
+    memorySettings: jsonb('memory_settings').notNull().default({}),
     nextRunAt: timestamp('next_run_at', { withTimezone: true, mode: 'date' }),
     lastRunAt: timestamp('last_run_at', { withTimezone: true, mode: 'date' }),
     ...timestamps,
@@ -287,6 +295,202 @@ export const executionSources = pgTable(
   (table) => [uniqueIndex('execution_sources_unique').on(table.executionId, table.url)],
 );
 
+/* ------------------------------------------------------------------ *
+ * Persistent AI memory
+ *
+ * Memories are user-owned and either global (task_id null) or task-scoped.
+ * Deletion is physical, with a content-free tombstone that prevents automatic
+ * learning from resurrecting what the user explicitly forgot.
+ * ------------------------------------------------------------------ */
+
+export const memories = pgTable(
+  'memories',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+    scope: text('scope').notNull(),
+    category: text('category').notNull(),
+    content: text('content').notNull(),
+    semanticKey: text('semantic_key'),
+    origin: text('origin').notNull(),
+    originRef: text('origin_ref'),
+    provenance: jsonb('provenance').notNull().default({}),
+    revision: integer('revision').notNull().default(1),
+    /** True once a user created, updated or explicitly confirmed the record. */
+    userEdited: boolean('user_edited').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('memories_owner_scope_idx').on(table.ownerId, table.scope, table.updatedAt),
+    index('memories_task_idx').on(table.taskId, table.updatedAt),
+    index('memories_search_idx').using('gin', sql`to_tsvector('simple', ${table.content})`),
+    uniqueIndex('memories_global_semantic_unique')
+      .on(table.ownerId, table.semanticKey)
+      .where(sql`${table.scope} = 'global' and ${table.semanticKey} is not null`),
+    uniqueIndex('memories_task_semantic_unique')
+      .on(table.taskId, table.semanticKey)
+      .where(sql`${table.scope} = 'task' and ${table.semanticKey} is not null`),
+    check(
+      'memories_scope_shape',
+      sql`(${table.scope} = 'global' and ${table.taskId} is null) or (${table.scope} = 'task' and ${table.taskId} is not null)`,
+    ),
+  ],
+);
+
+export const memoryRevisions = pgTable(
+  'memory_revisions',
+  {
+    id: uuid('id').primaryKey(),
+    memoryId: uuid('memory_id')
+      .notNull()
+      .references(() => memories.id, { onDelete: 'cascade' }),
+    revision: integer('revision').notNull(),
+    content: text('content').notNull(),
+    category: text('category').notNull(),
+    semanticKey: text('semantic_key'),
+    metadata: jsonb('metadata').notNull().default({}),
+    changedBy: text('changed_by').notNull(),
+    executionId: uuid('execution_id').references(() => executions.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('memory_revisions_unique').on(table.memoryId, table.revision)],
+);
+
+/**
+ * Content-free deletion marker. It stores only a hash of the forgotten text and
+ * the semantic key, so it can block an automatic re-creation without retaining
+ * the deleted content or exposing it to search or prompts.
+ */
+export const memoryTombstones = pgTable(
+  'memory_tombstones',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+    scope: text('scope').notNull(),
+    semanticKey: text('semantic_key'),
+    contentHash: text('content_hash').notNull(),
+    changedBy: text('changed_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('memory_tombstones_owner_idx').on(table.ownerId, table.scope, table.createdAt),
+    index('memory_tombstones_task_idx').on(table.taskId, table.createdAt),
+  ],
+);
+
+export const memorySuggestions = pgTable(
+  'memory_suggestions',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    executionId: uuid('execution_id').references(() => executions.id, { onDelete: 'set null' }),
+    targetMemoryId: uuid('target_memory_id').references(() => memories.id, { onDelete: 'set null' }),
+    operation: text('operation').notNull().default('upsert'),
+    category: text('category').notNull(),
+    content: text('content').notNull(),
+    semanticKey: text('semantic_key'),
+    status: text('status').notNull().default('pending'),
+    reason: text('reason'),
+    provenance: jsonb('provenance').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true, mode: 'date' }),
+  },
+  (table) => [
+    index('memory_suggestions_task_idx').on(table.taskId, table.status, table.createdAt),
+    index('memory_suggestions_owner_idx').on(table.ownerId, table.status, table.createdAt),
+  ],
+);
+
+/**
+ * User-visible change journal. Deletions intentionally never store the removed
+ * text: `before_content`/`after_content` are nulled and `memory_id` becomes
+ * null when the memory is physically deleted.
+ */
+export const memoryChanges = pgTable(
+  'memory_changes',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+    memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'set null' }),
+    executionId: uuid('execution_id').references(() => executions.id, { onDelete: 'set null' }),
+    suggestionId: uuid('suggestion_id').references(() => memorySuggestions.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    scope: text('scope').notNull(),
+    beforeContent: text('before_content'),
+    afterContent: text('after_content'),
+    summary: text('summary'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('memory_changes_owner_idx').on(table.ownerId, table.createdAt),
+    index('memory_changes_task_idx').on(table.taskId, table.createdAt),
+    index('memory_changes_execution_idx').on(table.executionId, table.createdAt),
+  ],
+);
+
+export const recommendations = pgTable(
+  'recommendations',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    semanticKey: text('semantic_key').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    sourceUrl: text('source_url'),
+    status: text('status').notNull().default('discovered'),
+    metadata: jsonb('metadata').notNull().default({}),
+    firstObservedAt: timestamp('first_observed_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    lastObservedAt: timestamp('last_observed_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    lastChangedAt: timestamp('last_changed_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    firstExecutionId: uuid('first_execution_id').references(() => executions.id, { onDelete: 'set null' }),
+    lastExecutionId: uuid('last_execution_id').references(() => executions.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('recommendations_task_key_unique').on(table.taskId, table.semanticKey),
+    index('recommendations_task_status_idx').on(table.taskId, table.status, table.lastObservedAt),
+  ],
+);
+
+export const recommendationEvents = pgTable(
+  'recommendation_events',
+  {
+    id: uuid('id').primaryKey(),
+    recommendationId: uuid('recommendation_id')
+      .notNull()
+      .references(() => recommendations.id, { onDelete: 'cascade' }),
+    executionId: uuid('execution_id').references(() => executions.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    fromStatus: text('from_status'),
+    toStatus: text('to_status'),
+    changes: jsonb('changes').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [index('recommendation_events_recommendation_idx').on(table.recommendationId, table.createdAt)],
+);
+
 export const auditLogs = pgTable(
   'audit_logs',
   {
@@ -334,6 +538,13 @@ export const schema = {
   executions,
   executionSteps,
   executionSources,
+  memories,
+  memoryRevisions,
+  memoryTombstones,
+  memorySuggestions,
+  memoryChanges,
+  recommendations,
+  recommendationEvents,
   auditLogs,
   invitations,
 };

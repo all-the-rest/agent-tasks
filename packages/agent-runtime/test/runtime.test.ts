@@ -260,7 +260,9 @@ describe('agent runtime', () => {
         'inspect_page',
         'navigate_back',
         'open_url',
+        'record_task_memory',
         'search_web',
+        'track_recommendation',
       ].sort(),
     );
   });

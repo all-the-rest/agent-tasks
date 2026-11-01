@@ -13,6 +13,7 @@ import type { ClaimedInvitation } from './routes/setup.js';
 import { registerMeRoutes, registerAdminRoutes } from './routes/admin.js';
 import { registerProviderRoutes } from './routes/providers.js';
 import { registerTaskRoutes } from './routes/tasks.js';
+import { registerMemoryRoutes } from './routes/memory.js';
 
 export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   const app = Fastify({
@@ -147,6 +148,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   await registerMeRoutes(app, context);
   await registerProviderRoutes(app, context);
   await registerTaskRoutes(app, context);
+  await registerMemoryRoutes(app, context);
   await registerAdminRoutes(app, context);
 
   app.addHook('onClose', async () => {

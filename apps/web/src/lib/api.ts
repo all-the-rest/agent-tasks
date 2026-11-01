@@ -9,8 +9,14 @@ import type {
   Invitation,
   InvitationPreview,
   Me,
+  Memory,
+  MemoryChange,
+  MemoryCommandResult,
+  MemorySuggestion,
   Metrics,
   Preferences,
+  Recommendation,
+  RecommendationEvent,
   Provider,
   ProviderHealth,
   SessionUser,
@@ -180,6 +186,56 @@ export const api = {
     action: (id: string, action: 'pause' | 'resume' | 'run' | 'duplicate') =>
       post<Task | { executionId?: string }>(`/api/tasks/${id}/${action}`),
     executions: (id: string) => get<ExecutionSummary[]>(`/api/tasks/${id}/executions`),
+    memoryChanges: (id: string) => get<MemoryChange[]>(`/api/tasks/${id}/memory-changes`),
+    memorySuggestions: (id: string) => get<MemorySuggestion[]>(`/api/tasks/${id}/memory-suggestions`),
+    recommendationEvents: (id: string) => get<RecommendationEvent[]>(`/api/tasks/${id}/recommendation-events`),
+  },
+
+  memory: {
+    list: (params: {
+      scope?: Memory['scope'];
+      taskId?: string;
+      category?: Memory['category'];
+      q?: string;
+      limit?: number;
+      offset?: number;
+    } = {}) => {
+      const query = new URLSearchParams();
+      if (params.scope) query.set('scope', params.scope);
+      if (params.taskId) query.set('taskId', params.taskId);
+      if (params.category) query.set('category', params.category);
+      if (params.q) query.set('q', params.q);
+      if (params.limit) query.set('limit', String(params.limit));
+      if (params.offset) query.set('offset', String(params.offset));
+      const suffix = query.toString();
+      return get<{ items: Memory[]; total: number; limit: number; offset: number }>(`/api/memory${suffix ? `?${suffix}` : ''}`);
+    },
+    get: (id: string) => get<Memory>(`/api/memory/${id}`),
+    create: (input: {
+      scope: Memory['scope'];
+      taskId?: string;
+      category: Memory['category'];
+      content: string;
+      semanticKey?: string;
+    }) => post<Memory>('/api/memory', input),
+    update: (id: string, input: { category?: Memory['category']; content?: string; semanticKey?: string | null }) =>
+      patch<Memory>(`/api/memory/${id}`, input),
+    remove: (id: string) => del(`/api/memory/${id}`),
+    deleteAll: (input: { scope: 'all' | Memory['scope']; taskId?: string; confirm: true }) =>
+      post<{ deleted: number }>('/api/memory/delete-all', input),
+    stats: () => get<{ global: number; task: number; total: number }>('/api/memory/stats'),
+    command: (input: string, options: { taskId?: string; confirm?: boolean } = {}) =>
+      post<MemoryCommandResult>('/api/memory/commands', { input, ...options }),
+    exportUrl: '/api/memory/export',
+    acceptSuggestion: (id: string) => post<{ memory: Memory | null }>(`/api/memory-suggestions/${id}/accept`),
+    rejectSuggestion: (id: string) => post<{ ok: boolean }>(`/api/memory-suggestions/${id}/reject`),
+  },
+
+  recommendations: {
+    list: (taskId: string) => get<Recommendation[]>(`/api/tasks/${taskId}/recommendations`),
+    update: (id: string, status: Recommendation['status']) =>
+      patch<Recommendation>(`/api/recommendations/${id}`, { status }),
+    events: (taskId: string) => get<RecommendationEvent[]>(`/api/tasks/${taskId}/recommendation-events`),
   },
 
   executions: {
@@ -193,6 +249,12 @@ export const api = {
     get: (id: string) => get<Execution>(`/api/executions/${id}`),
     cancel: (id: string) => post<{ ok: boolean }>(`/api/executions/${id}/cancel`),
     retry: (id: string) => post<{ executionId: string }>(`/api/executions/${id}/retry`),
+    memory: (id: string) =>
+      get<{
+        changes: MemoryChange[];
+        suggestions: MemorySuggestion[];
+        recommendationEvents: RecommendationEvent[];
+      }>(`/api/executions/${id}/memory`),
   },
 
   providers: {

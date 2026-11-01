@@ -31,6 +31,10 @@ and sources.
 
 ![Execution report with table and sources](docs/images/execution-report.png)
 
+### Give it a memory
+
+Each user has an editable global memory for preferences and instructions; each task has its own memory for findings, decisions, progress and recommendations. Both survive restarts, are injected into later runs and can be inspected, edited or forgotten from the UI or with `/learn`, `/memory`, `/update` and `/forget`. See [`docs/memory.md`](docs/memory.md).
+
 ### Let the agent compose the e-mail
 
 With **Email me** enabled, the agent adds e-mail blocks through a compact
@@ -58,6 +62,9 @@ live in one admin area.
   more), rendered email-safe and spam-checked in CI.
 - **Multi-user from day one**: invitations, ADMIN/USER roles, TOTP MFA,
   owner-scoped tasks, reports, logs and credentials.
+- **Durable, editable memory**: global user memory and per-task memory with
+  automatic task learning, recommendation tracking, versioned edits, search,
+  export and permanent, tombstoned deletion. Slash commands work across sessions.
 - **A hardened browser**: non-root, read-only, no Docker socket, egress proxy
   with DNS-rebinding protection, Chromium sandbox enabled by default.
 

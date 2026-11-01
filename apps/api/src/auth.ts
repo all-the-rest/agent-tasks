@@ -118,6 +118,7 @@ export function createAuth({ db, env, mailer }: AuthDeps) {
       modelName: 'rateLimit',
       customRules: {
         '/sign-in/email': { window: env.RATE_LIMIT_WINDOW_SECONDS, max: env.RATE_LIMIT_SIGNIN_MAX },
+        '/get-session': { window: env.RATE_LIMIT_WINDOW_SECONDS, max: env.RATE_LIMIT_SESSION_MAX },
         '/two-factor/verify-totp': { window: 60, max: 6 },
         '/request-password-reset': { window: 300, max: 3 },
         '/sign-up/email': { window: 300, max: 5 },

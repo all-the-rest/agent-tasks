@@ -41,6 +41,7 @@ export function testEnv(overrides: Partial<ApiEnv> = {}): ApiEnv {
     TRUST_PROXY: 'false',
     COOKIE_SECURE: 'false',
     RATE_LIMIT_SIGNIN_MAX: 100,
+    RATE_LIMIT_SESSION_MAX: 1000,
     RATE_LIMIT_WINDOW_SECONDS: 60,
     ...overrides,
   } as ApiEnv;
@@ -48,7 +49,7 @@ export function testEnv(overrides: Partial<ApiEnv> = {}): ApiEnv {
 
 export async function resetDatabase(db: DatabaseHandle): Promise<void> {
   await db.pool.query(
-    'truncate table audit_logs, execution_sources, execution_steps, executions, tasks, provider_models, provider_credentials, providers, invitations, user_preferences, system_settings, two_factor, session, account, verification, rate_limit, "user" cascade',
+    'truncate table audit_logs, recommendation_events, recommendations, memory_changes, memory_suggestions, memory_tombstones, memory_revisions, memories, execution_sources, execution_steps, executions, tasks, provider_models, provider_credentials, providers, invitations, user_preferences, system_settings, two_factor, session, account, verification, rate_limit, "user" cascade',
   );
 }
 

@@ -13,6 +13,7 @@ import { TasksPage } from './pages/TasksPage';
 import { TaskFormPage } from './pages/TaskFormPage';
 import { TaskDetailPage } from './pages/TaskDetailPage';
 import { ExecutionsPage } from './pages/ExecutionsPage';
+import { MemoryPage } from './pages/MemoryPage';
 import { ExecutionDetailPage } from './pages/ExecutionDetailPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AdminPage } from './pages/AdminPage';
@@ -60,6 +61,7 @@ export function App() {
                   <Route path="tasks/new" element={<TaskFormPage />} />
                   <Route path="tasks/:id" element={<TaskDetailPage />} />
                   <Route path="tasks/:id/edit" element={<TaskFormPage />} />
+                  <Route path="memory" element={<MemoryPage />} />
                   <Route path="executions" element={<ExecutionsPage />} />
                   <Route path="executions/:id" element={<ExecutionDetailPage />} />
                   <Route path="settings" element={<SettingsPage />} />
