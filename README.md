@@ -75,17 +75,17 @@ and committed under [`docs/images/`](docs/images/).
 ## Architecture in one picture
 
 ```
- Browser ──► web (nginx, static) ──/api──► api (Fastify)
-                                             │  Better Auth sessions, RBAC, audit
-                                             ▼
-                                        PostgreSQL ◄── worker (pg-boss)
-                                             ▲              │ agent loop
-                                             │              ▼
-                                        executions     browser-runner ──► enforcing proxy ──► Internet
-                                                                            │
-                                                                       blocked: loopback,
-                                                                       RFC1918, link-local,
-                                                                       metadata, ULA, …
+ Browser ──► Caddy (TLS, global) ──► api (Fastify + built SPA)
+                                      │  Better Auth sessions, RBAC, audit
+                                      ▼
+                                 PostgreSQL ◄── worker (pg-boss)
+                                      ▲              │ agent loop
+                                      │              ▼
+                                 executions     browser-runner ──► enforcing proxy ──► Internet
+                                                                     │
+                                                                blocked: loopback,
+                                                                RFC1918, link-local,
+                                                                metadata, ULA, …
 ```
 
 Details: [`docs/architecture/overview.md`](docs/architecture/overview.md).
@@ -117,6 +117,12 @@ sed -i \
 docker compose --profile search up -d --build
 grep '^SETUP_TOKEN=' .env
 ```
+
+The public images are published at
+`ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`. After the first
+`v*` release exists, `docker compose --profile search pull` followed by
+`docker compose --profile search up -d` starts the published images; use
+`--build` for a source checkout.
 
 `sed -i` is GNU syntax; on macOS use `sed -i ''`. Compose fallbacks are
 `POSTGRES_PASSWORD=agent`, `PUBLIC_BASE_URL=http://localhost:8080` and

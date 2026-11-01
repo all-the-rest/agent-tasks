@@ -6,11 +6,12 @@ same database that stores tasks, so a backup restores both.
 
 ```
                  ┌──────────────────────────────┐
-  browser ──────►│ web (nginx, static SPA)      │
+  browser ──────►│ Caddy (TLS)                  │
                  └──────────────┬───────────────┘
-                                │ /api
+                                │ loopback HTTP
                  ┌──────────────▼───────────────┐
                  │ api (Fastify 5)              │
+                 │ API + built SPA              │
                  │ Better Auth · RBAC · audit   │
                  └──────────────┬───────────────┘
                                 │

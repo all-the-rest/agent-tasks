@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connect } from 'node:net';
+import { get as httpGet } from 'node:http';
 import { chromiumEgressArgs } from '../src/browser.js';
 import { startEgressProxy } from '../src/proxy.js';
 import type { EgressProxy } from '../src/proxy.js';
@@ -22,6 +23,20 @@ function request(port: number, authority: string): Promise<string> {
       socket.destroy();
       reject(new Error('timeout'));
     });
+  });
+}
+
+function get(port: number, path: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = httpGet({ host: '127.0.0.1', port, path, method: 'GET' }, (response) => {
+      let body = '';
+      response.on('data', (chunk) => {
+        body += chunk.toString('utf8');
+      });
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
+    });
+    request.on('error', reject);
+    request.setTimeout(5_000, () => request.destroy(new Error('timeout')));
   });
 }
 
@@ -50,6 +65,14 @@ describe('egress proxy', () => {
     const response = await request(proxy.port, '127.0.0.1:80');
     expect(response).toContain('403');
     expect(proxy.blocked.some((entry) => entry.host === '127.0.0.1')).toBe(true);
+  });
+
+  it('answers a malformed absolute-form request instead of crashing', async () => {
+    const malformed = await get(proxy.port, '/admin');
+    expect(malformed.status).toBe(403);
+    expect(malformed.body).toContain('blocked by egress policy');
+    // The process is still serving after the malformed request.
+    expect(await request(proxy.port, '127.0.0.1:80')).toContain('403');
   });
 
   it('removes Chromium\'s implicit loopback bypass and pins name resolution to the proxy', async () => {

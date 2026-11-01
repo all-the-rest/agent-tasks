@@ -273,11 +273,11 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 
 | # | Criterion | Status | Evidence | Test coverage |
 | ---: | --- | --- | --- | --- |
-| 1 | Compose: web, api, worker, postgres, hardened runner | IMPLEMENTED | `compose.yaml:20-147` | not started |
-| 2 | Optional profiles: SearXNG, Ollama | IMPLEMENTED | `compose.yaml:152` (`[search]`) and `:169` (`[local-ai]`). The profile was `[search, default]` before 12:11 during this audit; at snapshot it is correct | not started |
+| 1 | Compose: API+SPA, worker, postgres, hardened runner | IMPLEMENTED | `compose.yaml` | not started |
+| 2 | Optional profiles: SearXNG, Mailpit | IMPLEMENTED | `compose.yaml` profiles `search`, `mail` (no local-ai profile) | not started |
 | 3 | Named volumes, health checks, restart policies, no DB port | IMPLEMENTED | `compose.yaml:30-46,191-193`; postgres has no `ports:` | not started |
-| 4 | Pinned images, minimal privileges, seccomp | IMPLEMENTED | postgres `17.5-alpine`, node `22.20.0`, nginx `1.29`, playwright `v1.64.1`; `docker/seccomp-browser.json`; `cap_drop` on api/worker/web/runner | not started |
-| 5 | Watchtower labels for api/worker/web only | PARTIAL | api/worker/web true (`:62,88,108`), runner false (`:146`), **SearXNG true (`:163`)** | config |
+| 4 | Pinned images, minimal privileges, seccomp | IMPLEMENTED | postgres `17.5-alpine`, node `22.20.0`, playwright `v1.64.1` (Chromium headless shell installed at build); `docker/seccomp-browser.json`; `cap_drop` on api/worker/runner | not started |
+| 5 | Watchtower labels for api/worker only | IMPLEMENTED | api/worker true, runner false | config |
 | 6 | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example` | IMPLEMENTED | all eight files exist at the root | doc |
 | 7 | Full compose start verified (box unchecked) | UNPROVEN | not run (Docker daemon unavailable to this host) | not run |
 

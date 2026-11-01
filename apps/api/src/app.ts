@@ -4,7 +4,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { fromNodeHeaders } from 'better-auth/node';
 import { eq } from 'drizzle-orm';
-import { AppError, toPublicError } from '@agent-tasks/shared';
+import { AppError, toPublicError, WEB_CSP_DIRECTIVES } from '@agent-tasks/shared';
 import { user } from '@agent-tasks/database';
 import type { AppContext } from './context.js';
 import { requestSerializer } from './lib/log-redaction.js';
@@ -14,6 +14,8 @@ import { registerMeRoutes, registerAdminRoutes } from './routes/admin.js';
 import { registerProviderRoutes } from './routes/providers.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerMemoryRoutes } from './routes/memory.js';
+import { isSpaNavigation, registerWebApp, resolveWebRoot } from './static.js';
+import { isUnlimitedHealthCheck, proxyTrust } from './http-policy.js';
 
 export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   const app = Fastify({
@@ -33,19 +35,28 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
       },
     },
     bodyLimit: 512 * 1024,
-    trustProxy: context.env.TRUST_PROXY === 'true',
+    // One proxy hop only: the documented Caddy/nginx deployment terminates TLS
+    // once. Trusting every hop would accept a client-supplied X-Forwarded-For.
+    trustProxy: proxyTrust(context.env.TRUST_PROXY),
     genReqId: () => crypto.randomUUID(),
   });
 
   await app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: WEB_CSP_DIRECTIVES,
+    },
     crossOriginEmbedderPolicy: false,
   });
   await app.register(rateLimit, {
     global: true,
     max: 300,
     timeWindow: '1 minute',
-    allowList: ['127.0.0.1'],
+    // The container healthcheck must not consume the per-IP budget; every other
+    // request, including the SPA, is limited. Only the in-container loopback
+    // health probe bypasses the limiter, so a remote client cannot use the
+    // database-backed health endpoint as an unlimited request amplifier.
+    allowList: isUnlimitedHealthCheck,
   });
 
   /**
@@ -65,6 +76,17 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     if (error instanceof AppError) {
       return reply.code(error.status).send({ error: { code: error.code, message: error.message, details: error.details } });
     }
+    // @fastify/static throws a plain 403 for non-canonical paths. Treat it as a
+    // client error, not an internal failure, so a malformed URL neither logs a
+    // stack trace nor breaks the documented error-code contract.
+    if (error.statusCode === 403) {
+      return reply.code(403).send({ error: { code: 'forbidden', message: 'forbidden' } });
+    }
+    // Rate-limit rejections are expected client errors, not internal failures;
+    // logging them with a stack would be a log amplifier at the limit boundary.
+    if (error.statusCode === 429) {
+      return reply.code(429).send({ error: { code: 'rate_limited', message: 'too many requests' } });
+    }
     const publicError = toPublicError(error);
     if (publicError.code === 'internal') {
       request.log.error({ err: error }, 'unhandled error');
@@ -73,7 +95,14 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     return reply.code(error.statusCode ?? 400).send({ error: publicError });
   });
 
-  app.setNotFoundHandler((_request, reply) => {
+  const webRoot = resolveWebRoot(context.env.WEB_ROOT, context.env.NODE_ENV);
+  app.setNotFoundHandler((request, reply) => {
+    // The same URL can answer HTML or JSON depending on Accept; a shared cache
+    // must not reuse one variant for the other.
+    reply.header('Vary', 'Accept');
+    if (webRoot && isSpaNavigation(request)) {
+      return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-cache').sendFile('index.html');
+    }
     reply.code(404).send({ error: { code: 'not_found', message: 'route not found' } });
   });
 
@@ -150,6 +179,8 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   await registerTaskRoutes(app, context);
   await registerMemoryRoutes(app, context);
   await registerAdminRoutes(app, context);
+  // Registered last so the API routes keep precedence over the SPA wildcard.
+  await registerWebApp(app, webRoot);
 
   app.addHook('onClose', async () => {
     const { closeBoss } = await import('./lib/queue.js');

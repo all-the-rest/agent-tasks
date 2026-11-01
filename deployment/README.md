@@ -28,15 +28,21 @@ docker ps --filter label=com.agent-tasks.stack=e2e
 
 ## Host ports
 
-| Stack | Web / API | Mailpit SMTP | Mailpit UI |
+| Stack | API + SPA | Mailpit SMTP | Mailpit UI |
 | --- | --- | --- | --- |
 | production | `HTTP_PORT` (default `8080`) | not started | not started |
 | local | `8090` | `1025` | `8025` |
 | e2e | `8180` | `1126` | `8126` |
 
-Only `web` publishes a port; Postgres, the API, the worker, the browser runner
-and SearXNG stay on the internal networks. Mailpit and SearXNG are compose
-profiles and publish only when started.
+Only the API publishes a port, and it binds to loopback (`HTTP_BIND=127.0.0.1`)
+by default. It serves the API and the built SPA, so a reverse proxy has one
+upstream. Postgres, the worker, the browser runner and SearXNG stay on the
+internal networks. Mailpit and SearXNG are compose profiles and publish only when
+started.
+
+On a remote Docker daemon the host loopback belongs to the daemon, not to the
+test runner or the proxy. Set `HTTP_BIND=0.0.0.0` in the matching env file (and
+restrict the port at the firewall) before pointing `E2E_BASE_URL` at it.
 
 ## Quick start
 
@@ -46,10 +52,10 @@ runs the matching `docker compose -f deployment/compose.<stack>.yaml` command
 with the arguments you pass.
 
 ```bash
-# local development (web on http://localhost:8090)
+# local development (API + SPA on http://localhost:8090)
 deployment/stack.sh local --profile mail --profile search up -d --build
 
-# E2E, while local keeps running (web on http://localhost:8180)
+# E2E, while local keeps running (API + SPA on http://localhost:8180)
 deployment/stack.sh e2e --profile mail --profile search up -d --build
 
 # both stacks at once
@@ -62,7 +68,7 @@ deployment/stack.sh e2e down -v
 ```
 
 Without profiles only the core services start (`postgres`, `api`, `worker`,
-`web`, `browser-runner`). `--profile mail` adds Mailpit and SpamAssassin;
+`browser-runner`). `--profile mail` adds Mailpit and SpamAssassin;
 `--profile search` adds SearXNG. `deployment/stack.sh local config --services`
 lists exactly what a selection starts.
 
@@ -111,9 +117,11 @@ still present; `stack.sh production config -q` is allowed for validation.
 reverse proxy in front of `HTTP_PORT`. The full variable reference, backup,
 update and rollback notes are in [../DEPLOYMENT.md](../DEPLOYMENT.md).
 
-The stack always builds `../compose.yaml` from this repository, so run the
-commands from a checkout that contains the desired commit. `IMAGE_TAG` and
-`IMAGE_PREFIX` select pre-built images when you do not want to build locally.
+The API image contains the built SPA; there is no separate web container. The
+release workflow publishes `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`
+for every `v*` tag. `IMAGE_TAG` selects the release and `deployment/stack.sh
+production pull` fetches it; `--build` compiles the same images from the checkout
+when you do not want to use the registry.
 
 ## Validation
 

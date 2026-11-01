@@ -18,7 +18,7 @@ within 72 hours and to publish a fix and advisory within 30 days for confirmed i
 
 | Boundary | Control |
 | --- | --- |
-| Browser → nginx → API | HTTPS at the reverse proxy, `SameSite=Lax` cookies, origin checks |
+| Browser → reverse proxy → API | HTTPS at the reverse proxy, `SameSite=Lax` cookies, origin checks; the API port binds to loopback by default |
 | API → Postgres | Private compose network only, no published port, single application role |
 | Worker → browser runner | Shared token (`RUNNER_TOKEN`), private compose network, no published port |
 | Runner → Internet | Enforcing HTTP proxy: scheme/port allowlist, DNS resolved in the proxy, all answers must be public, connection pinned to a checked IP |
