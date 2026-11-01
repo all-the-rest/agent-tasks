@@ -12,14 +12,3 @@ name: agent-tasks
 
 include:
   - path: ../compose.yaml
-
-# Production consumes the published images. Without this override Compose may
-# build the local Dockerfiles when the image is absent; `pull_policy: always`
-# makes Portainer/Compose fetch the GHCR tag selected by IMAGE_TAG instead.
-services:
-  api:
-    pull_policy: always
-  worker:
-    pull_policy: always
-  browser-runner:
-    pull_policy: always
