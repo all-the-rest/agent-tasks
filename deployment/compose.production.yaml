@@ -4,9 +4,22 @@
 #
 # The project name is part of the isolation contract: a production stack keeps
 # the historical `agent-tasks` name, so an existing deployment is not renamed.
-# Values come from deployment/env/production.env (copy the example first).
+# Values come from the Portainer stack environment (or from
+# deployment/env/production.env when started through stack.sh). The overlay
+# deliberately has no env_file: that file is gitignored and would make a fresh
+# Portainer stack from the repository fail before it can read the stack env.
 name: agent-tasks
 
 include:
   - path: ../compose.yaml
-    env_file: env/production.env
+
+# Production consumes the published images. Without this override Compose may
+# build the local Dockerfiles when the image is absent; `pull_policy: always`
+# makes Portainer/Compose fetch the GHCR tag selected by IMAGE_TAG instead.
+services:
+  api:
+    pull_policy: always
+  worker:
+    pull_policy: always
+  browser-runner:
+    pull_policy: always

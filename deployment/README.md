@@ -6,10 +6,13 @@ ports and `com.agent-tasks.stack` labels are distinct, so **local and E2E run at
 the same time** on one Docker host without touching each other's data.
 
 `../compose.yaml` stays the single source for services, health checks, security
-options and profiles. The files here only add the project name and the matching
-environment file:
+options and profiles. The files here add the project name and select the compose
+entrypoint; `stack.sh` supplies the matching env file with `--env-file`, while a
+Portainer stack supplies the same variables through its stack environment. The
+overlays deliberately have no `env_file`: a gitignored file there would make a
+fresh repository-based Portainer stack fail before it could read the stack env.
 
-| File | Project name | Stack label | Env file |
+| File | Project name | Stack label | Env file (stack.sh) |
 | --- | --- | --- | --- |
 | `compose.production.yaml` | `agent-tasks` | `production` | `env/production.env` |
 | `compose.local.yaml` | `agent-tasks-local` | `local` | `env/local.env` |
@@ -116,6 +119,11 @@ still present; `stack.sh production config -q` is allowed for validation.
 `PUBLIC_BASE_URL`, `COOKIE_SECURE` and `TRUST_PROXY` assume a TLS-terminating
 reverse proxy in front of `HTTP_PORT`. The full variable reference, backup,
 update and rollback notes are in [../DEPLOYMENT.md](../DEPLOYMENT.md).
+
+For Portainer, use `deployment/compose.production.yaml` as the compose path and
+paste the values from `deployment/env/production.env.example` into the stack
+environment. Do not add a local `deployment/env/production.env` to the
+repository; the Portainer stack does not read it.
 
 The API image contains the built SPA; there is no separate web container. The
 release workflow publishes `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`
