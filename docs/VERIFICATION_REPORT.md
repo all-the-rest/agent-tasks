@@ -177,6 +177,32 @@ not verified in this run:** the operator chose to skip it after the remote Docke
 daemon became unresponsive during the first registry pull. This remains an open
 gate rather than a PASS.
 
+### Deployment path (Portainer + Watchtower)
+
+The production stack can be deployed from Portainer without committing a secret
+environment file:
+
+- `deployment/stack.sh` passes `deployment/env/<stack>.env` with `--env-file`;
+  the `deployment/compose.*.yaml` overlays contain no `env_file`. A
+  Portainer-style `docker compose -f deployment/compose.production.yaml config`
+  with only `AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY` and `RUNNER_TOKEN` in the
+  environment passes, so a fresh checkout plus stack environment is enough.
+- api, worker and browser-runner set `pull_policy: always`; the production tag is
+  `IMAGE_TAG=0`. A manually pasted root `compose.yaml` therefore pulls the public
+  GHCR image instead of building the local Dockerfiles.
+- The manual Portainer web-editor path uses the root compose file. The runner
+  needs `RUNNER_SECCOMP_PATH` pointing at `docker/seccomp-browser.json` on the
+  Docker host; `SEARXNG_SETTINGS_PATH` does the same for the optional search
+  profile. Seccomp is applied by the daemon before the container starts, so it
+  cannot be supplied as a container environment variable; only its path can.
+- CI run
+  [41312348295](https://github.com/all-the-rest/agent-tasks/actions/runs/41312348295)
+  is green: lint/typecheck (including all deployment-stack validation), unit,
+  integration, browser E2E, both image builds and security scans.
+- Documentation-only pushes do not start CI: `.github/workflows/ci.yml` ignores
+  `**/*.md` and `docs/**`. Commits `90e60e7` and `3f08980` have
+  `workflow_runs=0` in the GitHub Actions API. This commit is docs-only as well.
+
 ### Security review
 
 Two independent subagents reviewed the release candidate before publication; both
