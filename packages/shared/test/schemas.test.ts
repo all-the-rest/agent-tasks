@@ -1,4 +1,4 @@
-import { compatibleConfigSchema } from '../src/schemas.js';
+import { compatibleConfigSchema, systemSettingsSchema } from '../src/schemas.js';
 import { describe, expect, it } from 'vitest';
 import { taskInputSchema, taskUpdateSchema, userPreferencesUpdateSchema } from '../src/index.js';
 
@@ -39,8 +39,32 @@ describe('PATCH schemas do not apply create defaults', () => {
 });
 
 
-describe('OpenCode Go client contract schema', () => {
-  it('defaults to a tool user agent and the x-opencode-session header', () => {
+describe('schedule time-of-day presets', () => {
+  it('defaults the friendly preset times', () => {
+    expect(systemSettingsSchema.parse({}).scheduleTimePresets).toEqual({
+      morning: '09:00',
+      afternoon: '14:00',
+      evening: '18:00',
+      night: '22:00',
+    });
+  });
+
+  it('accepts configured times and rejects malformed clocks', () => {
+    const configured = systemSettingsSchema.parse({
+      scheduleTimePresets: { morning: '07:30', afternoon: '12:00', evening: '19:15', night: '23:00' },
+    });
+    expect(configured.scheduleTimePresets).toEqual({
+      morning: '07:30',
+      afternoon: '12:00',
+      evening: '19:15',
+      night: '23:00',
+    });
+    expect(systemSettingsSchema.safeParse({ scheduleTimePresets: { morning: '7:30' } }).success).toBe(false);
+    expect(systemSettingsSchema.safeParse({ scheduleTimePresets: { night: '24:00' } }).success).toBe(false);
+  });
+});
+
+describe('OpenCode Go client contract schema', () => {  it('defaults to a tool user agent and the x-opencode-session header', () => {
     const parsed = compatibleConfigSchema.parse({ baseUrl: 'https://opencode.ai/inference/go/openai/v1' });
     expect(parsed.userAgent).toBe('agent-tasks/0.1.0');
     expect(parsed.sessionHeader).toBe('x-opencode-session');

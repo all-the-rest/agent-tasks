@@ -7,6 +7,7 @@ import type {
   MemorySettings,
   RecommendationStatus,
   Role,
+  ScheduleTimePresets,
 } from '@agent-tasks/shared';
 
 export type {
@@ -18,6 +19,7 @@ export type {
   MemorySettings,
   RecommendationStatus,
   Role,
+  ScheduleTimePresets,
 };
 
 export type SchedulePreset = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
@@ -208,6 +210,7 @@ export interface AppConfig {
   appName: string;
   allowRegistration: boolean;
   defaultTimezone: string;
+  scheduleTimePresets: ScheduleTimePresets;
   mailer: string;
   version: string;
 }
@@ -363,6 +366,7 @@ export interface SystemSettings {
   searchBaseUrl: string;
   smtpFrom?: string;
   publicBaseUrl?: string;
+  scheduleTimePresets: ScheduleTimePresets;
 }
 
 export interface AdminProvider {

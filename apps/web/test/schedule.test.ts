@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_TIME_OF_DAY,
   defaultSchedule,
   isValidTimezone,
   monthlyDays,
+  parseClock,
   schedulePayload,
   scheduleToCron,
+  timeOfDayOptions,
   timeOfDayPreset,
   validateSchedule,
 } from '../src/lib/schedule';
@@ -100,6 +103,18 @@ describe('timeOfDayPreset', () => {
     expect(timeOfDayPreset(18, 0)).toBe('evening');
     expect(timeOfDayPreset(22, 0)).toBe('night');
     expect(timeOfDayPreset(7, 45)).toBe('custom');
+  });
+
+  it('uses the admin-configured times and ignores invalid entries', () => {
+    const configured = { ...DEFAULT_TIME_OF_DAY, morning: '07:30', night: '23:15' };
+    expect(timeOfDayPreset(7, 30, configured)).toBe('morning');
+    expect(timeOfDayPreset(23, 15, configured)).toBe('night');
+    expect(timeOfDayPreset(9, 0, configured)).toBe('custom');
+    expect(timeOfDayOptions({ ...DEFAULT_TIME_OF_DAY, morning: '7:30' }).map((option) => option.id)).not.toContain(
+      'morning',
+    );
+    expect(parseClock('24:00')).toBeNull();
+    expect(parseClock('07:05')).toEqual({ hour: 7, minute: 5 });
   });
 });
 

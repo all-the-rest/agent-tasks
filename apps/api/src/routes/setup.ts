@@ -65,8 +65,9 @@ export async function registerSetupRoutes(app: FastifyInstance, context: AppCont
       appName: 'Agent Tasks',
       allowRegistration: settings.allowRegistration,
       defaultTimezone: settings.defaultTimezone,
+      scheduleTimePresets: settings.scheduleTimePresets,
       mailer: mailer.kind,
-      version: '0.1.0',
+      version: '0.2.1',
     };
   });
 

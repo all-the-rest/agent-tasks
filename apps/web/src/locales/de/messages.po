@@ -190,6 +190,18 @@ msgstr "Ports müssen Zahlen zwischen 1 und 65535 sein."
 msgid "admin.portsHint"
 msgstr "Kommagetrennte Portnummern, zum Beispiel 80, 443, 8080."
 
+msgid "admin.presetAfternoon"
+msgstr "Nachmittag"
+
+msgid "admin.presetEvening"
+msgstr "Abend"
+
+msgid "admin.presetMorning"
+msgstr "Vormittag"
+
+msgid "admin.presetNight"
+msgstr "Nacht"
+
 msgid "admin.promote"
 msgstr "Zum Administrator machen"
 
@@ -243,6 +255,15 @@ msgstr "Einladung widerrufen."
 
 msgid "admin.saveSettings"
 msgstr "Einstellungen speichern"
+
+msgid "admin.schedulePresetsHint"
+msgstr "Diese Zeiten füllen die freundliche Zeitplan-Auswahl vor. Jede Aufgabe läuft weiterhin in ihrer eigenen Zeitzone, unabhängig von der Serverzeit."
+
+msgid "admin.schedulePresetsTitle"
+msgstr "Tageszeit-Voreinstellungen"
+
+msgid "admin.scheduleTimeInvalid"
+msgstr "Gib für jede Voreinstellung eine gültige Uhrzeit (HH:MM) ein."
 
 msgid "admin.searchBaseUrl"
 msgstr "Such-Basis-URL"
@@ -1778,22 +1799,25 @@ msgid "tasks.timeOfDay"
 msgstr "Tageszeit"
 
 msgid "tasks.timeOfDayAfternoon"
-msgstr "Nachmittag (14:00)"
+msgstr "Nachmittag ({time})"
 
 msgid "tasks.timeOfDayCustom"
 msgstr "Eigene Uhrzeit"
 
 msgid "tasks.timeOfDayEvening"
-msgstr "Abend (18:00)"
+msgstr "Abend ({time})"
 
 msgid "tasks.timeOfDayMorning"
-msgstr "Vormittag (09:00)"
+msgstr "Vormittag ({time})"
 
 msgid "tasks.timeOfDayNight"
-msgstr "Nacht (22:00)"
+msgstr "Nacht ({time})"
 
 msgid "tasks.timezone"
 msgstr "Zeitzone"
+
+msgid "tasks.timezoneEffective"
+msgstr "Alle Zeiten gelten in {timezone}. Die Serverzeit ist nicht maßgeblich."
 
 msgid "tasks.title"
 msgstr "Aufgaben"
@@ -1803,6 +1827,9 @@ msgstr "Titel"
 
 msgid "tasks.titlePlaceholder"
 msgstr "Wöchentliches Wettbewerbs-Briefing"
+
+msgid "tasks.useLocalTimezone"
+msgstr "Meine Zeitzone verwenden ({timezone})"
 
 msgid "tasks.viewTask"
 msgstr "Aufgabe öffnen"

@@ -1,21 +1,48 @@
-import type { TaskSchedule } from './types';
+import type { ScheduleTimePresets, TaskSchedule } from './types';
 
 export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
 
-/** Friendly time-of-day choices; `custom` exposes the hour/minute inputs. */
-export const TIME_OF_DAY_PRESETS = [
-  { id: 'morning', hour: 9, minute: 0 },
-  { id: 'afternoon', hour: 14, minute: 0 },
-  { id: 'evening', hour: 18, minute: 0 },
-  { id: 'night', hour: 22, minute: 0 },
-] as const;
-
-export type TimeOfDayPreset = (typeof TIME_OF_DAY_PRESETS)[number]['id'];
+/** Friendly time-of-day keys; `custom` exposes the hour/minute inputs. */
+export const TIME_OF_DAY_KEYS = ['morning', 'afternoon', 'evening', 'night'] as const;
+export type TimeOfDayPreset = (typeof TIME_OF_DAY_KEYS)[number];
 export type TimePreset = TimeOfDayPreset | 'custom';
 
+export const DEFAULT_TIME_OF_DAY: ScheduleTimePresets = {
+  morning: '09:00',
+  afternoon: '14:00',
+  evening: '18:00',
+  night: '22:00',
+};
+
+export interface TimeOfDayOption {
+  id: TimeOfDayPreset;
+  hour: number;
+  minute: number;
+  clock: string;
+}
+
+/** Parses a `HH:MM` wall clock; returns null for anything else. */
+export function parseClock(clock: string): { hour: number; minute: number } | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(clock);
+  return match ? { hour: Number(match[1]), minute: Number(match[2]) } : null;
+}
+
+/** Builds the selectable presets from the admin-configured times. */
+export function timeOfDayOptions(times?: Partial<ScheduleTimePresets> | null): TimeOfDayOption[] {
+  return TIME_OF_DAY_KEYS.flatMap((id) => {
+    const clock = times?.[id] ?? DEFAULT_TIME_OF_DAY[id];
+    const parsed = parseClock(clock);
+    return parsed ? [{ id, ...parsed, clock }] : [];
+  });
+}
+
 /** Returns the matching preset id, or `custom` when the wall clock is not one of them. */
-export function timeOfDayPreset(hour: number, minute: number): TimePreset {
-  const match = TIME_OF_DAY_PRESETS.find((preset) => preset.hour === hour && preset.minute === minute);
+export function timeOfDayPreset(
+  hour: number,
+  minute: number,
+  times?: Partial<ScheduleTimePresets> | null,
+): TimePreset {
+  const match = timeOfDayOptions(times).find((option) => option.hour === hour && option.minute === minute);
   return match?.id ?? 'custom';
 }
 
