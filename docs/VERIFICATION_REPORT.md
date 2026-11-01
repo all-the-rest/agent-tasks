@@ -68,7 +68,7 @@ written exclusively by authenticated user actions.
 | --- | --- | --- |
 | `pnpm lint` | 0 errors, 0 warnings | 0 |
 | `pnpm -r typecheck` | 10 workspace projects | 0 |
-| `pnpm test:unit` | **201 passed**, 28 files (includes parser, duplicate/secret, budget and agent-tool suites) | 0 |
+| `pnpm test:unit` | **202 passed**, 28 files (includes parser, duplicate/secret, budget, agent-tool and non-tool-model suites) | 0 |
 | `TEST_DATABASE_URL=postgres://agent:agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **73 passed**, 11 files, real PostgreSQL | 0 |
 | `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
 | `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
@@ -139,7 +139,7 @@ domain in `docs/memory.md`.
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 34 web tests (MFA, XSS, live de↔en switch), production build, 11 Playwright flows (local memory run 11/11) | PASS |
 | 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `deployment/`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers); CI compose job starts the stack and runs 9/9 E2E; production/local/E2E stacks render with distinct project names, host ports, volumes and `com.agent-tasks.stack` labels, and local + E2E ran at the same time | PASS |
-| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 201 unit, 73 integration, 34 web, 11 E2E (local memory run) | PASS |
+| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 202 unit, 73 integration, 34 web, 11 E2E (local memory run) | PASS |
 | 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41235394232: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/web/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
 | 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `b7b79fa` pushed; CI green | PASS (with the org deviation) |

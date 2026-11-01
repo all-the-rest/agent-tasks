@@ -198,6 +198,13 @@ export class Executor {
 
       const search = this.searchProvider(settings);
       const memorySettings = parseMemorySettings(task.memorySettings);
+      // A model declared as non-tool-capable cannot receive memory tools. It can
+      // still receive read-only context, but automatic learning is skipped.
+      // Codex never executes tool calls, so it is treated the same way.
+      const memoryToolsEnabled =
+        memorySettings.mode !== 'off' &&
+        provider.kind !== 'codex' &&
+        modelSupportsTools(resolvedConfig.config, task.model);
       let memoryContext: string | null = null;
       if (memorySettings.mode !== 'off') {
         // Read fresh on every execution: a deleted or edited memory can never be
@@ -248,7 +255,7 @@ export class Executor {
         allowWebResearch: task.allowWebResearch,
         allowForms: false,
         emailNotification: task.notification === 'email',
-        memoryEnabled: memorySettings.mode !== 'off',
+        memoryEnabled: memoryToolsEnabled,
         memoryContext,
         limits,
         browser: this.browser,
@@ -319,7 +326,7 @@ export class Executor {
       // Durable memory is written only after the execution was marked completed.
       // Operations are schema-validated in the worker and applied in one transaction;
       // a learning failure must never turn a completed execution into a failure.
-      if (result.stopReason === 'completed' && memorySettings.mode !== 'off') {
+      if (result.stopReason === 'completed' && memoryToolsEnabled) {
         try {
           const learning = await applyTaskLearning(db, {
             ownerId: task.ownerId,
@@ -470,6 +477,23 @@ export class Executor {
 
 export function parseTaskSchedule(value: unknown): ReturnType<typeof scheduleSchema.parse> {
   return scheduleSchema.parse(value);
+}
+
+/**
+ * Whether a configured model may receive tool definitions. Providers that do not
+ * declare `supportsTools: false` are left unchanged; only an explicit false
+ * disables the optional memory tools.
+ */
+export function modelSupportsTools(config: unknown, model: string): boolean {
+  if (!config || typeof config !== 'object') return true;
+  const models = (config as { models?: unknown }).models;
+  if (!Array.isArray(models)) return true;
+  const base = model.split(':')[0];
+  const declared = models.find(
+    (entry): entry is { id?: unknown; supportsTools?: unknown } =>
+      typeof entry === 'object' && entry !== null && ((entry as { id?: unknown }).id === model || (entry as { id?: unknown }).id === base),
+  );
+  return declared?.supportsTools !== false;
 }
 
 export async function loadUserTimezone(db: Database, userId: string): Promise<string> {
