@@ -144,6 +144,34 @@ describe('executor Codex home', () => {
     }
   });
 
+  it('disables memory tools for a model declared as non-tool-capable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
+    try {
+      state.options = null;
+      const { executionId, input } = codexFixture(OWNER);
+      const provider = {
+        ...input.provider,
+        name: 'Non-tool OpenAI',
+        kind: 'openai-compatible',
+        config: {
+          baseUrl: 'http://127.0.0.1:1/v1',
+          models: [{ id: 'gpt-5-codex', supportsTools: false }],
+        },
+      };
+      const executor = new Executor({
+        db: fakeDb({ ...input, provider }).db,
+        env: workerEnv(root),
+        boss: {} as never,
+        workerId: 'unit-worker',
+      });
+      await executor.handle(executionId);
+
+      expect(state.options?.memoryEnabled).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('refuses Codex without CODEX_ISOLATED_RUNNER=1 and fails terminally (no retry)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
     try {

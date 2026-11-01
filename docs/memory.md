@@ -73,6 +73,10 @@ number of operations and never address a database table directly. The worker
 persists them **after** the execution is marked `completed`, in one transaction.
 A learning failure never turns a successful execution into a failure.
 
+Models declared as non-tool-capable (including Codex) still receive read-only
+memory context, but the memory tools and automatic learning are disabled for
+them. This avoids sending tool definitions to a provider that rejects them.
+
 Global memory changes always require an explicit user action (`/learn`, the
 Memory page, or an API call with the user's session). Web content, task memory or
 a generated summary can never write global memory.
