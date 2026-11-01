@@ -274,6 +274,11 @@ workflow token cannot change org package visibility. Do one of these once:
 - Organization → **Packages** → `agent-tasks/api` and
   `agent-tasks/browser-runner` → **Package settings** → **Change visibility** →
   **Public**; or
+- direct settings links:
+  `https://github.com/orgs/all-the-rest/packages/container/agent-tasks%2Fapi/settings`
+  and
+  `https://github.com/orgs/all-the-rest/packages/container/agent-tasks%2Fbrowser-runner/settings`;
+  or
 - add a `PACKAGES_TOKEN` repository secret with `write:packages` and org-admin
   rights; the workflow then attempts the visibility update automatically.
 

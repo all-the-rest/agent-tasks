@@ -168,7 +168,12 @@ visibility → Public (or add a `PACKAGES_TOKEN` secret and re-run the failed
 jobs). After that the anonymous-pull gate must be re-run green.
 
 Production pins the major line (`IMAGE_TAG=0`) so Watchtower follows compatible
-`0.x` minor and bugfix releases without crossing a breaking major.
+`0.x` minor and bugfix releases without crossing a breaking major. The production
+compose configuration validates and resolves the published `:0` images for api,
+worker and browser-runner. **Production startup against the published images is
+not verified in this run:** the operator chose to skip it after the remote Docker
+daemon became unresponsive during the first registry pull. This remains an open
+gate rather than a PASS.
 
 ### Security review
 
