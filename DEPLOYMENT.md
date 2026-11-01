@@ -94,6 +94,8 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `RUNNER_ACTION_TIMEOUT_MS` | browser-runner | `30000` | no; **not forwarded by `compose.yaml`** |
 | `RUNNER_MAX_TEXT_CHARS` | browser-runner | `30000` | no; **not forwarded by `compose.yaml`** |
 | `RUNNER_CHROMIUM_SANDBOX` | browser-runner | `true` | no; `compose.yaml` pins `"true"` |
+| `RUNNER_SECCOMP_PATH` | compose interpolation | `docker/seccomp-browser.json` | no; absolute host path when the compose file is pasted into Portainer without the repository |
+| `SEARXNG_SETTINGS_PATH` | compose interpolation | `./docker/searxng/settings.yml` | no; absolute host path for the optional `search` profile in a manual Portainer stack |
 
 ### Compose interpolation only
 
@@ -254,8 +256,10 @@ freezes the deployment and stops Watchtower; `latest` would also follow a future
 `1.0`. Choose the tag policy once in the Portainer stack environment.
 
 `deployment/stack.sh production pull` fetches the images; `up -d` starts them.
-The API binds to `127.0.0.1:${HTTP_PORT}` by default, so only the reverse proxy
-is publicly reachable. The runner is built from a slim Node base and installs
+The production overlay sets `pull_policy: always` for api, worker and
+browser-runner, so a Portainer deploy uses the GHCR tag instead of rebuilding the
+local Dockerfiles. The API binds to `127.0.0.1:${HTTP_PORT}` by default, so only
+the reverse proxy is publicly reachable. The runner is built from a slim Node base and installs
 only Playwright's headless Chromium (no Firefox/WebKit), which keeps it around
 1.7 GB instead of the ~4 GB vendor Playwright image. The API image is roughly
 300 MB and includes the SPA.
@@ -287,19 +291,33 @@ Until a package is public, pull it with a logged-in client:
 
 ## Portainer (current setup)
 
-1. Stack → **Add stack** → **Repository** and point it at this repository with
-   `compose.yaml` as the compose path. Application images are pulled from GHCR;
-   the repository is still required because compose references
-   `docker/seccomp-browser.json` (and `docker/searxng/settings.yml` when the
-   `search` profile is enabled).
-2. Put every value from `.env` into the stack's environment section (or its env
-   file). `AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY`, `SETUP_TOKEN` and `RUNNER_TOKEN`
-   must be non-empty.
-3. Select profiles with `COMPOSE_PROFILES` in the stack environment, for example
-   `COMPOSE_PROFILES=search`; the stack editor has no profile switch.
-4. Deploy. `IMAGE_TAG=0` follows compatible 0.x minor and bugfix releases
-   through Watchtower; use `0.1.0`/`sha-*` for a frozen deployment, or `latest`
-   only if a future breaking major should be installed automatically.
+The current production stack is created manually: the compose file and
+environment are pasted into Portainer, not read from the repository.
+
+1. Stack → **Add stack** → **Web editor**. Paste the root [`compose.yaml`](compose.yaml)
+   (the single-file service definition; do not paste the `deployment/` overlay
+   because it includes `../compose.yaml`).
+2. Add the keys from `deployment/env/production.env.example` to the stack
+   environment. At minimum set `POSTGRES_PASSWORD`, `AUTH_SECRET`,
+   `SECRETS_ENCRYPTION_KEY`, `SETUP_TOKEN`, `RUNNER_TOKEN`, `PUBLIC_BASE_URL`
+   and `IMAGE_PREFIX=ghcr.io/all-the-rest/agent-tasks`; set `IMAGE_TAG=0` for
+   Watchtower. `COMPOSE_PROFILES=search` enables SearXNG.
+3. Put `docker/seccomp-browser.json` on the Docker host and set
+   `RUNNER_SECCOMP_PATH` to that absolute path (for example
+   `/opt/agent-tasks/seccomp-browser.json`). For the `search` profile, put
+   `docker/searxng/settings.yml` on the host and set `SEARXNG_SETTINGS_PATH` to
+   its absolute path.
+4. Deploy without Portainer's build option. The services set
+   `pull_policy: always`, so Compose pulls the public GHCR tag selected by
+   `IMAGE_PREFIX`/`IMAGE_TAG` instead of building the local Dockerfiles.
+5. Select profiles with `COMPOSE_PROFILES` in the stack environment; the stack
+   editor has no profile switch.
+
+A Git-backed Portainer stack is also supported: use
+`deployment/compose.production.yaml` as the compose path and put the same
+variables in the stack environment. That overlay includes the root file and
+deliberately has no `env_file`, so it starts from a clean checkout without a
+committed secret file.
 
 Auto-update: api and worker carry
 `com.centurylinklabs.watchtower.enable=true`. browser-runner carries `false`;

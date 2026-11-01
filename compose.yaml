@@ -59,6 +59,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/api:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       <<: *app-env
@@ -92,6 +93,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/api:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     command: ["node", "apps/worker/dist/index.js"]
     environment:
@@ -128,6 +130,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.runner
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/browser-runner:${IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       PORT: "8081"
@@ -147,7 +150,7 @@ services:
       - /dev/shm:size=512m,mode=1777
     security_opt:
       - no-new-privileges:true
-      - seccomp=docker/seccomp-browser.json
+      - seccomp=${RUNNER_SECCOMP_PATH:-docker/seccomp-browser.json}
     cap_drop: [ALL]
     # Chromium's user-namespace sandbox chroots into an empty directory after
     # unshare(CLONE_NEWUSER). The seccomp profile grants chroot only with
@@ -203,7 +206,7 @@ services:
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
     volumes:
-      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ${SEARXNG_SETTINGS_PATH:-./docker/searxng/settings.yml}:/etc/searxng/settings.yml:ro
     networks: [backend]
     security_opt:
       - no-new-privileges:true

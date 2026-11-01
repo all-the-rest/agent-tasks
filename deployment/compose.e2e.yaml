@@ -7,4 +7,3 @@ name: agent-tasks-e2e
 
 include:
   - path: ../compose.yaml
-    env_file: env/e2e.env

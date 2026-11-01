@@ -6,4 +6,3 @@ name: agent-tasks-local
 
 include:
   - path: ../compose.yaml
-    env_file: env/local.env

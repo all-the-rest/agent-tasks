@@ -96,4 +96,4 @@ if grep -qE '^[A-Za-z_][A-Za-z0-9_]*=replace-with' "$env_file"; then
   esac
 fi
 
-exec docker compose -f "$dir/compose.$stack.yaml" "$@"
+exec docker compose --env-file "$env_file" -f "$dir/compose.$stack.yaml" "$@"
