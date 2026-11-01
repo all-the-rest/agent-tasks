@@ -40,10 +40,14 @@ timezone, the model and the last run. From here you can **Pause**, **Run now**,
    etc. to the model id (see [model variants](architecture/providers.md#model-variants-suffix)).
 3. Choose a schedule:
    - **Once** with a date and time,
-   - **Daily**, **Weekdays**, **Weekly** or **Monthly** with a local time,
+   - **Daily**, **Weekdays**, **Weekly** or **Monthly** with a friendly
+     time-of-day preset (Vormittag, Nachmittag, Abend, Nacht) or a custom time,
+   - several weekdays for weekly and several days of the month for monthly,
    - **Custom** with a 5-field cron expression.
-4. Pick the timezone (for example `Europe/Vienna`). DST gaps and overlaps are
-   handled by the scheduler.
+4. Pick the timezone (for example `Europe/Vienna`). The task runs in this
+   timezone, independently of the server clock. The form shows the effective
+   timezone and offers **Use my timezone** to switch to the browser's local
+   zone. DST gaps and overlaps are handled by the scheduler.
 5. Adjust the limits if needed: duration, agent steps, page visits, output size,
    tool calls and search queries.
 6. Decide whether the agent may browse the web and whether to **Email me** when
@@ -162,7 +166,9 @@ also be seeded at start from `OPENCODE_GO_*` in `.env` (see the
 
 Defaults for new accounts and execution guards: timezone, default model,
 concurrent executions per user, executions per day, search backend, SMTP sender,
-public base URL, allowed browser ports and the registration toggle.
+public base URL, allowed browser ports, the registration toggle and the times
+behind the Vormittag/Nachmittag/Abend/Nacht presets. The preset times are only
+labels in the picker; every task still runs in its own timezone.
 
 ### Audit log
 
