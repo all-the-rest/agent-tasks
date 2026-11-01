@@ -237,13 +237,21 @@ Every `v*` tag builds and publishes two images:
 Tags are the semantic version (`0.1.0`), the commit SHA (`sha-<short>`) and
 `latest`. Images are `linux/amd64`; ARM hosts must build from source. `latest`
 moves on every non-prerelease release, and a re-pushed version tag replaces that
-artifact; use the `sha-<short>` tag when you need one fixed build. Pin a version
-in production:
+artifact; use the `sha-<short>` tag when you need one fixed build.
+
+For the Portainer + Watchtower deployment, pin the major line so Watchtower
+applies every compatible minor and bugfix release without crossing a breaking
+major:
 
 ```env
 IMAGE_PREFIX=ghcr.io/all-the-rest/agent-tasks
-IMAGE_TAG=0.1.0
+IMAGE_TAG=0
 ```
+
+`0` moves to each compatible `0.x` release (the workflow publishes the
+`{{major}}` tag); only `1.0` is a breaking change. `0.1.0` or `sha-<short>`
+freezes the deployment and stops Watchtower; `latest` would also follow a future
+`1.0`. Choose the tag policy once in the Portainer stack environment.
 
 `deployment/stack.sh production pull` fetches the images; `up -d` starts them.
 The API binds to `127.0.0.1:${HTTP_PORT}` by default, so only the reverse proxy
@@ -284,7 +292,9 @@ Until a package is public, pull it with a logged-in client:
    must be non-empty.
 3. Select profiles with `COMPOSE_PROFILES` in the stack environment, for example
    `COMPOSE_PROFILES=search`; the stack editor has no profile switch.
-4. Deploy. `IMAGE_TAG` selects the release.
+4. Deploy. `IMAGE_TAG=0` follows compatible 0.x minor and bugfix releases
+   through Watchtower; use `0.1.0`/`sha-*` for a frozen deployment, or `latest`
+   only if a future breaking major should be installed automatically.
 
 Auto-update: api and worker carry
 `com.centurylinklabs.watchtower.enable=true`. browser-runner carries `false`;

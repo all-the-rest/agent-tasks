@@ -148,8 +148,27 @@ explicit opt-in, so `pnpm dev` still uses Vite `:5173` with its `/api` proxy.
 
 The release workflow `.github/workflows/release.yml` publishes the two images on
 every `v*` tag with semantic, SHA and `latest` tags, then performs an anonymous
-pull as the public-visibility gate. The first release run is not yet recorded;
-it is appended here after the `v0.1.0` tag is pushed.
+pull as the public-visibility gate.
+
+Release run
+[41309629877](https://github.com/all-the-rest/agent-tasks/actions/runs/41309629877)
+(tag `v0.1.0`, commit `dcbc713`) built and pushed both images in CI:
+
+| Image | Digest | Published tags |
+| --- | --- | --- |
+| `ghcr.io/all-the-rest/agent-tasks/api` | `sha256:c15a4cf2474b351a193c055fdc02939235978411146012ffd1a16e8bf5ad8bff` | `sha-dcbc713`, `latest`, `0`, `0.1`, `0.1.0` |
+| `ghcr.io/all-the-rest/agent-tasks/browser-runner` | `sha256:784192606e0458b57ec6189e4eb57dbc2e9fae48bec56008eedf859fea398d9d` | `sha-dcbc713`, `latest`, `0`, `0.1`, `0.1.0` |
+
+Both `Publish` jobs succeeded. The `Make packages public` job had no
+`PACKAGES_TOKEN`, so it only emitted the one-time instructions, and
+`Verify anonymous pull` failed with `unauthorized` because the packages are
+still private. The required operator step is Organization → Packages →
+`agent-tasks/api` and `agent-tasks/browser-runner` → Package settings → Change
+visibility → Public (or add a `PACKAGES_TOKEN` secret and re-run the failed
+jobs). After that the anonymous-pull gate must be re-run green.
+
+Production pins the major line (`IMAGE_TAG=0`) so Watchtower follows compatible
+`0.x` minor and bugfix releases without crossing a breaking major.
 
 ### Security review
 
