@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
-import { timezonesWith } from '../lib/schedule';
+import { DEFAULT_TIME_OF_DAY, parseClock, timezonesWith } from '../lib/schedule';
 import { formatNumber } from '../lib/format';
 import { AdminTabs } from '../components/AdminTabs';
 import {
@@ -24,6 +24,7 @@ const FALLBACK: SystemSettings = {
   browserAllowedPorts: [80, 443],
   searchProvider: 'searxng',
   searchBaseUrl: 'http://searxng:8080',
+  scheduleTimePresets: DEFAULT_TIME_OF_DAY,
 };
 
 export function AdminPage() {
@@ -40,7 +41,12 @@ export function AdminPage() {
 
   useEffect(() => {
     if (!settings.data) return;
-    setDraft(settings.data);
+    // Tolerate an older API during a rolling upgrade without crashing the form.
+    setDraft({
+      ...FALLBACK,
+      ...settings.data,
+      scheduleTimePresets: settings.data.scheduleTimePresets ?? DEFAULT_TIME_OF_DAY,
+    });
     setPortsText(settings.data.browserAllowedPorts.join(', '));
   }, [settings.data]);
 
@@ -71,6 +77,10 @@ export function AdminPage() {
     const rawParts = portsText.split(',').filter((part) => part.trim().length > 0);
     if (ports.length !== rawParts.length) {
       setError(t('admin.portInvalid'));
+      return;
+    }
+    if (Object.values(draft.scheduleTimePresets).some((value) => !parseClock(value))) {
+      setError(t('admin.scheduleTimeInvalid'));
       return;
     }
     const payload: SystemSettings = {
@@ -227,6 +237,36 @@ export function AdminPage() {
                   />
                 </Field>
               </div>
+
+              <fieldset className="rounded-lg border border-base-300 p-3">
+                <legend className="px-1 text-sm font-medium">{t('admin.schedulePresetsTitle')}</legend>
+                <p className="mb-2 text-xs opacity-60">{t('admin.schedulePresetsHint')}</p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {(
+                    [
+                      ['morning', 'presetMorning'],
+                      ['afternoon', 'presetAfternoon'],
+                      ['evening', 'presetEvening'],
+                      ['night', 'presetNight'],
+                    ] as const
+                  ).map(([key, labelKey]) => (
+                    <Field key={key} label={t(`admin.${labelKey}`)} htmlFor={`admin-preset-${key}`}>
+                      <input
+                        id={`admin-preset-${key}`}
+                        type="time"
+                        className="input w-full"
+                        value={draft.scheduleTimePresets[key]}
+                        onChange={(event) =>
+                          update('scheduleTimePresets', {
+                            ...draft.scheduleTimePresets,
+                            [key]: event.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                  ))}
+                </div>
+              </fieldset>
 
               <div className="flex flex-wrap gap-6">
                 <label className="flex cursor-pointer items-center gap-2 text-sm" htmlFor="admin-registration">

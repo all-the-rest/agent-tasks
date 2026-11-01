@@ -12,7 +12,7 @@ import {
   fromDateTimeLocal,
   monthlyDays,
   scheduleToCron,
-  TIME_OF_DAY_PRESETS,
+  timeOfDayOptions,
   timeOfDayPreset,
   timezonesWith,
   toDateTimeLocal,
@@ -74,7 +74,6 @@ function taskValues(task: Task, fallbackTimezone: string): TaskFormValues {
         : task.schedule.dayOfMonth
           ? [task.schedule.dayOfMonth]
           : [1],
-      timePreset: timeOfDayPreset(task.schedule.hour ?? 9, task.schedule.minute ?? 0),
       cron: task.schedule.cron ?? '',
     },
     limits: { ...DEFAULT_LIMITS, ...task.limits },
@@ -94,6 +93,7 @@ export function TaskFormPage() {
 
   const me = useQuery({ queryKey: ['me'], queryFn: api.me });
   const providers = useQuery({ queryKey: ['providers'], queryFn: api.providers.list });
+  const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 60_000 });
   const task = useQuery({
     queryKey: ['task', id],
     queryFn: () => api.tasks.get(id as string),
@@ -141,8 +141,22 @@ export function TaskFormPage() {
     daysOfMonth: schedule?.daysOfMonth,
     dayOfMonth: schedule?.dayOfMonth,
   });
-  const timePreset = schedule?.timePreset ?? timeOfDayPreset(schedule?.hour ?? 9, schedule?.minute ?? 0);
+  const timeOptions = timeOfDayOptions(config.data?.scheduleTimePresets);
+  const timePreset =
+    schedule?.timePreset ??
+    timeOfDayPreset(schedule?.hour ?? 9, schedule?.minute ?? 0, config.data?.scheduleTimePresets);
   const selectedProvider = providers.data?.find((provider) => provider.id === providerId);
+
+  useEffect(() => {
+    // New tasks start on a preset; align the stored clock with the configured time.
+    if (editing || !config.data || !schedule || timePreset === 'custom') return;
+    const option = timeOfDayOptions(config.data.scheduleTimePresets).find((item) => item.id === timePreset);
+    if (!option) return;
+    if (schedule.hour !== option.hour || schedule.minute !== option.minute) {
+      setValue('schedule.hour', option.hour, { shouldValidate: true });
+      setValue('schedule.minute', option.minute, { shouldValidate: true });
+    }
+  }, [editing, config.data, schedule, timePreset, setValue]);
 
   useEffect(() => {
     if (providerId || !providers.data?.length) return;
@@ -227,11 +241,19 @@ export function TaskFormPage() {
   const changeTimeOfDay = (value: TimePreset) => {
     setValue('schedule.timePreset', value, { shouldValidate: true });
     if (value === 'custom') return;
-    const presetTime = TIME_OF_DAY_PRESETS.find((item) => item.id === value);
+    const presetTime = timeOptions.find((item) => item.id === value);
     if (!presetTime) return;
     setValue('schedule.hour', presetTime.hour, { shouldValidate: true });
     setValue('schedule.minute', presetTime.minute, { shouldValidate: true });
   };
+
+  const localTimezone = (() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return '';
+    }
+  })();
 
   return (
     <>
@@ -313,6 +335,19 @@ export function TaskFormPage() {
               </Field>
             </div>
 
+            <div className="flex flex-wrap items-center gap-2 text-xs opacity-70">
+              <span>{t('tasks.timezoneEffective', { timezone: schedule?.timezone ?? fallbackTimezone })}</span>
+              {localTimezone && localTimezone !== (schedule?.timezone ?? fallbackTimezone) ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => setValue('schedule.timezone', localTimezone, { shouldValidate: true })}
+                >
+                  {t('tasks.useLocalTimezone', { timezone: localTimezone })}
+                </button>
+              ) : null}
+            </div>
+
             {preset === 'once' ? (
               <Field
                 label={t('tasks.runAt')}
@@ -344,9 +379,11 @@ export function TaskFormPage() {
                     value={timePreset}
                     onChange={(event) => changeTimeOfDay(event.target.value as TimePreset)}
                   >
-                    {TIME_OF_DAY_PRESETS.map((option) => (
+                    {timeOptions.map((option) => (
                       <option key={option.id} value={option.id}>
-                        {t(`tasks.timeOfDay${option.id.charAt(0).toUpperCase()}${option.id.slice(1)}`)}
+                        {t(`tasks.timeOfDay${option.id.charAt(0).toUpperCase()}${option.id.slice(1)}`, {
+                          time: option.clock,
+                        })}
                       </option>
                     ))}
                     <option value="custom">{t('tasks.timeOfDayCustom')}</option>

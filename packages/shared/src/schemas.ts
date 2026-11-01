@@ -187,6 +187,23 @@ export const userPreferencesSchema = z.object({
 /** Partial preferences PATCH: omitted theme/locale must not reset the stored values. */
 export const userPreferencesUpdateSchema = withoutDefaults(userPreferencesSchema).partial();
 
+export const DEFAULT_SCHEDULE_TIME_PRESETS = {
+  morning: '09:00',
+  afternoon: '14:00',
+  evening: '18:00',
+  night: '22:00',
+};
+
+const clockSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be HH:MM');
+
+export const scheduleTimePresetsSchema = z.object({
+  morning: clockSchema.default(DEFAULT_SCHEDULE_TIME_PRESETS.morning),
+  afternoon: clockSchema.default(DEFAULT_SCHEDULE_TIME_PRESETS.afternoon),
+  evening: clockSchema.default(DEFAULT_SCHEDULE_TIME_PRESETS.evening),
+  night: clockSchema.default(DEFAULT_SCHEDULE_TIME_PRESETS.night),
+});
+export type ScheduleTimePresets = z.infer<typeof scheduleTimePresetsSchema>;
+
 export const systemSettingsSchema = z.object({
   allowRegistration: z.boolean().default(false),
   defaultTimezone: z.string().max(64).default('Europe/Vienna'),
@@ -199,6 +216,8 @@ export const systemSettingsSchema = z.object({
   searchBaseUrl: z.string().url().default('http://searxng:8080'),
   smtpFrom: z.string().email().optional(),
   publicBaseUrl: z.string().url().optional(),
+  /** Friendly time-of-day choices offered by the task form. Server timezone is irrelevant. */
+  scheduleTimePresets: scheduleTimePresetsSchema.default(DEFAULT_SCHEDULE_TIME_PRESETS),
 });
 export type SystemSettings = z.infer<typeof systemSettingsSchema>;
 

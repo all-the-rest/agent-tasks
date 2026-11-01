@@ -190,6 +190,18 @@ msgstr "Ports must be numbers between 1 and 65535."
 msgid "admin.portsHint"
 msgstr "Comma-separated port numbers, for example 80, 443, 8080."
 
+msgid "admin.presetAfternoon"
+msgstr "Afternoon"
+
+msgid "admin.presetEvening"
+msgstr "Evening"
+
+msgid "admin.presetMorning"
+msgstr "Morning"
+
+msgid "admin.presetNight"
+msgstr "Night"
+
 msgid "admin.promote"
 msgstr "Make administrator"
 
@@ -243,6 +255,15 @@ msgstr "Invitation revoked."
 
 msgid "admin.saveSettings"
 msgstr "Save settings"
+
+msgid "admin.schedulePresetsHint"
+msgstr "These times prefill the friendly schedule picker. Every task still runs in its own timezone, independent of the server clock."
+
+msgid "admin.schedulePresetsTitle"
+msgstr "Time-of-day presets"
+
+msgid "admin.scheduleTimeInvalid"
+msgstr "Enter a valid time (HH:MM) for every preset."
 
 msgid "admin.searchBaseUrl"
 msgstr "Search base URL"
@@ -1778,22 +1799,25 @@ msgid "tasks.timeOfDay"
 msgstr "Time of day"
 
 msgid "tasks.timeOfDayAfternoon"
-msgstr "Afternoon (14:00)"
+msgstr "Afternoon ({time})"
 
 msgid "tasks.timeOfDayCustom"
 msgstr "Custom time"
 
 msgid "tasks.timeOfDayEvening"
-msgstr "Evening (18:00)"
+msgstr "Evening ({time})"
 
 msgid "tasks.timeOfDayMorning"
-msgstr "Morning (09:00)"
+msgstr "Morning ({time})"
 
 msgid "tasks.timeOfDayNight"
-msgstr "Night (22:00)"
+msgstr "Night ({time})"
 
 msgid "tasks.timezone"
 msgstr "Timezone"
+
+msgid "tasks.timezoneEffective"
+msgstr "All times apply in {timezone}. The server clock is not used."
 
 msgid "tasks.title"
 msgstr "Tasks"
@@ -1803,6 +1827,9 @@ msgstr "Title"
 
 msgid "tasks.titlePlaceholder"
 msgstr "Weekly competitor briefing"
+
+msgid "tasks.useLocalTimezone"
+msgstr "Use my timezone ({timezone})"
 
 msgid "tasks.viewTask"
 msgstr "Open task"

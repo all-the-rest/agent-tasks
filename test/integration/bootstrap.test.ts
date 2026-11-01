@@ -27,6 +27,12 @@ describe('first-start bootstrap', () => {
 
     const config = await harness.app.inject({ method: 'GET', url: '/api/config' });
     expect(config.json().allowRegistration).toBe(true);
+    expect(config.json().scheduleTimePresets).toEqual({
+      morning: '09:00',
+      afternoon: '14:00',
+      evening: '18:00',
+      night: '22:00',
+    });
 
     const status = await harness.app.inject({ method: 'GET', url: '/api/setup/status' });
     expect(status.json()).toEqual({ configured: true });

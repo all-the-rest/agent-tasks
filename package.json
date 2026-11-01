@@ -2,7 +2,7 @@
   "type": "module",
   "name": "agent-tasks",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.1",
   "license": "Apache-2.0",
   "description": "Self-hosted AI task scheduler with local LLM support, autonomous web research and strict multi-user isolation",
   "engines": {
