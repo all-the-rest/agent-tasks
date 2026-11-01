@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { WEB_CONTENT_SECURITY_POLICY } from '@agent-tasks/shared';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -23,8 +24,7 @@ describe('production index and CSP', () => {
   });
 
   it('serves scripts only from self, without unsafe-inline', () => {
-    const nginx = read('../../../docker/nginx/default.conf');
-    expect(nginx).toContain("script-src 'self'");
-    expect(nginx).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    expect(WEB_CONTENT_SECURITY_POLICY).toContain("script-src 'self'");
+    expect(WEB_CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*'unsafe-inline'/);
   });
 });

@@ -22,6 +22,19 @@ export interface EgressProxy {
 
 const CONNECT_TIMEOUT_MS = 10_000;
 
+/**
+ * Best-effort host for the block log. A malformed request target must not throw
+ * from the error path: an uncaught `new URL()` here would terminate the runner.
+ */
+function hostOf(raw: string | undefined): string {
+  if (!raw) return 'unknown';
+  try {
+    return new URL(raw).hostname;
+  } catch {
+    return 'unknown';
+  }
+}
+
 function splitHostPort(authority: string, fallbackPort: number): { host: string; port: number } {
   if (authority.startsWith('[')) {
     const end = authority.indexOf(']');
@@ -95,7 +108,7 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
         });
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'blocked';
-        deny(response, new URL(request.url ?? 'http://unknown').hostname, reason);
+        deny(response, hostOf(request.url), reason);
       }
     })();
   });

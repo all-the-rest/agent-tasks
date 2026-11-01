@@ -4,17 +4,18 @@
 
 | Process | Responsibility | State |
 | --- | --- | --- |
-| `web` | Static SPA (nginx), proxies `/api` to the API | none |
-| `api` | REST, Better Auth, RBAC, audit, task CRUD, run-now | Postgres |
+| `api` | REST, Better Auth, RBAC, audit, task CRUD, run-now; serves the built SPA | Postgres |
 | `worker` | pg-boss queues, scheduler tick, agent execution, leases | Postgres |
 | `browser-runner` | Chromium sessions, egress policy | in-memory only |
 | `postgres` | all persistence, including the pg-boss schema | volume |
 | `searxng` (profile `search`) | web search backend; not started by default | none |
 
-The API and the worker share one image but run as separate containers: the API must
-stay responsive while an execution runs, and the worker must be restartable and
-scalable with more replicas or a higher `WORKER_CONCURRENCY` (parallel executions per
-worker process).
+A TLS-terminating proxy (Caddy in production) is the only public listener. The API
+publishes its port on loopback and serves both `/api` and the SPA, so there is no
+separate web/nginx container. The API and the worker share one image but run as
+separate containers: the API must stay responsive while an execution runs, and the
+worker must be restartable and scalable with more replicas or a higher
+`WORKER_CONCURRENCY` (parallel executions per worker process).
 
 ## Data model
 

@@ -6,7 +6,7 @@ node_modules
 e2e/results
 playwright-report
 *.log
-.env
-.env.*
+**/.env
+**/.env.*
 # Per-stack env files can hold real secrets; images never need them.
 deployment/env

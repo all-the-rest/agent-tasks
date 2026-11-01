@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Browser E2E against the real compose stack.
  *
- * The stack (web on :8080, API behind /api, worker, Postgres) is started by
+ * The stack (API + built SPA on :8080, worker, Postgres, runner) is started by
  * `docker compose` before the suite runs — see `.github/workflows/ci.yml` and
  * `TESTING.md`. There is deliberately no `webServer` block: Playwright must not
  * bootstrap a second, differently configured instance.

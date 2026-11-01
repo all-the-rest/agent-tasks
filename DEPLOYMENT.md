@@ -8,9 +8,9 @@ have a single source.
 
 | Stack | Command | Project name | Host ports |
 | --- | --- | --- | --- |
-| production | `deployment/stack.sh production up -d` | `agent-tasks` | `HTTP_PORT` (default `8080`) |
-| local | `deployment/stack.sh local --profile mail --profile search up -d --build` | `agent-tasks-local` | web `8090`, Mailpit `1025`/`8025` |
-| E2E | `deployment/stack.sh e2e --profile mail --profile search up -d --build` | `agent-tasks-e2e` | web `8180`, Mailpit `1126`/`8126` |
+| production | `deployment/stack.sh production pull && deployment/stack.sh production up -d` | `agent-tasks` | API/SPA `HTTP_PORT` (default `8080`) |
+| local | `deployment/stack.sh local --profile mail --profile search up -d --build` | `agent-tasks-local` | API/SPA `8090`, Mailpit `1025`/`8025` |
+| E2E | `deployment/stack.sh e2e --profile mail --profile search up -d --build` | `agent-tasks-e2e` | API/SPA `8180`, Mailpit `1126`/`8126` |
 
 The project name isolates containers, networks and volumes, and every container
 carries `com.agent-tasks.stack=<stack>`. Local and E2E therefore run at the same
@@ -28,7 +28,7 @@ lists exactly what a profile starts.
 
 | Profile | Services | Purpose |
 | --- | --- | --- |
-| (default) | postgres, api, worker, web, browser-runner | API, UI, scheduler and execution; no web search |
+| (default) | postgres, api, worker, browser-runner | API + SPA, scheduler and execution; no web search |
 | `search` | searxng | SearXNG backend used by tasks with web research |
 
 ```bash
@@ -51,6 +51,7 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | --- | --- | --- | --- |
 | `NODE_ENV` | api, worker | `development` | no; `compose.yaml` sets `production` |
 | `PORT` | api, browser-runner | `8080` (api), `8081` (runner) | no; `compose.yaml` pins both |
+| `WEB_ROOT` | api | unset (Vite serves the SPA) | no in dev; the production image sets `/app/apps/web/dist` and startup fails if it has no `index.html` |
 | `DATABASE_URL` | api, worker, migrations | — | yes; `compose.yaml` builds it from `POSTGRES_*` |
 | `PUBLIC_BASE_URL` | api | `http://localhost:5173` | no, but set it: auth URLs, invite/reset links and trusted origins use it; compose default `http://localhost:8080` |
 | `AUTH_SECRET` | api | — | yes, at least 32 characters |
@@ -70,7 +71,7 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `SMTP_FROM` | api | `agent-tasks@localhost` | no; only used with `SMTP_URL` |
 | `SEARXNG_URL` | worker (the api schema also parses it) | —; worker falls back to the `searchBaseUrl` system setting, default `http://searxng:8080` | no; compose default `http://searxng:8080` |
 | `LOG_LEVEL` | api, worker, browser-runner | `info` | no; `fatal`, `error`, `warn`, `info`, `debug` or `trace`; compose forwards it to api and worker only |
-| `TRUST_PROXY` | api | `false` in code, `true` in `compose.yaml` (the stack always sits behind nginx) | no; exactly `true` or `false` |
+| `TRUST_PROXY` | api | `false` in code, `true` in `compose.yaml` (the stack always sits behind a reverse proxy) | no; exactly `true` or `false`; when enabled the API trusts exactly one proxy hop |
 | `COOKIE_SECURE` | api | `false` | no; exactly `true` or `false` |
 | `RATE_LIMIT_SIGNIN_MAX` | api | `5` | no, 1–1000; forwarded by `compose.yaml` |
 | `RATE_LIMIT_WINDOW_SECONDS` | api | `60` | no, 10–3600; forwarded by `compose.yaml` |
@@ -103,6 +104,7 @@ These are read by `compose.yaml`, not by the application:
 | `POSTGRES_USER` | `agent` | |
 | `POSTGRES_PASSWORD` | `agent` | Set a real value. Keep it hex: it is embedded in `DATABASE_URL` without escaping |
 | `POSTGRES_DB` | `agent_tasks` | |
+| `HTTP_BIND` | `127.0.0.1` | Host interface for the API/SPA port. Keep loopback for a host reverse proxy; use `0.0.0.0` for a remote Docker daemon or a proxy container outside the compose network |
 | `HTTP_PORT` | `8080` | Published host port; `PUBLIC_BASE_URL` must use the same port |
 | `IMAGE_PREFIX` | `ghcr.io/all-the-rest/agent-tasks` | |
 | `IMAGE_TAG` | `latest` | Release selector |
@@ -110,6 +112,11 @@ These are read by `compose.yaml`, not by the application:
 | `BROWSER_CPUS` | `1.0` | CPU limit for browser-runner |
 | `MAILPIT_SMTP_PORT` | `1025` | Published SMTP port of the optional `mail` profile |
 | `MAILPIT_HTTP_PORT` | `8025` | Published Mailpit UI/API port |
+
+On a remote Docker daemon (or when the proxy is a container outside this compose
+project), `127.0.0.1` is the daemon's loopback, not the proxy's. Set
+`HTTP_BIND=0.0.0.0` there and restrict the port at the firewall. The same applies
+to the local/E2E stacks when the daemon is remote.
 
 SearXNG's effective secret is `server.secret_key` in
 `docker/searxng/settings.yml`; change it before exposing the `search` profile.
@@ -218,11 +225,60 @@ value wins when both are present.
 Full protocol notes and the verification status:
 [`docs/architecture/providers.md`](docs/architecture/providers.md).
 
+## Published images
+
+Every `v*` tag builds and publishes two images:
+
+| Image | Used by |
+| --- | --- |
+| `ghcr.io/all-the-rest/agent-tasks/api` | `api` (serves the SPA too) and `worker` |
+| `ghcr.io/all-the-rest/agent-tasks/browser-runner` | isolated Chromium runner |
+
+Tags are the semantic version (`0.1.0`), the commit SHA (`sha-<short>`) and
+`latest`. Images are `linux/amd64`; ARM hosts must build from source. `latest`
+moves on every non-prerelease release, and a re-pushed version tag replaces that
+artifact; use the `sha-<short>` tag when you need one fixed build. Pin a version
+in production:
+
+```env
+IMAGE_PREFIX=ghcr.io/all-the-rest/agent-tasks
+IMAGE_TAG=0.1.0
+```
+
+`deployment/stack.sh production pull` fetches the images; `up -d` starts them.
+The API binds to `127.0.0.1:${HTTP_PORT}` by default, so only the reverse proxy
+is publicly reachable. The runner is built from a slim Node base and installs
+only Playwright's headless Chromium (no Firefox/WebKit), which keeps it around
+1.7 GB instead of the ~4 GB vendor Playwright image. The API image is roughly
+300 MB and includes the SPA.
+
+### Cutting a release
+
+```bash
+git tag -a v0.1.0 -m "Agent Tasks 0.1.0"
+git push origin v0.1.0
+```
+
+The **Release images** workflow publishes both images and verifies an anonymous
+pull. On the first release, GitHub may create the packages as private: the
+workflow token cannot change org package visibility. Do one of these once:
+
+- Organization → **Packages** → `agent-tasks/api` and
+  `agent-tasks/browser-runner` → **Package settings** → **Change visibility** →
+  **Public**; or
+- add a `PACKAGES_TOKEN` repository secret with `write:packages` and org-admin
+  rights; the workflow then attempts the visibility update automatically.
+
+Until a package is public, pull it with a logged-in client:
+`echo "$GH_TOKEN" | docker login ghcr.io -u <user> --password-stdin`.
+
 ## Portainer (current setup)
 
 1. Stack → **Add stack** → **Repository** and point it at this repository with
-   `compose.yaml` as the compose path. The web editor alone is not enough: the stack
-   builds local Dockerfiles and needs the repository as build context.
+   `compose.yaml` as the compose path. Application images are pulled from GHCR;
+   the repository is still required because compose references
+   `docker/seccomp-browser.json` (and `docker/searxng/settings.yml` when the
+   `search` profile is enabled).
 2. Put every value from `.env` into the stack's environment section (or its env
    file). `AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY`, `SETUP_TOKEN` and `RUNNER_TOKEN`
    must be non-empty.
@@ -230,9 +286,10 @@ Full protocol notes and the verification status:
    `COMPOSE_PROFILES=search`; the stack editor has no profile switch.
 4. Deploy. `IMAGE_TAG` selects the release.
 
-Auto-update: api, worker, web and searxng carry
+Auto-update: api and worker carry
 `com.centurylinklabs.watchtower.enable=true`. browser-runner carries `false`;
-postgres carries no label. A database must not restart under a running migration,
+postgres and searxng carry no label. A database must not restart under a running
+migration,
 and the runner is pinned to a Playwright version. Run Watchtower with
 `--label-enable` so only opted-in containers move.
 
@@ -249,7 +306,9 @@ by the updater.
 
 ## HTTPS
 
-Terminate TLS in front of the `web` container (Caddy, Traefik, nginx). Then set:
+Terminate TLS in front of the API container (Caddy, Traefik, nginx). The API
+serves both `/api` and the built SPA, so the proxy needs a single upstream.
+Then set:
 
 ```
 PUBLIC_BASE_URL=https://tasks.example.com
@@ -257,9 +316,18 @@ COOKIE_SECURE=true
 TRUST_PROXY=true
 ```
 
-The API only trusts `X-Forwarded-*` when `TRUST_PROXY=true`. `PUBLIC_BASE_URL` must
-use the public scheme and host; otherwise cookies and invitation links point at the
-wrong origin.
+The API only trusts `X-Forwarded-*` when `TRUST_PROXY=true`, and then exactly one
+proxy hop: the direct peer must be the TLS proxy. Do not put a second proxy in
+front without adjusting the hop count in code. `PUBLIC_BASE_URL` must use the
+public scheme and host; otherwise cookies and invitation links point at the wrong
+origin.
+
+The proxy must **replace** `X-Forwarded-For` with the real client address; do not
+append untrusted client values. Caddy does this by default. For nginx use
+`proxy_set_header X-Forwarded-For $remote_addr;`, not `$proxy_add_x_forwarded_for`.
+This matters for the per-IP rate limit and audit addresses. The API's global limit
+also counts SPA/static requests, so all users sharing one proxy address can exhaust
+a 300/minute budget; keep the proxy address rewrite correct.
 
 ## First start
 

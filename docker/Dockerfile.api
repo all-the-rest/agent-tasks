@@ -1,4 +1,7 @@
 # syntax=docker/dockerfile:1.7
+# One app image for the API, the worker and the built single-page frontend.
+# The API serves the SPA, so a deployment only needs this image plus the
+# isolated browser-runner and a TLS-terminating reverse proxy in front.
 FROM node:22.20.0-bookworm-slim AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 # Corepack bundled with node:22.20.0 launches pnpm through bin/pnpm.cjs, but
@@ -11,22 +14,45 @@ COPY apps ./apps
 COPY packages ./packages
 COPY services ./services
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @agent-tasks/api build && pnpm --filter @agent-tasks/worker build
+RUN pnpm --filter @agent-tasks/api build \
+ && pnpm --filter @agent-tasks/worker build \
+ && pnpm --filter @agent-tasks/web build
 
-FROM node:22.20.0-bookworm-slim AS runtime
-ENV NODE_ENV=production
+# A fresh stage installs only the production closure of API and worker. Doing
+# this in the build stage would leave every dev package in the pnpm store.
+FROM node:22.20.0-bookworm-slim AS prod-deps
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+RUN npm install -g pnpm@12.9.1
 WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+COPY services ./services
+RUN pnpm install --prod --frozen-lockfile --ignore-scripts --no-optional \
+      --filter '@agent-tasks/api...' \
+      --filter '@agent-tasks/worker...'
+
+# Alpine keeps the runtime small; the production tree contains no native
+# node-gyp modules. Build tools stay in the Debian build stage.
+FROM node:22.20.0-alpine AS deploy
+ENV NODE_ENV=production \
+    WEB_ROOT=/app/apps/web/dist
+WORKDIR /app
+RUN apk add --no-cache ca-certificates \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg
 COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/packages ./packages
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 # tsup externalises runtime dependencies, so each app's own node_modules (pnpm
 # symlinks into the root store) must be present or Node cannot resolve them.
-COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=prod-deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/apps/worker/dist ./apps/worker/dist
 COPY --from=build /app/apps/worker/package.json ./apps/worker/package.json
-COPY --from=build /app/apps/worker/node_modules ./apps/worker/node_modules
+COPY --from=prod-deps /app/apps/worker/node_modules ./apps/worker/node_modules
+COPY --from=build /app/apps/web/dist ./apps/web/dist
 COPY --from=build /app/packages/database/drizzle ./packages/database/drizzle
 # Named volumes inherit ownership from the image path on first use; the worker runs as
 # `node`, so the per-user Codex home root must belong to it.

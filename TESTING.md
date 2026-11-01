@@ -64,19 +64,26 @@ deployment/stack.sh e2e --profile mail --profile search up -d --build
 ( set -a; . deployment/env/e2e.env; set +a; pnpm test:e2e )
 ```
 
-See [`deployment/README.md`](deployment/README.md) for the stack layout.
+See [`deployment/README.md`](deployment/README.md) for the stack layout. The
+compose stack has no separate web container: the API image serves the built SPA
+on the published port, so Playwright exercises the same static-serving path as
+production. Local development still uses Vite on `:5173` with its `/api` proxy
+(`VITE_API_PROXY`, default `http://localhost:8080`). With a remote Docker daemon,
+set `HTTP_BIND=0.0.0.0` in `deployment/env/e2e.env` (the default binds the
+daemon's loopback) and set `E2E_BASE_URL` to the address that reaches it.
 
 The suite starts `packages/mock-openai` and registers it as an
 `openai-compatible` provider with a declared model. It binds a loopback port on
 the test host; a remote Docker daemon needs a reachable address, so that topology
 is not covered by the current helper.
 
-The browser suite is deliberately order-independent (the shared stack still uses one Playwright worker): `beforeAll` bootstraps the
-administrator and the mock provider only, every test opens its own browser
-context, and tasks and global memories created by a test are registered with the
-`cleanup` fixture and deleted even when an assertion fails. Accepted invitation
-users cannot be deleted through the product API, so those tests use unique
-addresses and create no tasks under the invited account.
+The browser suite is deliberately order-independent (the shared stack still uses
+one Playwright worker): `beforeAll` bootstraps the administrator and the mock
+provider only, every test opens its own browser context, and tasks and global
+memories created by a test are registered with the `cleanup` fixture and deleted
+even when an assertion fails. Accepted invitation users cannot be deleted through
+the product API, so those tests use unique addresses and create no tasks under
+the invited account.
 
 ## Memory tests
 

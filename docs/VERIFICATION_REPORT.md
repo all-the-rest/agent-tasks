@@ -68,7 +68,7 @@ written exclusively by authenticated user actions.
 | --- | --- | --- |
 | `pnpm lint` | 0 errors, 0 warnings | 0 |
 | `pnpm -r typecheck` | 10 workspace projects | 0 |
-| `pnpm test:unit` | **202 passed**, 28 files (includes parser, duplicate/secret, budget, agent-tool and non-tool-model suites) | 0 |
+| `pnpm test:unit` | **210 passed**, 30 files (includes parser, duplicate/secret, budget, agent-tool, proxy and non-tool-model suites) | 0 |
 | `TEST_DATABASE_URL=postgres://agent:agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **73 passed**, 11 files, real PostgreSQL | 0 |
 | `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
 | `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
@@ -112,6 +112,76 @@ and the audit log carries ids/scope/category only. A content-free tombstone
 execution reports and database backups are documented as a separate retention
 domain in `docs/memory.md`.
 
+## Published images and merged SPA (2026-11-01)
+
+The production topology now uses **two** application images instead of three:
+
+- `ghcr.io/all-the-rest/agent-tasks/api` — Fastify API **and** the built SPA, also
+  used by the worker with `node apps/worker/dist/index.js`.
+- `ghcr.io/all-the-rest/agent-tasks/browser-runner` — headless Chromium only.
+
+The separate nginx/web image, `docker/Dockerfile.web` and `docker/nginx/` are
+removed. `apps/api/src/static.ts` serves hashed assets, SPA navigations and the
+same CSP/security headers; API paths keep their JSON 404. `WEB_ROOT` is an
+explicit opt-in, so `pnpm dev` still uses Vite `:5173` with its `/api` proxy.
+
+| Command | Result | Exit |
+| --- | --- | --- |
+| `pnpm lint` | 0 errors | 0 |
+| `pnpm -r typecheck` | 10 workspace projects | 0 |
+| `pnpm test:unit` | **210 passed**, 30 files | 0 |
+| `apps/api/test/static.test.ts` | production `WEB_ROOT` fail-fast, SPA navigation guard, dotfile refusal, shared CSP | 0 |
+| `apps/api/test/http-policy.test.ts` | one-hop proxy trust and loopback-only health bypass | 0 |
+| `services/browser-runner/test/egress.test.ts` | malformed proxy request answers 403 and the runner keeps serving | 0 |
+| `TEST_DATABASE_URL=... pnpm test:integration` | **77 passed**, 12 files (4 SPA-serving tests) | 0 |
+| `pnpm --filter @agent-tasks/web test` | **34 passed**, 9 files | 0 |
+| `pnpm --filter @agent-tasks/web build` | production bundle | 0 |
+| `pnpm exec ratchet check` | 11 of 11 gates | 0 |
+| `test/integration/web.test.ts` | `/`, `/tasks/:id`, `/memory` serve index.html; `/api/*` and missing assets return JSON 404; `/assets/*` immutable + CSP; API 404 CSP equals the static CSP | 0 |
+| final source-tree probe (`WEB_ROOT=apps/web/dist`, port 8087) | `/` and `/tasks/abc` 200 HTML + `Vary: Accept`; `/.env`, `/.git/config`, `/API/tasks` 404 JSON; traversal/malformed paths 403 `forbidden`; CSP byte-identical | 0 |
+| `E2E_BASE_URL=http://localhost:8086 pnpm exec playwright test` (API-served SPA, no Vite/nginx) | **11/11 passed in 50.8 s** (pre-hardening API-served SPA run; the CI compose job is the release gate) | 0 |
+| `docker build -f docker/Dockerfile.api` | **317 MB**; `/` HTML, SPA route HTML, `/api/nope` JSON 404, asset immutable cache | 0 |
+| `docker build -f docker/Dockerfile.runner` | **1.71 GB** (vendor Playwright image was 3.99 GB); installs Chromium headless shell only | 0 |
+| runner smoke with `cap_drop: ALL` + `SYS_CHROOT` + `docker/seccomp-browser.json` | `/healthz` → `{"ok":true,"sandbox":true,"browserVersion":"156.0.8078.4"}`; `open_url https://example.com` → `Example Domain` | 0 |
+| `docker compose --env-file deployment/env/e2e.env config --services` | `browser-runner postgres worker api` (no `web`) | 0 |
+| production config | API port published as `127.0.0.1:8080` (`HTTP_BIND`); runner/database/worker unpublished | 0 |
+
+The release workflow `.github/workflows/release.yml` publishes the two images on
+every `v*` tag with semantic, SHA and `latest` tags, then performs an anonymous
+pull as the public-visibility gate. The first release run is not yet recorded;
+it is appended here after the `v0.1.0` tag is pushed.
+
+### Security review
+
+Two independent subagents reviewed the release candidate before publication; both
+returned **APPROVED** with no critical or high finding. The reviews covered the
+SPA-serving code, auth/CSRF/rate-limit/X-Forwarded-For behavior, container
+privileges, compose exposure, the runner sandbox and release-workflow supply
+chain. The runtime review also probed the built images: traversal and dotfile
+requests, unauthenticated API access, loopback/metadata `open_url` attempts,
+capability and read-only posture, and malformed proxy requests.
+
+Findings fixed before the tag (with regression tests):
+
+- the runner's egress proxy crashed on a malformed absolute-form request because
+  the error path parsed it with `new URL`; it now logs `unknown` and answers 403;
+- `/api/healthz` bypassed the global limiter for every client; the bypass is now
+  loopback-only, while a proxied/remote health request stays rate-limited;
+- `TRUST_PROXY=true` trusted an entire forwarded chain; it now trusts exactly one
+  proxy hop, so a client cannot rotate its rate-limit/audit address;
+- static serving refused dotfiles and non-canonical paths without leaking files;
+  malformed paths now return the documented `forbidden` JSON instead of `internal`;
+- rate-limit rejections now return `rate_limited` without error-level stack logs;
+- SPA fallback excludes dot-directories and case-insensitive `/api` paths;
+- the SPA and API CSP headers come from one shared constant and are
+  byte-identical; `Vary: Accept` marks the HTML/JSON variants;
+- release actions are pinned to commit SHAs, workflow permissions are job-scoped,
+  only numeric `v*` tags publish, and `latest` is skipped for prereleases.
+
+Remaining accepted lows: Fastify's parser still answers a malformed URL with its
+own 400 body; `COOKIE_SECURE` is an explicit operator setting (documented for
+HTTPS); and the API image contains unserved source maps.
+
 ## Requirements
 
 | # | Requirement | Implementation | Evidence | Status |
@@ -138,9 +208,9 @@ domain in `docs/memory.md`.
 | 10 | Prompt injection, XSS, CSRF, secret leaks | runtime untrusted wrapper, `rehype-sanitize`, origin hook, `secretBox`, redaction | runtime tests; `markdown-safety.test.tsx`; `auth.test.ts` CSRF; `providers.test.ts` no secret in admin responses; `audit.test.ts`; ciphertext assertion | PASS |
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 34 web tests (MFA, XSS, live de↔en switch), production build, 11 Playwright flows (local memory run 11/11) | PASS |
-| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `deployment/`, `DEPLOYMENT.md` | local stack up (postgres/api/web/worker/runner healthy, setup+login+role in containers); CI compose job starts the stack and runs 9/9 E2E; production/local/E2E stacks render with distinct project names, host ports, volumes and `com.agent-tasks.stack` labels, and local + E2E ran at the same time | PASS |
-| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 202 unit, 73 integration, 34 web, 11 E2E (local memory run) | PASS |
-| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41235394232: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/web/runner image builds and security all success | PASS |
+| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `deployment/`, `DEPLOYMENT.md` | local stack up (postgres/api/worker/runner healthy, setup+login+role in containers); CI compose job starts the stack and runs 9/9 E2E; production/local/E2E stacks render with distinct project names, host ports, volumes and `com.agent-tasks.stack` labels, and local + E2E ran at the same time | PASS |
+| 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 210 unit, 77 integration, 34 web, 11 E2E (API-served SPA run) | PASS |
+| 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41235394232: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
 | 17 | Publication | `all-the-rest/agent-tasks` (the brief's `Allderest` organisation does not exist) | `gh repo view`: PUBLIC, Apache-2.0, `main`; 14 issues; commit `b7b79fa` pushed; CI green | PASS (with the org deviation) |
 | 18 | Agent-composed e-mail blocks (image beside text) | `packages/shared/src/email-blocks.ts`, `packages/agent-runtime/src/tools.ts`, `apps/worker/src/executor.ts`, `apps/worker/src/mailer.ts` | `email-blocks.test.ts` (5): imageText left/right, escaping, http-only URLs, block cap, document; `tools.test.ts`/`runtime.test.ts`: `add_email_block` is offered only for e-mail notifications and returns the blocks; `compose_email` parses the compact DSL (`email-dsl.test.ts`, 5 tests) and is offered only for e-mail notifications; integration `execution.test.ts`: the mock model calls `compose_email` with a heading/paragraph/imageText DSL, the completion mail contains the image/text and the execution link, and the blocks are persisted in `report.email`; CI keeps the Mailpit check green with the shared builder | PASS |

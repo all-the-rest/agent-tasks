@@ -22,6 +22,11 @@
 - Hardened Playwright browser service with an enforcing egress proxy.
 - React UI with English/German catalogues on Lingui 6 (gettext PO files).
 - Docker Compose deployment with hardened containers and Portainer/Watchtower labels.
+- Version tags publish public `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`
+  images with semantic, SHA and `latest` tags. The API image also serves the built
+  SPA, so there is no separate web container; the API port binds to loopback for a
+  global TLS proxy. Production pulls version tags instead of building; use the
+  `sha-*` tag when a deployment needs one fixed build.
 - Isolated production, local and E2E stacks under `deployment/` with distinct
   project names, ports, volumes and `com.agent-tasks.stack` labels, so local and
   E2E run simultaneously.

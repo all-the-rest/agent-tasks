@@ -15,6 +15,11 @@ const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().min(1).max(65535).default(8080),
+    /**
+     * Directory of the built SPA. Production images set it; local development
+     * leaves it unset because Vite serves the frontend on its own port.
+     */
+    WEB_ROOT: optional(z.string().trim().min(1)),
     DATABASE_URL: z.string().min(1),
     PUBLIC_BASE_URL: z.string().url().default('http://localhost:5173'),
     AUTH_SECRET: z.string().min(32, 'AUTH_SECRET must be at least 32 characters'),
