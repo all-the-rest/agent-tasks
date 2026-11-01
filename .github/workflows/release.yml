@@ -1,0 +1,138 @@
+name: Release images
+
+# Publishing happens only for numeric version tags. CI still builds the
+# Dockerfiles on every push, but images are pushed to GHCR solely for an explicit
+# release. A re-pushed tag replaces that artifact; use the `sha-*` tag when you
+# need a build-specific reference that cannot move.
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            dockerfile: docker/Dockerfile.api
+          - name: browser-runner
+            dockerfile: docker/Dockerfile.runner
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.name }}
+          labels: |
+            org.opencontainers.image.title=Agent Tasks ${{ matrix.name }}
+            org.opencontainers.image.description=Self-hosted AI task scheduler (${{ matrix.name }} image)
+            org.opencontainers.image.licenses=Apache-2.0
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=release-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.name }}
+
+  visibility:
+    name: Make packages public
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+    steps:
+      - name: Set GHCR package visibility with optional PACKAGES_TOKEN
+        if: env.PACKAGES_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.PACKAGES_TOKEN }}
+        run: |
+          owner='${{ github.repository_owner }}'
+          for package in api browser-runner; do
+            encoded=$(node -p "encodeURIComponent('agent-tasks/' + process.argv[1])" "$package")
+            gh api --method PATCH "/orgs/${owner}/packages/container/${encoded}" \
+              -f visibility=public >/dev/null
+            echo "public: ${package}"
+          done
+
+      - name: Explain the one-time visibility step
+        if: env.PACKAGES_TOKEN == ''
+        run: |
+          {
+            echo "### GHCR visibility"
+            echo ""
+            echo "The workflow token cannot change org package visibility."
+            echo "Make both packages public once under Organization -> Packages:"
+            echo "\`agent-tasks/api\` and \`agent-tasks/browser-runner\`."
+            echo "Or add a PACKAGES_TOKEN secret with write:packages and org-admin rights."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-public:
+    name: Verify anonymous pull
+    needs: [publish, visibility]
+    # Run even when the optional visibility job fails, but only after a successful
+    # publish: this is the real public-access gate.
+    if: always() && needs.publish.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Pull release images without credentials
+        run: |
+          {
+            echo "### Anonymous pull"
+            echo ""
+            echo "If this fails, the packages are still private. See DEPLOYMENT.md"
+            echo "-> Published images -> Cutting a release for the one-time visibility step."
+          } >> "$GITHUB_STEP_SUMMARY"
+          tag="${GITHUB_REF_NAME#v}"
+          for image in api browser-runner; do
+            docker pull "ghcr.io/${GITHUB_REPOSITORY}/${image}:${tag}"
+          done
