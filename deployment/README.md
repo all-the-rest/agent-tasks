@@ -120,10 +120,12 @@ still present; `stack.sh production config -q` is allowed for validation.
 reverse proxy in front of `HTTP_PORT`. The full variable reference, backup,
 update and rollback notes are in [../DEPLOYMENT.md](../DEPLOYMENT.md).
 
-For Portainer, use `deployment/compose.production.yaml` as the compose path and
-paste the values from `deployment/env/production.env.example` into the stack
-environment. Do not add a local `deployment/env/production.env` to the
-repository; the Portainer stack does not read it.
+For Portainer, either paste the root `compose.yaml` into the stack web editor
+(set `RUNNER_SECCOMP_PATH` and, for `search`, `SEARXNG_SETTINGS_PATH` to host
+paths), or use a Git-backed stack with `deployment/compose.production.yaml` as
+the compose path and the same values in the stack environment. Do not add a
+local `deployment/env/production.env` to the repository; neither Portainer path
+reads it.
 
 The API image contains the built SPA; there is no separate web container. The
 release workflow publishes `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`
