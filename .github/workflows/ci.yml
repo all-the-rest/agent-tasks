@@ -280,8 +280,6 @@ jobs:
         include:
           - name: api
             dockerfile: docker/Dockerfile.api
-          - name: web
-            dockerfile: docker/Dockerfile.web
           - name: runner
             dockerfile: docker/Dockerfile.runner
     steps:
