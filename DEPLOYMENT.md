@@ -256,10 +256,10 @@ freezes the deployment and stops Watchtower; `latest` would also follow a future
 `1.0`. Choose the tag policy once in the Portainer stack environment.
 
 `deployment/stack.sh production pull` fetches the images; `up -d` starts them.
-The production overlay sets `pull_policy: always` for api, worker and
-browser-runner, so a Portainer deploy uses the GHCR tag instead of rebuilding the
-local Dockerfiles. The API binds to `127.0.0.1:${HTTP_PORT}` by default, so only
-the reverse proxy is publicly reachable. The runner is built from a slim Node base and installs
+The api, worker and browser-runner services set `pull_policy: always`, so a
+Portainer deploy uses the GHCR tag instead of rebuilding the local Dockerfiles.
+The API binds to `127.0.0.1:${HTTP_PORT}` by default, so only the reverse proxy
+is publicly reachable. The runner is built from a slim Node base and installs
 only Playwright's headless Chromium (no Firefox/WebKit), which keeps it around
 1.7 GB instead of the ~4 GB vendor Playwright image. The API image is roughly
 300 MB and includes the SPA.
@@ -307,6 +307,13 @@ environment are pasted into Portainer, not read from the repository.
    `/opt/agent-tasks/seccomp-browser.json`). For the `search` profile, put
    `docker/searxng/settings.yml` on the host and set `SEARXNG_SETTINGS_PATH` to
    its absolute path.
+
+   `seccomp` is a Linux syscall filter applied by the Docker daemon **before**
+   the container starts. Docker therefore needs a profile file on the host;
+   it cannot be passed as a container environment variable. The env variable
+   only selects the path. A Git-backed stack avoids the upload because the
+   repository supplies the file.
+
 4. Deploy without Portainer's build option. The services set
    `pull_policy: always`, so Compose pulls the public GHCR tag selected by
    `IMAGE_PREFIX`/`IMAGE_TAG` instead of building the local Dockerfiles.
