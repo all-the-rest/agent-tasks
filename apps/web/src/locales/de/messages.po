@@ -1558,6 +1558,12 @@ msgstr "Fünf Felder: Minute Stunde Tag-im-Monat Monat Wochentag."
 msgid "tasks.dayOfMonth"
 msgstr "Tag im Monat"
 
+msgid "tasks.daysOfMonth"
+msgstr "Tage im Monat"
+
+msgid "tasks.daysOfMonthHelp"
+msgstr "Wähle einen oder mehrere Tage. In kurzen Monaten werden nicht vorhandene Tage übersprungen."
+
 msgid "tasks.deleteBody"
 msgstr "„{title}“ löschen? Der Ausführungsverlauf bleibt archiviert."
 
@@ -1736,7 +1742,7 @@ msgid "tasks.scheduleSummary.daily"
 msgstr "Täglich um {time} ({timezone})"
 
 msgid "tasks.scheduleSummary.monthly"
-msgstr "Monatlich am {day}. um {time} ({timezone})"
+msgstr "Monatlich an Tag {day} um {time} ({timezone})"
 
 msgid "tasks.scheduleSummary.once"
 msgstr "Einmalig am {time} ({timezone})"
@@ -1745,7 +1751,7 @@ msgid "tasks.scheduleSummary.weekdays"
 msgstr "Werktags um {time} ({timezone})"
 
 msgid "tasks.scheduleSummary.weekly"
-msgstr "Jeden {weekday} um {time} ({timezone})"
+msgstr "Am {weekday} um {time} ({timezone})"
 
 msgid "tasks.searchPlaceholder"
 msgstr "Nach Titel filtern"
@@ -1764,6 +1770,27 @@ msgstr "Optionale Vorgaben zu Ton und Format für den Agenten."
 
 msgid "tasks.systemInstructions"
 msgstr "Systemanweisungen"
+
+msgid "tasks.time"
+msgstr "Uhrzeit"
+
+msgid "tasks.timeOfDay"
+msgstr "Tageszeit"
+
+msgid "tasks.timeOfDayAfternoon"
+msgstr "Nachmittag (14:00)"
+
+msgid "tasks.timeOfDayCustom"
+msgstr "Eigene Uhrzeit"
+
+msgid "tasks.timeOfDayEvening"
+msgstr "Abend (18:00)"
+
+msgid "tasks.timeOfDayMorning"
+msgstr "Vormittag (09:00)"
+
+msgid "tasks.timeOfDayNight"
+msgstr "Nacht (22:00)"
 
 msgid "tasks.timezone"
 msgstr "Zeitzone"
@@ -1811,7 +1838,7 @@ msgid "validation.cronRequired"
 msgstr "Gib einen Cron-Ausdruck ein."
 
 msgid "validation.dayOfMonthRequired"
-msgstr "Wähle einen Tag im Monat."
+msgstr "Wähle mindestens einen Tag im Monat."
 
 msgid "validation.descriptionMax"
 msgstr "Die Beschreibung darf höchstens 2000 Zeichen lang sein."
@@ -1863,9 +1890,6 @@ msgstr "Der Titel braucht mindestens 3 Zeichen."
 
 msgid "validation.weekdaysRequired"
 msgstr "Wähle mindestens einen Wochentag."
-
-msgid "validation.weeklyOneDay"
-msgstr "Ein wöchentlicher Zeitplan braucht genau einen Wochentag."
 
 msgid "weekdays.long.0"
 msgstr "Sonntag"

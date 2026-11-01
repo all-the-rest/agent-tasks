@@ -2,6 +2,23 @@ import type { TaskSchedule } from './types';
 
 export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
 
+/** Friendly time-of-day choices; `custom` exposes the hour/minute inputs. */
+export const TIME_OF_DAY_PRESETS = [
+  { id: 'morning', hour: 9, minute: 0 },
+  { id: 'afternoon', hour: 14, minute: 0 },
+  { id: 'evening', hour: 18, minute: 0 },
+  { id: 'night', hour: 22, minute: 0 },
+] as const;
+
+export type TimeOfDayPreset = (typeof TIME_OF_DAY_PRESETS)[number]['id'];
+export type TimePreset = TimeOfDayPreset | 'custom';
+
+/** Returns the matching preset id, or `custom` when the wall clock is not one of them. */
+export function timeOfDayPreset(hour: number, minute: number): TimePreset {
+  const match = TIME_OF_DAY_PRESETS.find((preset) => preset.hour === hour && preset.minute === minute);
+  return match?.id ?? 'custom';
+}
+
 export function defaultSchedule(timezone: string): TaskSchedule {
   return {
     preset: 'daily',
@@ -10,6 +27,7 @@ export function defaultSchedule(timezone: string): TaskSchedule {
     minute: 0,
     weekdays: [1],
     dayOfMonth: 1,
+    daysOfMonth: [1],
     cron: '0 9 * * *',
   };
 }
@@ -24,9 +42,17 @@ export function isValidTimezone(timezone: string): boolean {
   }
 }
 
+/** Selected monthly days, preferring the multi-day field over the legacy single day. */
+export function monthlyDays(schedule: Pick<TaskSchedule, 'daysOfMonth' | 'dayOfMonth'>): number[] {
+  if (schedule.daysOfMonth?.length) {
+    return [...new Set(schedule.daysOfMonth)].sort((a, b) => a - b);
+  }
+  return schedule.dayOfMonth === undefined ? [] : [schedule.dayOfMonth];
+}
+
 /** Mirrors the server-side preset-to-cron mapping, without needing cron-parser in the browser. */
 export function scheduleToCron(schedule: TaskSchedule): string | null {
-  const { preset, minute, hour, weekdays, dayOfMonth, cron } = schedule;
+  const { preset, minute, hour, weekdays, cron } = schedule;
   switch (preset) {
     case 'once':
       return null;
@@ -35,9 +61,9 @@ export function scheduleToCron(schedule: TaskSchedule): string | null {
     case 'weekdays':
       return `${minute} ${hour} * * ${weekdays?.length ? weekdays.join(',') : '1,2,3,4,5'}`;
     case 'weekly':
-      return `${minute} ${hour} * * ${weekdays?.[0] ?? 1}`;
+      return `${minute} ${hour} * * ${weekdays?.length ? weekdays.join(',') : '1'}`;
     case 'monthly':
-      return `${minute} ${hour} ${dayOfMonth ?? 1} * *`;
+      return `${minute} ${hour} ${monthlyDays(schedule).join(',') || '1'} * *`;
     case 'custom':
       return cron?.trim() || null;
   }
@@ -52,13 +78,13 @@ export function validateSchedule(schedule: TaskSchedule): string[] {
   if (!isValidTimezone(schedule.timezone)) errors.push('validation.timezoneInvalid');
 
   if (schedule.preset === 'once' && !schedule.runAt) errors.push('validation.runAtRequired');
-  if (schedule.preset === 'weekdays' && (schedule.weekdays?.length ?? 0) === 0) {
+  if (
+    (schedule.preset === 'weekdays' || schedule.preset === 'weekly') &&
+    (schedule.weekdays?.length ?? 0) === 0
+  ) {
     errors.push('validation.weekdaysRequired');
   }
-  if (schedule.preset === 'weekly' && (schedule.weekdays?.length ?? 0) !== 1) {
-    errors.push('validation.weeklyOneDay');
-  }
-  if (schedule.preset === 'monthly' && schedule.dayOfMonth === undefined) {
+  if (schedule.preset === 'monthly' && monthlyDays(schedule).length === 0) {
     errors.push('validation.dayOfMonthRequired');
   }
   if (schedule.preset === 'custom') {
@@ -103,7 +129,12 @@ export function schedulePayload(schedule: TaskSchedule): TaskSchedule {
   if (schedule.preset === 'weekdays' || schedule.preset === 'weekly') {
     base.weekdays = schedule.weekdays ?? [];
   }
-  if (schedule.preset === 'monthly') base.dayOfMonth = schedule.dayOfMonth ?? 1;
+  if (schedule.preset === 'monthly') {
+    const days = monthlyDays(schedule);
+    base.daysOfMonth = days;
+    // Keep the legacy field in sync for older readers of the payload.
+    base.dayOfMonth = days[0] ?? 1;
+  }
   if (schedule.preset === 'custom') base.cron = schedule.cron?.trim();
   return base;
 }

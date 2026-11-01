@@ -10,6 +10,8 @@ const scheduleFormSchema = z.object({
   minute: z.number().int().min(0, 'validation.timeInvalid').max(59, 'validation.timeInvalid'),
   weekdays: z.array(z.number().int().min(0).max(6)).optional(),
   dayOfMonth: z.number().int().min(1).max(31).optional(),
+  daysOfMonth: z.array(z.number().int().min(1).max(31)).optional(),
+  timePreset: z.enum(['morning', 'afternoon', 'evening', 'night', 'custom']).optional(),
   cron: z.string().optional(),
 });
 
@@ -56,11 +58,15 @@ export const taskFormSchema = z
     if (schedule.preset === 'weekdays' && (schedule.weekdays?.length ?? 0) === 0) {
       ctx.addIssue({ code: 'custom', path: ['schedule', 'weekdays'], message: 'validation.weekdaysRequired' });
     }
-    if (schedule.preset === 'weekly' && (schedule.weekdays?.length ?? 0) !== 1) {
-      ctx.addIssue({ code: 'custom', path: ['schedule', 'weekdays'], message: 'validation.weeklyOneDay' });
+    if (schedule.preset === 'weekly' && (schedule.weekdays?.length ?? 0) === 0) {
+      ctx.addIssue({ code: 'custom', path: ['schedule', 'weekdays'], message: 'validation.weekdaysRequired' });
     }
-    if (schedule.preset === 'monthly' && schedule.dayOfMonth === undefined) {
-      ctx.addIssue({ code: 'custom', path: ['schedule', 'dayOfMonth'], message: 'validation.dayOfMonthRequired' });
+    if (
+      schedule.preset === 'monthly' &&
+      !(schedule.daysOfMonth?.length ?? 0) &&
+      schedule.dayOfMonth === undefined
+    ) {
+      ctx.addIssue({ code: 'custom', path: ['schedule', 'daysOfMonth'], message: 'validation.dayOfMonthRequired' });
     }
     if (schedule.preset === 'custom' && !schedule.cron?.trim()) {
       ctx.addIssue({ code: 'custom', path: ['schedule', 'cron'], message: 'validation.cronRequired' });

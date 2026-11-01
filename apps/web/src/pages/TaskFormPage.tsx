@@ -10,11 +10,15 @@ import { ErrorAlert, Field, PageHeader, Spinner } from '../components/ui';
 import {
   defaultSchedule,
   fromDateTimeLocal,
+  monthlyDays,
   scheduleToCron,
+  TIME_OF_DAY_PRESETS,
+  timeOfDayPreset,
   timezonesWith,
   toDateTimeLocal,
   WEEKDAYS,
 } from '../lib/schedule';
+import type { TimePreset } from '../lib/schedule';
 import { describeSchedule } from '../lib/describe';
 import { taskFormSchema, toTaskInput } from '../lib/task-schema';
 import type { TaskFormValues } from '../lib/task-schema';
@@ -40,7 +44,7 @@ function emptyValues(timezone: string): TaskFormValues {
     providerId: '',
     model: '',
     enabled: true,
-    schedule: defaultSchedule(timezone),
+    schedule: { ...defaultSchedule(timezone), timePreset: 'morning' },
     limits: { ...DEFAULT_LIMITS },
     allowWebResearch: true,
     notification: 'none',
@@ -65,6 +69,12 @@ function taskValues(task: Task, fallbackTimezone: string): TaskFormValues {
       minute: task.schedule.minute ?? 0,
       weekdays: task.schedule.weekdays ?? [1],
       dayOfMonth: task.schedule.dayOfMonth ?? 1,
+      daysOfMonth: task.schedule.daysOfMonth?.length
+        ? task.schedule.daysOfMonth
+        : task.schedule.dayOfMonth
+          ? [task.schedule.dayOfMonth]
+          : [1],
+      timePreset: timeOfDayPreset(task.schedule.hour ?? 9, task.schedule.minute ?? 0),
       cron: task.schedule.cron ?? '',
     },
     limits: { ...DEFAULT_LIMITS, ...task.limits },
@@ -127,6 +137,11 @@ export function TaskFormPage() {
   const schedule = watch('schedule');
   const preset = schedule?.preset ?? 'daily';
   const weekdays = schedule?.weekdays ?? [];
+  const daysOfMonth = monthlyDays({
+    daysOfMonth: schedule?.daysOfMonth,
+    dayOfMonth: schedule?.dayOfMonth,
+  });
+  const timePreset = schedule?.timePreset ?? timeOfDayPreset(schedule?.hour ?? 9, schedule?.minute ?? 0);
   const selectedProvider = providers.data?.find((provider) => provider.id === providerId);
 
   useEffect(() => {
@@ -189,6 +204,7 @@ export function TaskFormPage() {
           minute: schedule.minute,
           weekdays,
           dayOfMonth: schedule.dayOfMonth,
+          daysOfMonth: schedule.daysOfMonth,
           cron: schedule.cron,
           runAt: schedule.runAt,
         },
@@ -197,12 +213,24 @@ export function TaskFormPage() {
     : '';
 
   const toggleWeekday = (day: number) => {
-    if (preset === 'weekly') {
-      setValue('schedule.weekdays', [day], { shouldValidate: true });
-      return;
-    }
     const next = weekdays.includes(day) ? weekdays.filter((value) => value !== day) : [...weekdays, day];
     setValue('schedule.weekdays', next.sort(), { shouldValidate: true });
+  };
+
+  const toggleDayOfMonth = (day: number) => {
+    const next = daysOfMonth.includes(day)
+      ? daysOfMonth.filter((value) => value !== day)
+      : [...daysOfMonth, day];
+    setValue('schedule.daysOfMonth', next.sort((a, b) => a - b), { shouldValidate: true });
+  };
+
+  const changeTimeOfDay = (value: TimePreset) => {
+    setValue('schedule.timePreset', value, { shouldValidate: true });
+    if (value === 'custom') return;
+    const presetTime = TIME_OF_DAY_PRESETS.find((item) => item.id === value);
+    if (!presetTime) return;
+    setValue('schedule.hour', presetTime.hour, { shouldValidate: true });
+    setValue('schedule.minute', presetTime.minute, { shouldValidate: true });
   };
 
   return (
@@ -309,26 +337,54 @@ export function TaskFormPage() {
 
             {preset !== 'once' && preset !== 'custom' ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label={t('tasks.hour')} htmlFor="task-hour" error={tr(errors.schedule?.hour?.message)}>
-                  <input
-                    id="task-hour"
-                    type="number"
-                    min={0}
-                    max={23}
-                    className="input w-full"
-                    {...register('schedule.hour', { valueAsNumber: true })}
-                  />
+                <Field label={t('tasks.timeOfDay')} htmlFor="task-time-of-day">
+                  <select
+                    id="task-time-of-day"
+                    className="select w-full"
+                    value={timePreset}
+                    onChange={(event) => changeTimeOfDay(event.target.value as TimePreset)}
+                  >
+                    {TIME_OF_DAY_PRESETS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {t(`tasks.timeOfDay${option.id.charAt(0).toUpperCase()}${option.id.slice(1)}`)}
+                      </option>
+                    ))}
+                    <option value="custom">{t('tasks.timeOfDayCustom')}</option>
+                  </select>
                 </Field>
-                <Field label={t('tasks.minute')} htmlFor="task-minute" error={tr(errors.schedule?.minute?.message)}>
-                  <input
-                    id="task-minute"
-                    type="number"
-                    min={0}
-                    max={59}
-                    className="input w-full"
-                    {...register('schedule.minute', { valueAsNumber: true })}
-                  />
-                </Field>
+                {timePreset === 'custom' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={t('tasks.hour')} htmlFor="task-hour" error={tr(errors.schedule?.hour?.message)}>
+                      <input
+                        id="task-hour"
+                        type="number"
+                        min={0}
+                        max={23}
+                        className="input w-full"
+                        {...register('schedule.hour', { valueAsNumber: true })}
+                      />
+                    </Field>
+                    <Field label={t('tasks.minute')} htmlFor="task-minute" error={tr(errors.schedule?.minute?.message)}>
+                      <input
+                        id="task-minute"
+                        type="number"
+                        min={0}
+                        max={59}
+                        className="input w-full"
+                        {...register('schedule.minute', { valueAsNumber: true })}
+                      />
+                    </Field>
+                  </div>
+                ) : (
+                  <Field label={t('tasks.time')} htmlFor="task-time-preview">
+                    <input
+                      id="task-time-preview"
+                      className="input w-full"
+                      value={`${String(schedule?.hour ?? 9).padStart(2, '0')}:${String(schedule?.minute ?? 0).padStart(2, '0')}`}
+                      readOnly
+                    />
+                  </Field>
+                )}
               </div>
             ) : null}
 
@@ -362,20 +418,33 @@ export function TaskFormPage() {
             ) : null}
 
             {preset === 'monthly' ? (
-              <Field
-                label={t('tasks.dayOfMonth')}
-                htmlFor="task-day"
-                error={tr(errors.schedule?.dayOfMonth?.message)}
-              >
-                <input
-                  id="task-day"
-                  type="number"
-                  min={1}
-                  max={31}
-                  className="input w-full sm:max-w-32"
-                  {...register('schedule.dayOfMonth', { valueAsNumber: true })}
-                />
-              </Field>
+              <fieldset>
+                <legend className="mb-2 text-sm font-medium">{t('tasks.daysOfMonth')}</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                    <label
+                      key={day}
+                      className={`btn btn-xs min-w-9 ${daysOfMonth.includes(day) ? 'btn-primary' : 'btn-outline'}`}
+                      htmlFor={`day-of-month-${day}`}
+                    >
+                      <input
+                        id={`day-of-month-${day}`}
+                        type="checkbox"
+                        className="sr-only"
+                        checked={daysOfMonth.includes(day)}
+                        onChange={() => toggleDayOfMonth(day)}
+                      />
+                      {day}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs opacity-60">{t('tasks.daysOfMonthHelp')}</p>
+                {errors.schedule?.daysOfMonth?.message ? (
+                  <p className="mt-1 text-sm text-error" role="alert">
+                    {tr(errors.schedule.daysOfMonth.message)}
+                  </p>
+                ) : null}
+              </fieldset>
             ) : null}
 
             {preset === 'custom' ? (

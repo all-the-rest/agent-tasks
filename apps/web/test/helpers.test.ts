@@ -39,6 +39,15 @@ describe('describeSchedule', () => {
       describeSchedule({ ...defaultSchedule('Europe/Vienna'), preset: 'weekly', weekdays: [3] }, fakeT),
     ).toContain('tasks.scheduleSummary.weekly');
     expect(
+      describeSchedule({ ...defaultSchedule('Europe/Vienna'), preset: 'weekly', weekdays: [1, 3, 5] }, fakeT),
+    ).toContain('weekdays.short.1, weekdays.short.3, weekdays.short.5');
+    expect(
+      describeSchedule(
+        { ...defaultSchedule('Europe/Vienna'), preset: 'monthly', daysOfMonth: [1, 15] },
+        fakeT,
+      ),
+    ).toContain('"day":"1, 15"');
+    expect(
       describeSchedule({ ...defaultSchedule('Europe/Vienna'), preset: 'custom', cron: '0 9 * * 1' }, fakeT),
     ).toContain('tasks.scheduleSummary.custom');
   });
