@@ -209,7 +209,8 @@ from `OPENCODE_GO_API_KEY` (plus `OPENCODE_GO_MODEL` or `OPENCODE_GO_MODELS`),
 `https://opencode.ai/inference/go/openai/v1`) and `OPENCODE_GO_NAME` (default
 `OpenCode Go`). The seed is idempotent by provider name, stores the key with
 `SECRETS_ENCRYPTION_KEY`, and never updates an existing provider — admin edits
-survive restarts. `.env.production` wires this up.
+survive restarts. The production host `.env` (and the local `.env.production`
+template) wires this up.
 
 ## Ollama (optional, legacy)
 
