@@ -120,8 +120,8 @@ GitHub Actions runs lint, typecheck, unit, integration (Postgres service), brows
 ## Transactional mail (Mailpit + SpamAssassin)
 
 ```bash
-docker compose --profile mail up -d
-SMTP_URL=smtp://mailpit:1025 docker compose up -d api   # or run the API on the host
+docker compose --profile mail up -d --build
+SMTP_URL=smtp://mailpit:1025 docker compose up -d --build api   # or run the API on the host
 MAIL_TO=admin@example.com MAILPIT_URL=http://localhost:8025 \
   node scripts/check-mailpit.mjs
 ```
