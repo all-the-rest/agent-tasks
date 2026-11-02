@@ -7,7 +7,17 @@ staged=$(git diff --cached --name-only --diff-filter=ACM)
 [ -z "$staged" ] && exit 0
 
 echo "pre-commit: secret scan"
-if printf '%s\n' "$staged" | xargs -r grep -nIE 'sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY|AUTH_SECRET=[A-Za-z0-9]{16,}' 2>/dev/null; then
+secret_hit=0
+while IFS= read -r staged_path; do
+  [ -n "$staged_path" ] || continue
+  [ -f "$staged_path" ] || continue
+  if grep -nIE 'sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE KEY|AUTH_SECRET=[A-Za-z0-9]{16,}' -- "$staged_path"; then
+    secret_hit=1
+  fi
+done <<EOF
+$staged
+EOF
+if [ "$secret_hit" -ne 0 ]; then
   echo "pre-commit: refusing to commit a secret-looking string" >&2
   exit 1
 fi
@@ -24,14 +34,27 @@ fi
 echo "pre-commit: ratchet gates"
 ratchet check --format stylish >/dev/null || { ratchet check; exit 1; }
 
-case "$staged" in
-  *.ts|*.tsx|*.json|*.yaml|*.yml|*.md|*.sh|Dockerfile*|*.css)
-    echo "pre-commit: lint"
-    pnpm lint --quiet || exit 1
-    echo "pre-commit: typecheck"
-    pnpm -r typecheck >/dev/null || { pnpm -r typecheck; exit 1; }
-    ;;
-esac
+# Match every staged path individually. Matching the newline-joined list as one
+# string (case "$staged") only ever tested the first/last entry and silently
+# skipped lint/typecheck for mixed commits.
+needs_checks=0
+while IFS= read -r staged_path; do
+  [ -n "$staged_path" ] || continue
+  case "$staged_path" in
+    *.ts|*.tsx|*.mjs|*.js|*.json|*.yaml|*.yml|*.md|*.sh|Dockerfile*|*/Dockerfile*|*.css)
+      needs_checks=1
+      break
+      ;;
+  esac
+done <<EOF
+$staged
+EOF
+if [ "$needs_checks" -eq 1 ]; then
+  echo "pre-commit: lint"
+  pnpm lint --quiet || exit 1
+  echo "pre-commit: typecheck"
+  pnpm -r typecheck >/dev/null || { pnpm -r typecheck; exit 1; }
+fi
 
 if command -v codegraph >/dev/null 2>&1 && [ -d .codegraph ]; then
   echo "pre-commit: codegraph sync"
