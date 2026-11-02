@@ -124,10 +124,12 @@ The public images are published at
 `docker compose --profile search up -d` starts the published images; use
 `--build` for a source checkout.
 
-`sed -i` is GNU syntax; on macOS use `sed -i ''`. Compose fallbacks are
-`POSTGRES_PASSWORD=agent`, `PUBLIC_BASE_URL=http://localhost:8080` and
-`HTTP_PORT=8080`; the generated `.env` above overrides the secrets. Every variable
-and its code default is listed in [`DEPLOYMENT.md`](DEPLOYMENT.md).
+`sed -i` is GNU syntax; on macOS use `sed -i ''`. The root/local compose
+fallbacks are `POSTGRES_PASSWORD=agent`, `PUBLIC_BASE_URL=http://localhost:8080`
+and `HTTP_PORT=8080`; the generated `.env` above overrides the secrets. The
+production compose file deliberately has no insecure fallbacks and requires those
+values. Every variable and its code default is listed in
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 Open `http://localhost:8080`, paste the token from the last command on the setup
 screen and create the first administrator.
@@ -136,13 +138,19 @@ Alternatively set `ADMIN_EMAIL`, `ADMIN_PASSWORD` (at least 12 characters) and
 optionally `ADMIN_NAME` in `.env`: the API creates the first administrator on
 start and the setup screen is skipped. Both variables must be set together.
 
-For production, `.env.production` is a ready template: replace the placeholders
-(domain, PostgreSQL and auth secrets, admin credentials, OpenCode Go key/model)
-and start with `docker compose --env-file .env.production up -d`. It sets
-`ALLOW_REGISTRATION=false` and seeds an **OpenCode Go** provider from
-`OPENCODE_GO_*` on first start; the API key is encrypted at rest. The
-registration value is only the initial database setting — an administrator can
-change it later in **Admin → Settings**.
+For production, use the host-managed workflow in
+[`DEPLOYMENT.md`](DEPLOYMENT.md#production-on-the-docker-host-optstacks): create
+`/opt/stacks/agent-tasks/.env` from `deployment/env/production.env.example` as
+root:root 0600, then run `DEPLOY_HOST=root@docker.example deployment/deploy.sh`.
+The preflight validates the effective Compose-interpolated values (never raw
+`.env` text), rejects placeholders and insecure defaults, requires the
+Caddy/proxy-owned `webnet` to be exactly `172.18.0.0/16` gateway `172.18.0.1`,
+and backs up `.env`/the database before reconciling the stack. SSH uses strict
+host-key checking against your existing `~/.ssh/known_hosts`. The root `.env.production` is only a local/single-host template, not
+the production host environment. The host env sets `ALLOW_REGISTRATION=false` and
+seeds an **OpenCode Go** provider from `OPENCODE_GO_*` on first start; the API key
+is encrypted at rest. The registration value is only the initial database
+setting — an administrator can change it later in **Admin → Settings**.
 
 Then:
 

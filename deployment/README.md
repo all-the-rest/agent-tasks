@@ -1,28 +1,41 @@
 # Deployment
 
-Three stacks share one service definition: production, a local development
-stack, and the browser E2E stack. Their project names, networks, volumes, host
-ports and `com.agent-tasks.stack` labels are distinct, so **local and E2E run at
-the same time** on one Docker host without touching each other's data.
+There are three stacks: production, a local development stack, and the browser E2E
+stack. Local and E2E share the root `../compose.yaml` and can run at the same
+time; production is a deliberately vendored host snapshot. Project names,
+networks, volumes, host ports and `com.agent-tasks.stack` labels are distinct, so
+**local and E2E run at the same time** on one Docker host without touching each
+other's data.
 
-`../compose.yaml` stays the single source for services, health checks, security
-options and profiles. The files here add the project name and select the compose
-entrypoint; `stack.sh` supplies the matching env file with `--env-file`, while the
-production host keeps its variables in `/opt/stacks/agent-tasks/.env`. The
-overlays deliberately have no `env_file`: the production `.env` lives on the host,
-not in the checkout, and `deployment/deploy.sh` never writes it.
+`compose.production.yaml` is **not** an include of `../compose.yaml`. It adds the
+Caddy/proxy-owned external `webnet` and the fixed API address `172.18.0.70`,
+omits `build`, and uses absolute host paths for support assets. The shared
+security-sensitive service invariants (read-only roots, capability drops, health
+checks, temp filesystems, profiles, privileged/user/network_mode/devices/
+sysctls/ulimits, volume sources/targets/modes and volume/network attributes,
+environment and Watchtower labels) are checked by
+`scripts/check-compose-parity.mjs` in CI; a blanket diff is intentionally
+avoided. Named volume sources and read-only modes must match; the documented
+SearXNG host bind is compared by its logical asset, and
+`scripts/test-compose-parity.mjs` proves a mismatched named volume, a
+service-field change, a volume attribute change and `backend.internal` drift fail
+offline. Local and E2E remain true includes. `stack.sh` supplies the matching env
+file with `--env-file`; the production host keeps its variables in
+`/opt/stacks/agent-tasks/.env`, and `deployment/deploy.sh` never writes or prints
+that file.
 
-| File | Project name | Stack label | Env file (stack.sh) |
+| File | Project name | Stack label | Env file |
 | --- | --- | --- | --- |
-| `compose.production.yaml` | `agent-tasks` | `production` | `env/production.env` |
-| `compose.local.yaml` | `agent-tasks-local` | `local` | `env/local.env` |
-| `compose.e2e.yaml` | `agent-tasks-e2e` | `e2e` | `env/e2e.env` |
+| `compose.production.yaml` | `agent-tasks` | `production` | host `/opt/stacks/agent-tasks/.env` |
+| `compose.local.yaml` | `agent-tasks-local` | `local` | `env/local.env` (stack.sh) |
+| `compose.e2e.yaml` | `agent-tasks-e2e` | `e2e` | `env/e2e.env` (stack.sh) |
 
 The project name prefixes containers, networks and volumes
 (`agent-tasks-local-api-1`, `agent-tasks-local_postgres-data`). The label makes
 the stack identifiable in `docker ps` and in monitoring even when only a
-container ID is known. The root `compose.yaml` (used by CI and the README quick
-start) uses the label `compose` unless `STACK_NAME` is set:
+container ID is known; every production service carries
+`com.agent-tasks.stack=production`. The root `compose.yaml` (used by CI and the
+README quick start) uses the label `compose` unless `STACK_NAME` is set:
 
 ```bash
 docker ps --filter label=com.agent-tasks.stack=local
@@ -105,33 +118,53 @@ deterministic OpenAI-compatible mock on the host; Docker reaches it through the
 first non-loopback IPv4 address. Set `E2E_MOCK_BASE_URL=http://<gateway>:18099`
 when the Docker daemon runs on another machine.
 
-### Production
+### Production (host-managed)
+
+Production is the compose project `agent-tasks` in `/opt/stacks/agent-tasks` and
+is the primary production path. The host `.env`, seccomp profile and optional
+SearXNG settings are host-side; see
+[../DEPLOYMENT.md#production-on-the-docker-host-optstacks](../DEPLOYMENT.md#production-on-the-docker-host-optstacks)
+for the layout, `webnet` prerequisite and the Portainer migration procedure.
 
 ```bash
-cp deployment/env/production.env.example deployment/env/production.env
-chmod 600 deployment/env/production.env
-$EDITOR deployment/env/production.env     # replace every replace-with-* value
-deployment/stack.sh production --profile search up -d
+# from a checkout; DEPLOY_HOST is required
+DEPLOY_HOST=root@docker.example deployment/deploy.sh --dry-run
+DEPLOY_HOST=root@docker.example deployment/deploy.sh
 ```
 
-`stack.sh` refuses to start production while a `replace-with-*` placeholder is
-still present; `stack.sh production config -q` is allowed for validation.
-`PUBLIC_BASE_URL`, `COOKIE_SECURE` and `TRUST_PROXY` assume a TLS-terminating
-reverse proxy in front of `HTTP_PORT`. The full variable reference, backup,
-update and rollback notes are in [../DEPLOYMENT.md](../DEPLOYMENT.md).
+The preflight fails closed when `/opt/stacks/agent-tasks/.env` is not
+root:root/0600, an implicit `compose.override.*` file exists, the host `.env`
+sets `COMPOSE_FILE`/`COMPOSE_PROJECT_NAME`, the effective Compose-interpolated
+values are empty/placeholders or use a hostless/non-HTTPS `PUBLIC_BASE_URL`,
+`RUNNER_TOKEN` is missing from `worker` or `browser-runner`, differs between
+them, or reaches `api`, `webnet` is missing or is not exactly subnet
+`172.18.0.0/16` with gateway `172.18.0.1`, or the search profile lacks a
+root:root 0600 SearXNG settings file with a generated secret. Values are
+rendered with `docker compose config` and piped through a symbolic parser; they
+are never printed. Every remote Compose call is pinned to
+`-p agent-tasks --env-file /opt/stacks/agent-tasks/.env -f
+/opt/stacks/agent-tasks/compose.yaml` (the staged `.next` file for the candidate
+check). It never creates `webnet`. `deploy.sh` validates the seccomp profile as
+JSON locally, then writes an automatic `.env`/`pg_dump` backup under
+`/opt/stacks/agent-tasks/backups/`, stages and promotes
+`docker/seccomp-browser.json`, pins `RUNNER_SECCOMP_PATH` to that staged file,
+and only then reconciles the stack. If the staged seccomp bytes changed, only
+`browser-runner` is force-recreated. SSH uses strict host-key checking against
+the operator's existing `~/.ssh/known_hosts`. The rollback and Portainer
+migration procedures are in [../DEPLOYMENT.md](../DEPLOYMENT.md).
 
-For the production host, `deployment/deploy.sh` copies
-`compose.production.yaml` to `/opt/stacks/agent-tasks/compose.yaml` and runs
-`docker compose up -d --wait` there. The stack's `.env` (secrets and the absolute
-`RUNNER_SECCOMP_PATH` / `SEARXNG_SETTINGS_PATH`) lives only on the host and is
-never overwritten. There is no Portainer stack anymore: the host runs the compose
-project directly, and Watchtower updates the images.
+`deployment/stack.sh production config -q` is **local config validation only**.
+It renders `compose.production.yaml` with the committed
+`env/production.env.example`; it never creates `deployment/env/production.env`,
+starts, stops or pulls the host stack. Do not use a local `production.env` on the
+host. There is no Portainer stack anymore: the host runs the compose project
+directly, and Watchtower updates the images.
 
 The API image contains the built SPA; there is no separate web container. The
 release workflow publishes `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`
-for every `v*` tag. `IMAGE_TAG` selects the release and `deployment/stack.sh
-production pull` fetches it; `--build` compiles the same images from the checkout
-when you do not want to use the registry.
+for every `v*` tag. `IMAGE_TAG` selects the release; the production compose file
+has no `build` section and pulls the registry tag. A local source checkout can
+still use `deployment/stack.sh local ... --build`.
 
 ## Validation
 
@@ -140,8 +173,18 @@ These commands need no Docker daemon:
 ```bash
 deployment/stack.sh local config -q
 deployment/stack.sh e2e config -q
-deployment/stack.sh production config -q   # placeholders are allowed here
-docker compose config -q                   # root file used by CI
+deployment/stack.sh production config -q   # local validation only; placeholders allowed
+docker compose --env-file deployment/env/production.env.example config -q
+                                            # root file used by the local quick start
+bash -n deployment/deploy.sh
+sh -n deployment/stack.sh
+shellcheck -S warning deployment/deploy.sh deployment/stack.sh \
+  scripts/test-deploy-dry-run.sh            # warning-level shell lint
+sh scripts/test-deploy-dry-run.sh           # offline: executes prereq/preflight/backup/promote bodies
+node scripts/test-compose-parity.mjs        # offline: mismatched named volumes fail
+node scripts/check-deploy-compose-contract.mjs
+                                            # offline: RUNNER_TOKEN service ownership
+node scripts/check-compose-parity.mjs       # shared security invariants (Docker CLI)
 ```
 
 To confirm the isolation contract after a start:
@@ -154,12 +197,16 @@ docker volume ls --filter name=agent-tasks-e2e
 
 ## Notes
 
-- Never commit `env/*.env`; only the `*.env.example` files belong in git.
-- The root `compose.yaml` remains the file CI uses. The deployment wrappers
-  include it, so a service change applies to all three stacks at once.
+- Never commit `env/*.env` or a host SearXNG settings file; only the
+  `*.env.example` files belong in git.
+- The root `compose.yaml` remains the file CI uses for local/E2E. Local and E2E
+  include it; production is the vendored file guarded by
+  `scripts/check-compose-parity.mjs`, so a security-relevant service change must
+  be made in both places.
 - On hosts that forbid unprivileged user namespaces, set
   `RUNNER_CHROMIUM_SANDBOX=false` in the local env file. The browser then runs
   without its Chromium sandbox; keep the default `true` in production.
 - `down -v` removes only the selected project's volumes. Production data is in
   `agent-tasks_postgres-data`, local data in `agent-tasks-local_postgres-data`,
-  E2E data in `agent-tasks-e2e_postgres-data`.
+  E2E data in `agent-tasks-e2e_postgres-data`. Never run `down -v` for production;
+  it deletes the database and Codex home volumes.
