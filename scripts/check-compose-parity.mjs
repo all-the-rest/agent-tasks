@@ -88,6 +88,16 @@ check(
   'production webnet must be declared external with name webnet'
 );
 check(!development.networks?.webnet, 'compose.yaml must not define the proxy-owned webnet');
+for (const name of ['api', 'worker', 'browser-runner']) {
+  check(
+    development.services?.[name]?.pull_policy === 'build',
+    `${name}.pull_policy must be build in compose.yaml so local/E2E uses checkout images`
+  );
+  check(
+    production.services?.[name]?.pull_policy === 'always',
+    `${name}.pull_policy must be always in compose.production.yaml so production pulls released images`
+  );
+}
 check(
   stable(Object.keys(production.volumes ?? {}).sort()) ===
     stable(Object.keys(development.volumes ?? {}).sort()),

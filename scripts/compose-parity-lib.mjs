@@ -51,7 +51,6 @@ export function volumeSignatures(service, projectName, serviceName) {
 // CI comparison without an offline mismatch test.
 export const SHARED_SERVICE_FIELDS = [
   'image',
-  'pull_policy',
   'restart',
   'read_only',
   'cap_drop',

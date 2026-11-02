@@ -1,5 +1,11 @@
 name: agent-tasks
 
+# This is the local/E2E stack. It builds api, worker and browser-runner from the
+# repository, so those services pin `pull_policy: build`: a pull -- explicit or
+# the default `missing` on a cold cache -- would otherwise run a stale published
+# tag instead of the checkout. deployment/compose.production.yaml has no `build`
+# and pulls the released images instead.
+
 # Stamped on every container so a running stack is identifiable from
 # `docker ps` / `docker inspect`, independently of the compose project name.
 x-stack-label: &stack-label
@@ -59,7 +65,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/api:${IMAGE_TAG:-latest}
-    pull_policy: always
+    pull_policy: build
     restart: unless-stopped
     environment:
       <<: *app-env
@@ -93,7 +99,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/api:${IMAGE_TAG:-latest}
-    pull_policy: always
+    pull_policy: build
     restart: unless-stopped
     command: ["node", "apps/worker/dist/index.js"]
     environment:
@@ -130,7 +136,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.runner
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/browser-runner:${IMAGE_TAG:-latest}
-    pull_policy: always
+    pull_policy: build
     restart: unless-stopped
     environment:
       PORT: "8081"
