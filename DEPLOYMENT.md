@@ -94,8 +94,8 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `RUNNER_ACTION_TIMEOUT_MS` | browser-runner | `30000` | no; **not forwarded by `compose.yaml`** |
 | `RUNNER_MAX_TEXT_CHARS` | browser-runner | `30000` | no; **not forwarded by `compose.yaml`** |
 | `RUNNER_CHROMIUM_SANDBOX` | browser-runner | `true` | no; `compose.yaml` pins `"true"` |
-| `RUNNER_SECCOMP_PATH` | compose interpolation | `docker/seccomp-browser.json` | no; absolute host path when the compose file is pasted into Portainer without the repository |
-| `SEARXNG_SETTINGS_PATH` | compose interpolation | `./docker/searxng/settings.yml` | no; absolute host path for the optional `search` profile in a manual Portainer stack |
+| `RUNNER_SECCOMP_PATH` | compose interpolation | `docker/seccomp-browser.json` | no; must be an absolute host path when the stack runs from the host copy in `/opt/stacks/agent-tasks` (the defaults resolve against the repository root) |
+| `SEARXNG_SETTINGS_PATH` | compose interpolation | `./docker/searxng/settings.yml` | no; same absolute-path rule for the optional `search` profile on the host |
 
 ### Compose interpolation only
 
@@ -241,7 +241,7 @@ Tags are the semantic version (`0.1.0`), the commit SHA (`sha-<short>`) and
 moves on every non-prerelease release, and a re-pushed version tag replaces that
 artifact; use the `sha-<short>` tag when you need one fixed build.
 
-For the Portainer + Watchtower deployment, pin the major line so Watchtower
+For the Watchtower deployment, pin the major line so Watchtower
 applies every compatible minor and bugfix release without crossing a breaking
 major:
 
@@ -253,11 +253,11 @@ IMAGE_TAG=0
 `0` moves to each compatible `0.x` release (the workflow publishes the
 `{{major}}` tag); only `1.0` is a breaking change. `0.1.0` or `sha-<short>`
 freezes the deployment and stops Watchtower; `latest` would also follow a future
-`1.0`. Choose the tag policy once in the Portainer stack environment.
+`1.0`. Choose the tag policy once in `/opt/stacks/agent-tasks/.env`.
 
 `deployment/stack.sh production pull` fetches the images; `up -d` starts them.
 The api, worker and browser-runner services set `pull_policy: always`, so a
-Portainer deploy uses the GHCR tag instead of rebuilding the local Dockerfiles.
+deploy uses the GHCR tag instead of rebuilding the local Dockerfiles.
 The API binds to `127.0.0.1:${HTTP_PORT}` by default, so only the reverse proxy
 is publicly reachable. The runner is built from a slim Node base and installs
 only Playwright's headless Chromium (no Firefox/WebKit), which keeps it around
@@ -289,49 +289,68 @@ workflow token cannot change org package visibility. Do one of these once:
 Until a package is public, pull it with a logged-in client:
 `echo "$GH_TOKEN" | docker login ghcr.io -u <user> --password-stdin`.
 
-## Portainer (current setup)
+## Production on the Docker host (`/opt/stacks`)
 
-The current production stack is created manually: the compose file and
-environment are pasted into Portainer, not read from the repository.
+Production runs as the compose project `agent-tasks`; the host reads it from
+`/opt/stacks/agent-tasks/`:
 
-1. Stack → **Add stack** → **Web editor**. Paste the root [`compose.yaml`](compose.yaml)
-   (the single-file service definition; do not paste the `deployment/` overlay
-   because it includes `../compose.yaml`).
-2. Add the keys from `deployment/env/production.env.example` to the stack
-   environment. At minimum set `POSTGRES_PASSWORD`, `AUTH_SECRET`,
-   `SECRETS_ENCRYPTION_KEY`, `SETUP_TOKEN`, `RUNNER_TOKEN`, `PUBLIC_BASE_URL`
-   and `IMAGE_PREFIX=ghcr.io/all-the-rest/agent-tasks`; set `IMAGE_TAG=0` for
-   Watchtower. `COMPOSE_PROFILES=search` enables SearXNG.
-3. Put `docker/seccomp-browser.json` on the Docker host and set
-   `RUNNER_SECCOMP_PATH` to that absolute path (for example
-   `/opt/agent-tasks/seccomp-browser.json`). For the `search` profile, put
-   `docker/searxng/settings.yml` on the host and set `SEARXNG_SETTINGS_PATH` to
-   its absolute path.
+```
+/opt/stacks/agent-tasks/
+  compose.yaml   # deployment/compose.production.yaml, pushed by deployment/deploy.sh
+  .env           # root:root 0600, never in git (secrets and host paths)
+```
 
-   `seccomp` is a Linux syscall filter applied by the Docker daemon **before**
-   the container starts. Docker therefore needs a profile file on the host;
-   it cannot be passed as a container environment variable. The env variable
-   only selects the path. A Git-backed stack avoids the upload because the
-   repository supplies the file.
+The directory is fixed by this script and by the host `.env` location. The
+compose project name — and with it the volume prefix — comes from `name:
+agent-tasks` in `deployment/compose.production.yaml`, so it stays `agent-tasks`
+(`agent-tasks_postgres-data`, `agent-tasks_codex-homes`) even if the path changes.
 
-4. Deploy without Portainer's build option. The services set
-   `pull_policy: always`, so Compose pulls the public GHCR tag selected by
-   `IMAGE_PREFIX`/`IMAGE_TAG` instead of building the local Dockerfiles.
-5. Select profiles with `COMPOSE_PROFILES` in the stack environment; the stack
-   editor has no profile switch.
+1. Put the host-side files in place once. `seccomp` is a Linux syscall filter
+   applied by the Docker daemon **before** the container starts, so Docker needs
+   a profile file on the host; the env variable only selects its path. The
+   compose defaults are relative to the repository root and are useless for a
+   host copy, hence the absolute paths in `.env`:
 
-A Git-backed Portainer stack is also supported: use
-`deployment/compose.production.yaml` as the compose path and put the same
-variables in the stack environment. That overlay includes the root file and
-deliberately has no `env_file`, so it starts from a clean checkout without a
-committed secret file.
+   ```bash
+   # on the Docker host
+   sudo mkdir -p /opt/agent-tasks /opt/stacks/agent-tasks
+   sudo install -m 0644 docker/seccomp-browser.json /opt/agent-tasks/
+   # only for COMPOSE_PROFILES=search:
+   sudo install -m 0644 docker/searxng/settings.yml /opt/agent-tasks/searxng-settings.yml
+   ```
+
+2. Create `/opt/stacks/agent-tasks/.env` once from
+   `deployment/env/production.env.example`, `chmod 600`. At minimum set
+   `POSTGRES_PASSWORD`, `AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY`, `SETUP_TOKEN`,
+   `RUNNER_TOKEN`, `PUBLIC_BASE_URL` and
+   `IMAGE_PREFIX=ghcr.io/all-the-rest/agent-tasks`; set `IMAGE_TAG=0` for
+   Watchtower. Add the absolute host paths
+   `RUNNER_SECCOMP_PATH=/opt/agent-tasks/seccomp-browser.json` and, for the
+   `search` profile, `SEARXNG_SETTINGS_PATH=/opt/agent-tasks/searxng-settings.yml`;
+   `COMPOSE_PROFILES=search` enables SearXNG. The deploy script never creates or
+   overwrites this file.
+
+3. Deploy from a checkout. `deployment/deploy.sh` copies the compose file to the
+   host and reconciles the stack; `--dry-run` prints the two commands:
+
+   ```bash
+   deployment/deploy.sh --dry-run
+   deployment/deploy.sh
+   ```
+
+   The services set `pull_policy: always`, so Compose pulls the GHCR tag selected
+   by `IMAGE_PREFIX`/`IMAGE_TAG` instead of building the local Dockerfiles. Do not
+   edit `/opt/stacks/agent-tasks/compose.yaml` on the host: it is overwritten on
+   the next deploy. Change the repository and deploy again.
 
 Auto-update: api and worker carry
 `com.centurylinklabs.watchtower.enable=true`. browser-runner carries `false`;
 postgres and searxng carry no label. A database must not restart under a running
 migration,
 and the runner is pinned to a Playwright version. Run Watchtower with
-`--label-enable` so only opted-in containers move.
+`--label-enable` so only opted-in containers move. A host-wide Watchtower
+**without** `--label-enable` ignores those labels and also moves browser-runner
+and the databases; that is a deliberate host policy, not a project default.
 
 ```bash
 docker run -d --name watchtower --restart unless-stopped \
@@ -339,7 +358,8 @@ docker run -d --name watchtower --restart unless-stopped \
   containrrr/watchtower --label-enable --cleanup --interval 300
 ```
 
-Portainer's own re-pull/redeploy works as well; migrations run on API start
+Re-running `deployment/deploy.sh` (or `docker compose pull` + `up -d` in
+`/opt/stacks/agent-tasks`) picks up a new image; migrations run on API start
 (`RUN_MIGRATIONS=true`) and are idempotent. Watchtower can only move images that are
 published under `IMAGE_PREFIX`; a locally built stack is updated by rebuilding, not
 by the updater.
@@ -400,8 +420,8 @@ docker compose ps
 grep '^SETUP_TOKEN=' .env
 ```
 
-In Portainer, deploy the stack as described above and read `SETUP_TOKEN` from the
-stack's environment.
+Deploy the stack as described above and read `SETUP_TOKEN` from
+`/opt/stacks/agent-tasks/.env` on the host.
 
 1. Open `http://localhost:8080` (or the configured `PUBLIC_BASE_URL`) → setup screen.
    Paste `SETUP_TOKEN` and create the administrator. The password needs at least 12

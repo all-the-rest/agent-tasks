@@ -1,3 +1,9 @@
+# Production stack, deployed by deployment/deploy.sh as the compose project
+# `agent-tasks` in /opt/stacks/agent-tasks. The host copy is only overwritten from
+# this file; secrets and host paths live in /opt/stacks/agent-tasks/.env. The
+# relative host paths below (seccomp profile, SearXNG settings) resolve against
+# the repository root, so a host deploy sets RUNNER_SECCOMP_PATH and
+# SEARXNG_SETTINGS_PATH to absolute paths in that .env.
 name: agent-tasks
 
 x-app-env: &app-env
@@ -135,6 +141,9 @@ services:
       - /dev/shm:size=512m,mode=1777
     security_opt:
       - no-new-privileges:true
+      # Read by the Docker daemon before the container starts. The relative
+      # default only resolves in a repository checkout; the host .env sets an
+      # absolute path (/opt/agent-tasks/seccomp-browser.json).
       - seccomp=${RUNNER_SECCOMP_PATH:-docker/seccomp-browser.json}
     cap_drop: [ALL]
     # Chromium's user-namespace sandbox chroots into an empty directory after
@@ -186,6 +195,7 @@ services:
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
     volumes:
+      # Same rule as the seccomp profile: the host .env sets an absolute path.
       - ${SEARXNG_SETTINGS_PATH:-./docker/searxng/settings.yml}:/etc/searxng/settings.yml:ro
     networks: [backend]
     security_opt:

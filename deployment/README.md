@@ -7,10 +7,10 @@ the same time** on one Docker host without touching each other's data.
 
 `../compose.yaml` stays the single source for services, health checks, security
 options and profiles. The files here add the project name and select the compose
-entrypoint; `stack.sh` supplies the matching env file with `--env-file`, while a
-Portainer stack supplies the same variables through its stack environment. The
-overlays deliberately have no `env_file`: a gitignored file there would make a
-fresh repository-based Portainer stack fail before it could read the stack env.
+entrypoint; `stack.sh` supplies the matching env file with `--env-file`, while the
+production host keeps its variables in `/opt/stacks/agent-tasks/.env`. The
+overlays deliberately have no `env_file`: the production `.env` lives on the host,
+not in the checkout, and `deployment/deploy.sh` never writes it.
 
 | File | Project name | Stack label | Env file (stack.sh) |
 | --- | --- | --- | --- |
@@ -120,12 +120,12 @@ still present; `stack.sh production config -q` is allowed for validation.
 reverse proxy in front of `HTTP_PORT`. The full variable reference, backup,
 update and rollback notes are in [../DEPLOYMENT.md](../DEPLOYMENT.md).
 
-For Portainer, either paste the root `compose.yaml` into the stack web editor
-(set `RUNNER_SECCOMP_PATH` and, for `search`, `SEARXNG_SETTINGS_PATH` to host
-paths), or use a Git-backed stack with `deployment/compose.production.yaml` as
-the compose path and the same values in the stack environment. Do not add a
-local `deployment/env/production.env` to the repository; neither Portainer path
-reads it.
+For the production host, `deployment/deploy.sh` copies
+`compose.production.yaml` to `/opt/stacks/agent-tasks/compose.yaml` and runs
+`docker compose up -d --wait` there. The stack's `.env` (secrets and the absolute
+`RUNNER_SECCOMP_PATH` / `SEARXNG_SETTINGS_PATH`) lives only on the host and is
+never overwritten. There is no Portainer stack anymore: the host runs the compose
+project directly, and Watchtower updates the images.
 
 The API image contains the built SPA; there is no separate web container. The
 release workflow publishes `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`

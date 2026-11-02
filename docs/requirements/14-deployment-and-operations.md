@@ -1,4 +1,4 @@
-# Docker Compose deployment, Portainer auto-update, documentation
+# Docker Compose deployment, Watchtower auto-update, documentation
 
 _Labels: deploy, docs_
 
