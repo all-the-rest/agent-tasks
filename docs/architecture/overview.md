@@ -19,7 +19,8 @@ worker must be restartable and scalable with more replicas or a higher
 
 ## Data model
 
-`tasks` owns the schedule and the limits. `executions` is the durable record of one
+`tasks` owns each task definition and schedule. Global agent execution limits live
+in administrator-managed system settings. `executions` is the durable record of one
 occurrence — status, report, usage, duration, cancellation flag, worker lease.
 `execution_steps` holds one row per tool call, `execution_sources` the deduplicated
 sources. `provider_credentials` stores AES-GCM ciphertext with `owner_id NULL` for
@@ -68,9 +69,10 @@ system prompt + user prompt
         └──────────── final answer ◄─────────────────┘
 ```
 
-Each iteration is bounded by the task limits: steps, tool calls, page visits, search
-queries, output bytes, wall clock. Tool results enter the context wrapped as
-untrusted data. Only ten tools exist; there is no generic HTTP, shell or code tool.
+Each iteration is bounded by the global administrator-configured limits: steps, tool
+calls, page visits, search queries, output bytes and wall clock. Defaults use the
+finite hard caps. Tool results enter the context wrapped as untrusted data. Only ten
+tools exist; there is no generic HTTP, shell or code tool.
 
 ## Failure handling
 

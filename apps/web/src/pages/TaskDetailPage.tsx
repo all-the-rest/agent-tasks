@@ -131,7 +131,6 @@ export function TaskDetailPage() {
   if (task.isError || !task.data) return <ErrorAlert message={t('errors.notFound')} />;
 
   const data = task.data;
-  const limits = data.limits;
 
   return (
     <>
@@ -279,26 +278,6 @@ export function TaskDetailPage() {
                 <dd className="text-right">{data.enabled ? formatDate(data.nextRunAt, i18n.language) : t('common.never')}</dd>
                 <dt className="opacity-60">{t('tasks.timezone')}</dt>
                 <dd className="text-right">{data.timezone}</dd>
-              </dl>
-            </div>
-          </section>
-
-          <section className="card border border-base-300 bg-base-100 shadow-sm">
-            <div className="card-body gap-2 p-5 text-sm">
-              <h2 className="card-title text-base">{t('tasks.limitsSection')}</h2>
-              <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-xs">
-                <dt className="opacity-60">{t('tasks.limitsDuration')}</dt>
-                <dd>{limits.maxDurationSec}</dd>
-                <dt className="opacity-60">{t('tasks.limitsSteps')}</dt>
-                <dd>{limits.maxAgentSteps}</dd>
-                <dt className="opacity-60">{t('tasks.limitsPages')}</dt>
-                <dd>{limits.maxPageVisits}</dd>
-                <dt className="opacity-60">{t('tasks.limitsOutput')}</dt>
-                <dd>{limits.maxOutputBytes}</dd>
-                <dt className="opacity-60">{t('tasks.limitsToolCalls')}</dt>
-                <dd>{limits.maxToolCalls}</dd>
-                <dt className="opacity-60">{t('tasks.limitsSearches')}</dt>
-                <dd>{limits.maxSearchQueries}</dd>
               </dl>
               <div className="mt-2 flex flex-wrap gap-2">
                 <span className={`badge badge-sm ${data.allowWebResearch ? 'badge-info' : 'badge-ghost'}`}>

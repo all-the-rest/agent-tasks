@@ -4,7 +4,6 @@ import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { executions, providerCredentials, providers, tasks } from '@agent-tasks/database';
 import {
   AppError,
-  HARD_LIMITS,
   nextOccurrence,
   scheduleSchema,
   taskInputSchema,
@@ -21,6 +20,15 @@ function parseSchedule(input: unknown): ParsedSchedule {
   const parsed = scheduleSchema.safeParse(input);
   if (!parsed.success) throw AppError.badRequest('invalid schedule', parsed.error.issues);
   return parsed.data;
+}
+
+function omitTaskLimits<T extends { limits: unknown }>(task: T): Omit<T, 'limits'>;
+function omitTaskLimits<T extends { limits: unknown }>(task: T | undefined): Omit<T, 'limits'> | undefined;
+function omitTaskLimits<T extends { limits: unknown }>(task: T | undefined): Omit<T, 'limits'> | undefined {
+  if (!task) return undefined;
+  const { limits, ...response } = task;
+  void limits;
+  return response;
 }
 
 async function assertProviderUsable(context: AppContext, userId: string, providerId: string): Promise<{ kind: string; name: string }> {
@@ -56,7 +64,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .orderBy(desc(tasks.createdAt))
       .limit(limit);
     return rows.map((task) => ({
-      ...task,
+      ...omitTaskLimits(task),
       scheduleDescription: describeSchedule(scheduleSchema.parse(task.schedule)),
     }));
   });
@@ -69,6 +77,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const schedule = parsed.data.schedule;
     const nextRunAt = nextOccurrence(schedule);
     if (parsed.data.enabled && !nextRunAt) throw AppError.badRequest('the schedule has no future occurrence');
+    const settings = await context.settings();
 
     const id = randomUUID();
     const [created] = await db
@@ -85,7 +94,9 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         enabled: parsed.data.enabled,
         schedule,
         timezone: schedule.timezone,
-        limits: parsed.data.limits,
+        // Keep the legacy per-task column as a snapshot for older clients. The
+        // worker always uses the current global administrator settings instead.
+        limits: settings.agentLimits,
         allowWebResearch: parsed.data.allowWebResearch,
         notification: parsed.data.notification,
         memorySettings: parsed.data.memorySettings,
@@ -101,7 +112,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       ip: request.ip,
     });
     reply.code(201);
-    return created;
+    return omitTaskLimits(created);
   });
 
   app.get<{ Params: { id: string } }>('/api/tasks/:id', async (request) => {
@@ -114,7 +125,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .limit(1);
     const task = rows[0];
     if (!task) throw AppError.notFound('task');
-    return { ...task, scheduleDescription: describeSchedule(scheduleSchema.parse(task.schedule)) };
+    return { ...omitTaskLimits(task), scheduleDescription: describeSchedule(scheduleSchema.parse(task.schedule)) };
   });
 
   app.patch<{ Params: { id: string }; Body: unknown }>('/api/tasks/:id', async (request) => {
@@ -129,12 +140,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .limit(1);
     if (!rows[0]) throw AppError.notFound('task');
     if (parsed.data.providerId) await assertProviderUsable(context, me.id, parsed.data.providerId);
-    if (parsed.data.limits) {
-      const limit = parsed.data.limits;
-      if (limit.maxDurationSec > HARD_LIMITS.maxDurationSec || limit.maxAgentSteps > HARD_LIMITS.maxAgentSteps || limit.maxPageVisits > HARD_LIMITS.maxPageVisits) {
-        throw AppError.badRequest('limits exceed the hard maximum');
-      }
-    }
     const schedule = parsed.data.schedule ? parseSchedule(parsed.data.schedule) : null;
     const enabled = parsed.data.enabled ?? rows[0].enabled;
     const scheduleChanged = schedule !== null;
@@ -156,7 +161,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         ...(parsed.data.systemInstructions !== undefined ? { systemInstructions: parsed.data.systemInstructions } : {}),
         ...(parsed.data.providerId ? { providerId: parsed.data.providerId } : {}),
         ...(parsed.data.model ? { model: parsed.data.model } : {}),
-        ...(parsed.data.limits ? { limits: parsed.data.limits } : {}),
         ...(parsed.data.allowWebResearch !== undefined ? { allowWebResearch: parsed.data.allowWebResearch } : {}),
         ...(parsed.data.notification ? { notification: parsed.data.notification } : {}),
         ...(parsed.data.memorySettings ? { memorySettings: parsed.data.memorySettings } : {}),
@@ -168,7 +172,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .where(and(eq(tasks.id, request.params.id), eq(tasks.ownerId, me.id)))
       .returning();
     await context.audit({ actorId: me.id, action: AUDIT_ACTIONS.taskUpdated, targetType: 'task', targetId: request.params.id });
-    return updated;
+    return omitTaskLimits(updated);
   });
 
   app.delete<{ Params: { id: string } }>('/api/tasks/:id', async (request, reply) => {
@@ -193,7 +197,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
       .returning();
     if (!updated) throw AppError.notFound('task');
-    return updated;
+    return omitTaskLimits(updated);
   });
 
   app.post<{ Params: { id: string } }>('/api/tasks/:id/resume', async (request) => {
@@ -212,7 +216,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .set({ enabled: true, nextRunAt: next, updatedAt: new Date() })
       .where(and(eq(tasks.id, task.id), eq(tasks.ownerId, me.id)))
       .returning();
-    return updated;
+    return omitTaskLimits(updated);
   });
 
   app.post<{ Params: { id: string } }>('/api/tasks/:id/run', async (request) => {
@@ -258,12 +262,14 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .limit(1);
     const task = rows[0];
     if (!task) throw AppError.notFound('task');
+    const settings = await context.settings();
     const id = randomUUID();
     const [copy] = await db
       .insert(tasks)
       .values({
         ...task,
         id,
+        limits: settings.agentLimits,
         title: `${task.title} (copy)`,
         enabled: false,
         nextRunAt: null,
@@ -272,7 +278,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       })
       .returning();
     reply.code(201);
-    return copy;
+    return omitTaskLimits(copy);
   });
 
   app.get<{ Params: { id: string }; Querystring: { limit?: string; before?: string } }>('/api/tasks/:id/executions', async (request) => {

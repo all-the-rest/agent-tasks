@@ -19,6 +19,12 @@ msgstr "Actor"
 msgid "admin.addProvider"
 msgstr "Add provider"
 
+msgid "admin.agentLimitsHint"
+msgstr "Global limits for each run. Task owners cannot change these values."
+
+msgid "admin.agentLimitsTitle"
+msgstr "Agent execution limits"
+
 msgid "admin.allowRegistration"
 msgstr "Allow open registration"
 
@@ -147,6 +153,24 @@ msgstr "OpenAI-compatible"
 
 msgid "admin.lastUpdated"
 msgstr "Last updated"
+
+msgid "admin.maxAgentDuration"
+msgstr "Maximum duration (seconds)"
+
+msgid "admin.maxAgentOutputBytes"
+msgstr "Maximum output (bytes)"
+
+msgid "admin.maxAgentPageVisits"
+msgstr "Maximum page visits"
+
+msgid "admin.maxAgentSearchQueries"
+msgstr "Maximum search queries"
+
+msgid "admin.maxAgentSteps"
+msgstr "Maximum agent steps"
+
+msgid "admin.maxAgentToolCalls"
+msgstr "Maximum tool calls"
 
 msgid "admin.maxConcurrent"
 msgstr "Concurrent executions per user"
@@ -1638,27 +1662,6 @@ msgstr "Hour"
 
 msgid "tasks.lastRun"
 msgstr "Last run"
-
-msgid "tasks.limitsDuration"
-msgstr "Maximum duration (seconds)"
-
-msgid "tasks.limitsOutput"
-msgstr "Maximum output (bytes)"
-
-msgid "tasks.limitsPages"
-msgstr "Maximum page visits"
-
-msgid "tasks.limitsSearches"
-msgstr "Maximum search queries"
-
-msgid "tasks.limitsSection"
-msgstr "Limits"
-
-msgid "tasks.limitsSteps"
-msgstr "Maximum agent steps"
-
-msgid "tasks.limitsToolCalls"
-msgstr "Maximum tool calls"
 
 msgid "tasks.minute"
 msgstr "Minute"

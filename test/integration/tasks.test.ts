@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { HARD_LIMITS } from '@agent-tasks/shared';
 import { bootstrapAdmin, createHarness, inviteAndAccept } from '../helpers/harness';
 import type { TestHarness } from '../helpers/harness';
 
@@ -39,7 +40,6 @@ const taskBody = (providerId: string) => ({
   model: 'mock-researcher',
   enabled: true,
   schedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
-  limits: { maxDurationSec: 120, maxAgentSteps: 6, maxPageVisits: 4, maxOutputBytes: 100000, maxToolCalls: 10, maxSearchQueries: 3 },
   allowWebResearch: false,
   notification: 'none',
 });
@@ -84,6 +84,107 @@ describe('partial task updates', () => {
       [taskId],
     );
     expect(stored.rows[0]).toMatchObject({ enabled: false, allow_web_research: false, notification: 'none', next_run_at: null });
+  });
+
+  it('uses global agent limits and ignores per-task overrides from regular users', async () => {
+    harness = await createHarness();
+    const admin = await bootstrapAdmin(harness);
+    const alice = await inviteAndAccept(harness, admin.cookie, 'alice@example.com');
+    const providerId = await providerFor(harness, admin.cookie);
+    const configuredLimits = { ...HARD_LIMITS, maxDurationSec: 900, maxAgentSteps: 45 };
+
+    const settings = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+      payload: { agentLimits: configuredLimits },
+    });
+    expect(settings.statusCode, settings.body).toBe(200);
+    expect(settings.json().agentLimits).toEqual(configuredLimits);
+
+    const created = await harness.app.inject({
+      method: 'POST',
+      url: '/api/tasks',
+      headers: { cookie: alice.cookie },
+      payload: {
+        ...taskBody(providerId),
+        limits: { maxDurationSec: 30, maxAgentSteps: 1, maxPageVisits: 0, maxOutputBytes: 1_000, maxToolCalls: 1, maxSearchQueries: 0 },
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json()).not.toHaveProperty('limits');
+    const taskId = created.json().id as string;
+
+    const stored = await harness.db.pool.query<{ limits: typeof configuredLimits }>('select limits from tasks where id = $1', [taskId]);
+    expect(stored.rows[0]?.limits).toEqual(configuredLimits);
+
+    const listed = await harness.app.inject({ method: 'GET', url: '/api/tasks', headers: { cookie: alice.cookie } });
+    expect(listed.statusCode, listed.body).toBe(200);
+    expect(listed.json().find((task: { id: string }) => task.id === taskId)).not.toHaveProperty('limits');
+
+    const detail = await harness.app.inject({
+      method: 'GET',
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).not.toHaveProperty('limits');
+
+    const patched = await harness.app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: alice.cookie },
+      payload: { limits: { maxDurationSec: 30, maxAgentSteps: 1 } },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(patched.json()).not.toHaveProperty('limits');
+
+    const paused = await harness.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/pause`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(paused.statusCode, paused.body).toBe(200);
+    expect(paused.json()).not.toHaveProperty('limits');
+
+    const resumed = await harness.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/resume`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(resumed.statusCode, resumed.body).toBe(200);
+    expect(resumed.json()).not.toHaveProperty('limits');
+
+    const updatedLimits = { ...configuredLimits, maxDurationSec: 600, maxAgentSteps: 30 };
+    const updatedSettings = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+      payload: { agentLimits: updatedLimits },
+    });
+    expect(updatedSettings.statusCode, updatedSettings.body).toBe(200);
+    expect(updatedSettings.json().agentLimits).toEqual(updatedLimits);
+
+    const copy = await harness.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/duplicate`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(copy.statusCode, copy.body).toBe(201);
+    expect(copy.json()).not.toHaveProperty('limits');
+
+    const duplicateId = copy.json().id as string;
+    const duplicateSnapshot = await harness.db.pool.query<{ limits: typeof configuredLimits }>(
+      'select limits from tasks where id = $1',
+      [duplicateId],
+    );
+    expect(duplicateSnapshot.rows[0]?.limits).toEqual(updatedLimits);
+
+    const originalSnapshot = await harness.db.pool.query<{ limits: typeof configuredLimits }>(
+      'select limits from tasks where id = $1',
+      [taskId],
+    );
+    expect(originalSnapshot.rows[0]?.limits).toEqual(configuredLimits);
   });
 
   it('keeps timezone and locale when only the theme is patched', async () => {

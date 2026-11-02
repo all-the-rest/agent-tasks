@@ -22,7 +22,7 @@ within 72 hours and to publish a fix and advisory within 30 days for confirmed i
 | API → Postgres | Private compose network only, no published port, single application role |
 | Worker → browser runner | Shared token (`RUNNER_TOKEN`), private compose network, no published port |
 | Runner → Internet | Enforcing HTTP proxy: scheme/port allowlist, DNS resolved in the proxy, all answers must be public, connection pinned to a checked IP |
-| Model → tools | Allowlist of the defined tools (nine exposed; form filling off), Zod-validated arguments, per-task limits |
+| Model → tools | Allowlist of the defined tools (nine exposed; form filling off), Zod-validated arguments, globally configured administrator limits |
 | Webpage → model | Retrieved text is wrapped in `UNTRUSTED EXTERNAL CONTENT` and never treated as instructions |
 
 ## Authentication and sessions
@@ -95,7 +95,7 @@ the real boundary. A per-execution container launcher is the documented next ste
 - System instructions, user prompt and retrieved content are separated; retrieved
   content is wrapped and labelled as data.
 - The model can only call allowlisted tools; every call is validated and counted
-  against the task's limits.
+  against global administrator-configured limits. Task owners cannot override them.
 - The worker does not expose `fill_form` (`allowForms: false`); the runner also
   refuses clicks on login/checkout/payment/destructive controls and form submits on
   authentication or payment pages.

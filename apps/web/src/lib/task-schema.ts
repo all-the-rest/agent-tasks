@@ -15,15 +15,6 @@ const scheduleFormSchema = z.object({
   cron: z.string().optional(),
 });
 
-const limitsFormSchema = z.object({
-  maxDurationSec: z.number().int().min(30, 'validation.range').max(3600, 'validation.range'),
-  maxAgentSteps: z.number().int().min(1, 'validation.range').max(60, 'validation.range'),
-  maxPageVisits: z.number().int().min(0, 'validation.range').max(40, 'validation.range'),
-  maxOutputBytes: z.number().int().min(1_000, 'validation.range').max(2_000_000, 'validation.range'),
-  maxToolCalls: z.number().int().min(1, 'validation.range').max(120, 'validation.range'),
-  maxSearchQueries: z.number().int().min(0, 'validation.range').max(20, 'validation.range'),
-});
-
 export const taskFormSchema = z
   .object({
     title: z
@@ -42,7 +33,6 @@ export const taskFormSchema = z
     model: z.string().min(1, 'validation.modelRequired'),
     enabled: z.boolean(),
     schedule: scheduleFormSchema,
-    limits: limitsFormSchema,
     allowWebResearch: z.boolean(),
     notification: z.enum(['none', 'email']),
     memorySettings: z.object({
@@ -85,7 +75,6 @@ export function toTaskInput(values: TaskFormValues): TaskInput {
     model: values.model,
     enabled: values.enabled,
     schedule: schedulePayload(values.schedule),
-    limits: values.limits,
     allowWebResearch: values.allowWebResearch,
     notification: values.notification,
     memorySettings: values.memorySettings,

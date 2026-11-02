@@ -134,7 +134,7 @@ function summarise(markdown: string): string {
 
 /**
  * The real agent loop: model → validated tool call → tool → observation → model.
- * Every step is bounded by the task's limits and by the caller's abort signal.
+ * Every step is bounded by the configured execution limits and caller's abort signal.
  */
 export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult> {
   const now = options.now ?? (() => new Date());

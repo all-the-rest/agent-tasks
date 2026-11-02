@@ -23,14 +23,6 @@ function validValues(overrides: Partial<TaskFormValues> = {}): TaskFormValues {
       daysOfMonth: [1],
       cron: '0 9 * * 1',
     },
-    limits: {
-      maxDurationSec: 300,
-      maxAgentSteps: 12,
-      maxPageVisits: 8,
-      maxOutputBytes: 200_000,
-      maxToolCalls: 24,
-      maxSearchQueries: 4,
-    },
     allowWebResearch: true,
     notification: 'email',
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
@@ -95,20 +87,17 @@ describe('taskFormSchema', () => {
     expect(custom.success).toBe(false);
   });
 
-  it('rejects limits outside the hard bounds', () => {
-    const parsed = taskFormSchema.safeParse(
-      validValues({
-        limits: {
-          maxDurationSec: 10,
-          maxAgentSteps: 12,
-          maxPageVisits: 8,
-          maxOutputBytes: 200_000,
-          maxToolCalls: 24,
-          maxSearchQueries: 4,
-        },
-      }),
-    );
-    expect(parsed.success).toBe(false);
+  it('does not expose agent execution limits in task form values or payloads', () => {
+    const legacyValues = {
+      ...validValues(),
+      limits: { maxDurationSec: 30, maxAgentSteps: 1 },
+    };
+    const parsed = taskFormSchema.safeParse(legacyValues);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+
+    expect(parsed.data).not.toHaveProperty('limits');
+    expect(toTaskInput(parsed.data)).not.toHaveProperty('limits');
   });
 });
 

@@ -48,20 +48,22 @@ timezone, the model and the last run. From here you can **Pause**, **Run now**,
    timezone, independently of the server clock. The form shows the effective
    timezone and offers **Use my timezone** to switch to the browser's local
    zone. DST gaps and overlaps are handled by the scheduler.
-5. Adjust the limits if needed: duration, agent steps, page visits, output size,
-   tool calls and search queries.
-6. Decide whether the agent may browse the web and whether to **Email me** when
+5. Decide whether the agent may browse the web and whether to **Email me** when
    the run finishes.
-7. Save. The task is enabled unless you switch it off.
+6. Save. The task is enabled unless you switch it off.
+
+Per-run execution limits are global, high but finite defaults. An administrator
+can lower them in **Administration → System settings**; task owners cannot
+change them per task.
 
 ### Task detail
 
 ![Task detail](images/task-detail.png)
 
-The detail page repeats the prompt and limits and lists every execution. Use
-**Run now** for an immediate manual run, **Pause** to stop future schedules and
-**Edit** to change the definition. A task can have at most one queued or running
-execution at a time.
+The detail page repeats the prompt and lists every execution. Use **Run now** for
+an immediate manual run, **Pause** to stop future schedules and **Edit** to
+change the definition. A task can have at most one queued or running execution
+at a time.
 
 ## Memory
 

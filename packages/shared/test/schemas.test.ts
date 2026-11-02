@@ -1,6 +1,13 @@
-import { compatibleConfigSchema, systemSettingsSchema } from '../src/schemas.js';
+import { compatibleConfigSchema } from '../src/schemas.js';
 import { describe, expect, it } from 'vitest';
-import { taskInputSchema, taskUpdateSchema, userPreferencesUpdateSchema } from '../src/index.js';
+import {
+  DEFAULT_LIMITS,
+  HARD_LIMITS,
+  systemSettingsSchema,
+  taskInputSchema,
+  taskUpdateSchema,
+  userPreferencesUpdateSchema,
+} from '../src/index.js';
 
 const createBody = {
   title: 'Daily research',
@@ -8,14 +15,13 @@ const createBody = {
   providerId: '00000000-0000-4000-8000-000000000001',
   model: 'mock-researcher',
   schedule: { preset: 'daily', timezone: 'Europe/Vienna' },
-  limits: {},
 };
 
 describe('PATCH schemas do not apply create defaults', () => {
   it('still fills defaults for a create body', () => {
     const created = taskInputSchema.parse(createBody);
     expect(created).toMatchObject({ enabled: true, allowWebResearch: true, notification: 'none' });
-    expect(created.limits.maxAgentSteps).toBeGreaterThan(0);
+    expect(created).not.toHaveProperty('limits');
   });
 
   it('leaves omitted task fields absent on update', () => {
@@ -30,6 +36,22 @@ describe('PATCH schemas do not apply create defaults', () => {
   it('keeps an explicit update value', () => {
     const update = taskUpdateSchema.parse({ enabled: false, allowWebResearch: false });
     expect(update).toEqual({ enabled: false, allowWebResearch: false });
+  });
+
+  it('ignores legacy task-level limit input', () => {
+    const created = taskInputSchema.parse({ ...createBody, limits: { maxAgentSteps: 1 } });
+    const update = taskUpdateSchema.parse({ limits: { maxAgentSteps: 1 } });
+    expect(created).not.toHaveProperty('limits');
+    expect(update).toEqual({});
+  });
+
+  it('defaults global agent limits to the finite hard caps and lets admins lower them', () => {
+    expect(DEFAULT_LIMITS).toEqual(HARD_LIMITS);
+    expect(systemSettingsSchema.parse({}).agentLimits).toEqual(HARD_LIMITS);
+    expect(systemSettingsSchema.parse({ agentLimits: { maxDurationSec: 600 } }).agentLimits)
+      .toMatchObject({ ...HARD_LIMITS, maxDurationSec: 600 });
+    expect(systemSettingsSchema.safeParse({ agentLimits: { maxDurationSec: HARD_LIMITS.maxDurationSec + 1 } }).success)
+      .toBe(false);
   });
 
   it('leaves omitted preference fields absent on update', () => {

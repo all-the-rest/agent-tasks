@@ -90,7 +90,7 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `RUNNER_ALLOW_HTTP` | browser-runner | `true` | no |
 | `RUNNER_ALLOWED_PORTS` | browser-runner | `80,443` | no; comma-separated |
 | `RUNNER_MAX_SESSIONS` | browser-runner | `2` | no |
-| `RUNNER_SESSION_TTL_MS` | browser-runner | `900000` in `compose.yaml` | no; must exceed the longest task duration |
+| `RUNNER_SESSION_TTL_MS` | browser-runner | `3660000` (61 minutes) | no; must exceed the 3600-second maximum task duration |
 | `RUNNER_ACTION_TIMEOUT_MS` | browser-runner | `30000` | no; **not forwarded by `compose.yaml`** |
 | `RUNNER_MAX_TEXT_CHARS` | browser-runner | `30000` | no; **not forwarded by `compose.yaml`** |
 | `RUNNER_CHROMIUM_SANDBOX` | browser-runner | `true` | no; `compose.yaml` pins `"true"` |

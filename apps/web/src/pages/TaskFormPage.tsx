@@ -26,15 +26,6 @@ import type { Task } from '../lib/types';
 
 const DEFAULT_MEMORY_SETTINGS = { mode: 'auto' as const, contextBytes: 12_000 };
 
-const DEFAULT_LIMITS = {
-  maxDurationSec: 300,
-  maxAgentSteps: 12,
-  maxPageVisits: 8,
-  maxOutputBytes: 200_000,
-  maxToolCalls: 24,
-  maxSearchQueries: 4,
-} as const;
-
 function emptyValues(timezone: string): TaskFormValues {
   return {
     title: '',
@@ -45,7 +36,6 @@ function emptyValues(timezone: string): TaskFormValues {
     model: '',
     enabled: true,
     schedule: { ...defaultSchedule(timezone), timePreset: 'morning' },
-    limits: { ...DEFAULT_LIMITS },
     allowWebResearch: true,
     notification: 'none',
     memorySettings: { ...DEFAULT_MEMORY_SETTINGS },
@@ -76,7 +66,6 @@ function taskValues(task: Task, fallbackTimezone: string): TaskFormValues {
           : [1],
       cron: task.schedule.cron ?? '',
     },
-    limits: { ...DEFAULT_LIMITS, ...task.limits },
     allowWebResearch: task.allowWebResearch,
     notification: task.notification,
     memorySettings: { ...DEFAULT_MEMORY_SETTINGS, ...(task.memorySettings ?? {}) },
@@ -514,32 +503,6 @@ export function TaskFormPage() {
                   cron: schedule?.cron,
                 })}</span>
               ) : null}
-            </div>
-          </div>
-        </section>
-
-        <section className="card border border-base-300 bg-base-100 shadow-sm">
-          <div className="card-body gap-3 p-5">
-            <h2 className="card-title text-base">{t('tasks.limitsSection')}</h2>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label={t('tasks.limitsDuration')} htmlFor="limit-duration" error={tr(errors.limits?.maxDurationSec?.message)}>
-                <input id="limit-duration" type="number" className="input w-full" {...register('limits.maxDurationSec', { valueAsNumber: true })} />
-              </Field>
-              <Field label={t('tasks.limitsSteps')} htmlFor="limit-steps" error={tr(errors.limits?.maxAgentSteps?.message)}>
-                <input id="limit-steps" type="number" className="input w-full" {...register('limits.maxAgentSteps', { valueAsNumber: true })} />
-              </Field>
-              <Field label={t('tasks.limitsPages')} htmlFor="limit-pages" error={tr(errors.limits?.maxPageVisits?.message)}>
-                <input id="limit-pages" type="number" className="input w-full" {...register('limits.maxPageVisits', { valueAsNumber: true })} />
-              </Field>
-              <Field label={t('tasks.limitsOutput')} htmlFor="limit-output" error={tr(errors.limits?.maxOutputBytes?.message)}>
-                <input id="limit-output" type="number" className="input w-full" {...register('limits.maxOutputBytes', { valueAsNumber: true })} />
-              </Field>
-              <Field label={t('tasks.limitsToolCalls')} htmlFor="limit-tools" error={tr(errors.limits?.maxToolCalls?.message)}>
-                <input id="limit-tools" type="number" className="input w-full" {...register('limits.maxToolCalls', { valueAsNumber: true })} />
-              </Field>
-              <Field label={t('tasks.limitsSearches')} htmlFor="limit-searches" error={tr(errors.limits?.maxSearchQueries?.message)}>
-                <input id="limit-searches" type="number" className="input w-full" {...register('limits.maxSearchQueries', { valueAsNumber: true })} />
-              </Field>
             </div>
           </div>
         </section>

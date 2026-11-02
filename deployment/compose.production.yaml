@@ -129,8 +129,9 @@ services:
       RUNNER_ALLOW_HTTP: ${RUNNER_ALLOW_HTTP:-true}
       RUNNER_ALLOWED_PORTS: ${RUNNER_ALLOWED_PORTS:-80,443}
       RUNNER_MAX_SESSIONS: ${RUNNER_MAX_SESSIONS:-2}
-      # Must exceed the longest task duration (limits.maxDurationSec, max 900 s).
-      RUNNER_SESSION_TTL_MS: ${RUNNER_SESSION_TTL_MS:-900000}
+      # Must exceed the longest task duration (limits.maxDurationSec, max 3600 s).
+      # 3,660,000 ms leaves one minute for session cleanup.
+      RUNNER_SESSION_TTL_MS: ${RUNNER_SESSION_TTL_MS:-3660000}
       # Keep the sandbox on by default. Hosts without user namespaces must opt out
       # explicitly (RUNNER_CHROMIUM_SANDBOX=false); startup logs the risk.
       RUNNER_CHROMIUM_SANDBOX: ${RUNNER_CHROMIUM_SANDBOX:-true}

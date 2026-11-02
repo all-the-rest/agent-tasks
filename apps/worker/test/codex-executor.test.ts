@@ -7,6 +7,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { executions, memories, providerCredentials, providers, recommendations } from '@agent-tasks/database';
 import { SecretBox } from '@agent-tasks/ai-providers';
 import type { RunAgentOptions } from '@agent-tasks/agent-runtime';
+import { HARD_LIMITS } from '@agent-tasks/shared';
 import { Executor } from '../src/executor.js';
 import type { WorkerEnv } from '../src/env.js';
 
@@ -31,6 +32,7 @@ interface FakeInput {
   task: Record<string, unknown>;
   provider: Record<string, unknown>;
   credentials: Array<{ ownerId: string | null; ciphertext: string }>;
+  settings?: Record<string, unknown>;
 }
 
 function fakeDb(input: FakeInput) {
@@ -69,7 +71,7 @@ function fakeDb(input: FakeInput) {
     // `loadSettings` passes a plain string; everything else is a drizzle SQL object.
     const sql = typeof query === 'string' ? query : dialect.sqlToQuery(query as never).sql;
     if (sql.includes('update executions') && sql.includes("set status = 'running'")) return { rows: [{ id: input.execution.id }] };
-    if (sql.includes('from system_settings')) return { rows: [{ values: {} }] };
+    if (sql.includes('from system_settings')) return { rows: [{ values: input.settings ?? {} }] };
     if (sql.includes('select cancel_requested')) return { rows: [{ cancel_requested: false }] };
     if (sql.includes('count(*)::int as count')) return { rows: [{ count: 0 }] };
     throw new Error(`unexpected SQL: ${sql}`);
@@ -135,10 +137,34 @@ describe('executor Codex home', () => {
       await executor.handle(executionId);
 
       expect(state.options?.provider.kind).toBe('codex');
+      expect(state.options?.limits).toEqual(HARD_LIMITS);
       expect(state.options?.providerContext.config.codexHome).toBe(join(root, homeSegment(OWNER)));
       const info = await stat(join(root, homeSegment(OWNER)));
       expect(info.isDirectory()).toBe(true);
       expect(info.mode & 0o777).toBe(0o700);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses administrator execution budgets instead of legacy per-task values', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
+    try {
+      state.options = null;
+      const { executionId, input } = codexFixture(OWNER);
+      const agentLimits = {
+        maxDurationSec: 600,
+        maxAgentSteps: 25,
+        maxPageVisits: 18,
+        maxOutputBytes: 750_000,
+        maxToolCalls: 80,
+        maxSearchQueries: 12,
+      };
+      const fake = fakeDb({ ...input, settings: { agentLimits } });
+      const executor = new Executor({ db: fake.db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker' });
+      await executor.handle(executionId);
+
+      expect(state.options?.limits).toEqual(agentLimits);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
