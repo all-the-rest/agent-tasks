@@ -39,7 +39,7 @@ lists exactly what a profile starts.
 
 ```bash
 docker compose --profile search up -d --build          # first install with web search
-docker compose up -d                                   # install without web search
+docker compose up -d --build                           # install without web search
 ```
 
 `SEARXNG_URL` defaults to `http://searxng:8080` in every profile, so web search
@@ -770,9 +770,9 @@ DEPLOY_HOST=root@docker.example deployment/deploy.sh
 The script backs up `.env`/the database first, uploads the vendored compose file
 and support assets, then runs `docker compose up -d --wait` in
 `/opt/stacks/agent-tasks`. The services use `pull_policy: always`, so Compose
-fetches the GHCR tag selected by `IMAGE_PREFIX`/`IMAGE_TAG`. On a local source
-checkout use `docker compose pull && docker compose up -d` or
-`docker compose up -d --build` instead.
+fetches the GHCR tag selected by `IMAGE_PREFIX`/`IMAGE_TAG`; the production file
+has no `build`. On a local source checkout, the root `compose.yaml` pins
+`pull_policy: build`, so use `docker compose up -d --build` instead of a pull.
 
 Migrations run before the API accepts traffic; the worker waits for Postgres.
 Rolling back only the compose file or `IMAGE_TAG` does **not** undo migrations.

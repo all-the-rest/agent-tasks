@@ -198,9 +198,10 @@ environment file:
   that time; the current production file additionally requires
   `POSTGRES_PASSWORD`, `PUBLIC_BASE_URL`, `COOKIE_SECURE` and `TRUST_PROXY`, and
   `deployment/stack.sh production` is now limited to local `config` validation.
-- api, worker and browser-runner set `pull_policy: always`; the production tag is
-  `IMAGE_TAG=0`. A manually pasted root `compose.yaml` therefore pulls the public
-  GHCR image instead of building the local Dockerfiles.
+- The production file (`deployment/compose.production.yaml`) sets
+  `pull_policy: always` with `IMAGE_TAG=0`, so the host pulls the published GHCR
+  images. The root `compose.yaml` instead pins `pull_policy: build` on api,
+  worker and browser-runner, so a source checkout builds its own images.
 - The manual Portainer web-editor path uses the root compose file. The runner
   needs `RUNNER_SECCOMP_PATH` pointing at `docker/seccomp-browser.json` on the
   Docker host; `SEARXNG_SETTINGS_PATH` does the same for the optional search

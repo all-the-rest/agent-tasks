@@ -119,10 +119,11 @@ grep '^SETUP_TOKEN=' .env
 ```
 
 The public images are published at
-`ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`. After the first
-`v*` release exists, `docker compose --profile search pull` followed by
-`docker compose --profile search up -d` starts the published images; use
-`--build` for a source checkout.
+`ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`. The root
+`compose.yaml` builds api, worker and browser-runner from this checkout
+(`pull_policy: build`), so start it with `--build` as shown above. The
+production file `deployment/compose.production.yaml` has no `build` and pulls
+the published images instead.
 
 `sed -i` is GNU syntax; on macOS use `sed -i ''`. The root/local compose
 fallbacks are `POSTGRES_PASSWORD=agent`, `PUBLIC_BASE_URL=http://localhost:8080`
