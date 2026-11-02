@@ -19,6 +19,12 @@ msgstr "Akteur"
 msgid "admin.addProvider"
 msgstr "Anbieter hinzufügen"
 
+msgid "admin.agentLimitsHint"
+msgstr "Globale Grenzen für jeden Lauf. Aufgabenbesitzer können diese Werte nicht ändern."
+
+msgid "admin.agentLimitsTitle"
+msgstr "Agent-Ausführungsgrenzen"
+
 msgid "admin.allowRegistration"
 msgstr "Offene Registrierung erlauben"
 
@@ -147,6 +153,24 @@ msgstr "OpenAI-kompatibel"
 
 msgid "admin.lastUpdated"
 msgstr "Zuletzt aktualisiert"
+
+msgid "admin.maxAgentDuration"
+msgstr "Maximale Dauer (Sekunden)"
+
+msgid "admin.maxAgentOutputBytes"
+msgstr "Maximale Ausgabe (Bytes)"
+
+msgid "admin.maxAgentPageVisits"
+msgstr "Maximale Seitenaufrufe"
+
+msgid "admin.maxAgentSearchQueries"
+msgstr "Maximale Suchanfragen"
+
+msgid "admin.maxAgentSteps"
+msgstr "Maximale Agent-Schritte"
+
+msgid "admin.maxAgentToolCalls"
+msgstr "Maximale Tool-Aufrufe"
 
 msgid "admin.maxConcurrent"
 msgstr "Gleichzeitige Ausführungen pro Benutzer"
@@ -1638,27 +1662,6 @@ msgstr "Stunde"
 
 msgid "tasks.lastRun"
 msgstr "Letzter Lauf"
-
-msgid "tasks.limitsDuration"
-msgstr "Maximale Dauer (Sekunden)"
-
-msgid "tasks.limitsOutput"
-msgstr "Maximale Ausgabe (Bytes)"
-
-msgid "tasks.limitsPages"
-msgstr "Maximale Seitenaufrufe"
-
-msgid "tasks.limitsSearches"
-msgstr "Maximale Suchanfragen"
-
-msgid "tasks.limitsSection"
-msgstr "Grenzen"
-
-msgid "tasks.limitsSteps"
-msgstr "Maximale Agent-Schritte"
-
-msgid "tasks.limitsToolCalls"
-msgstr "Maximale Tool-Aufrufe"
 
 msgid "tasks.minute"
 msgstr "Minute"

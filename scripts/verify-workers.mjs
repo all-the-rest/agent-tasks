@@ -86,7 +86,6 @@ const taskPayload = (title, providerId) => ({
   model: 'mock-slow',
   enabled: false,
   schedule: { preset: 'once', timezone: 'Europe/Vienna', runAt: new Date(Date.now() + 3_600_000).toISOString() },
-  limits: {},
   allowWebResearch: false,
   notification: 'none',
 });

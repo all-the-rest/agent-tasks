@@ -1,14 +1,5 @@
 import { z } from 'zod';
 
-export const DEFAULT_LIMITS = {
-  maxDurationSec: 300,
-  maxAgentSteps: 12,
-  maxPageVisits: 8,
-  maxOutputBytes: 200_000,
-  maxToolCalls: 24,
-  maxSearchQueries: 4,
-} as const;
-
 export const HARD_LIMITS = {
   maxDurationSec: 3600,
   maxAgentSteps: 60,
@@ -17,6 +8,10 @@ export const HARD_LIMITS = {
   maxToolCalls: 120,
   maxSearchQueries: 20,
 } as const;
+
+// Runs use the finite hard caps by default. Administrators may lower these
+// global budgets, but individual task owners cannot choose their own limits.
+export const DEFAULT_LIMITS = HARD_LIMITS;
 
 export const limitsSchema = z.object({
   maxDurationSec: z.number().int().min(30).max(HARD_LIMITS.maxDurationSec).default(DEFAULT_LIMITS.maxDurationSec),

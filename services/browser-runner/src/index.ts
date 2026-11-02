@@ -21,7 +21,7 @@ if (!chromiumSandbox) {
 const pool = new BrowserPool(
   {
     maxSessions: Number(process.env.RUNNER_MAX_SESSIONS ?? '2'),
-    sessionTtlMs: Number(process.env.RUNNER_SESSION_TTL_MS ?? '120000'),
+    sessionTtlMs: Number(process.env.RUNNER_SESSION_TTL_MS ?? '3660000'),
     actionTimeoutMs: Number(process.env.RUNNER_ACTION_TIMEOUT_MS ?? '30000'),
     maxTextChars: Number(process.env.RUNNER_MAX_TEXT_CHARS ?? '30000'),
   },

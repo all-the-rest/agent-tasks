@@ -51,7 +51,6 @@ export interface Task {
   enabled: boolean;
   schedule: TaskSchedule;
   timezone: string;
-  limits: Limits;
   allowWebResearch: boolean;
   notification: Notification;
   memorySettings: MemorySettings;
@@ -70,7 +69,6 @@ export interface TaskInput {
   model: string;
   enabled: boolean;
   schedule: TaskSchedule;
-  limits: Limits;
   allowWebResearch: boolean;
   notification: Notification;
   memorySettings: MemorySettings;
@@ -360,6 +358,7 @@ export interface SystemSettings {
   defaultModel?: string;
   maxConcurrentExecutionsPerUser: number;
   maxTaskExecutionsPerDay: number;
+  agentLimits: Limits;
   browserAllowHttp: boolean;
   browserAllowedPorts: number[];
   searchProvider: 'searxng' | 'none';

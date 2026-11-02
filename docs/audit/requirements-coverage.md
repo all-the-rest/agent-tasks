@@ -159,7 +159,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 4 | UTC storage, schedule in IANA zone | IMPLEMENTED | `timestamptz` columns; `nextOccurrence` `schedule.ts:94-104` | `schedule.test.ts:34-39` |
 | 5 | Spring-forward gap runs at 03:30 | IMPLEMENTED | `schedule.ts:94-104` | `schedule.test.ts:41-46` (passes) |
 | 6 | Fall-back runs once at the first instant | IMPLEMENTED | same | `schedule.test.ts:48-53` (passes) |
-| 7 | Limits capped by hard maxima and enforced | IMPLEMENTED | `shared/src/limits.ts:11-28`; zod caps in `taskInputSchema`; loop enforcement `runtime.ts:101,154,184` | page-visit and step limits tested; tool-call/duration/output not |
+| 7 | Administrator-configured limits capped by hard maxima and enforced | IMPLEMENTED | `shared/src/limits.ts`; `systemSettingsSchema.agentLimits`; worker passes global settings to the runtime | schema defaults/caps and worker global-setting selection tested |
 
 ## 05 — Durable scheduling
 
@@ -205,7 +205,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 1 | Ten named tools | PARTIAL | all ten in `tools.ts:240-251`; `allowForms` is hardcoded `false` in `executor.ts:129`, and `runtime.ts:117-119` excludes `fill_form` from the offered tools | `runtime.test.ts:146-161` asserts the inventory, not usability |
 | 2 | No shell, JS, filesystem | IMPLEMENTED | only the ten tools exist; `runtime.test.ts:90-99` (`run_shell` refused) | `runtime.test.ts:90-99` |
 | 3 | Every call validated + allowlist, unknown refused | IMPLEMENTED | zod per tool; allowlist `runtime.ts:189-190` | `runtime.test.ts:90-99` |
-| 4 | Limits per step/tool/page/search/output/duration | PARTIAL | `runtime.ts:154,184,230`; `tools.ts:56-61,89-95`; tool-call overflow throws `AgentCancelledError('step_limit')` which the executor records as **cancelled** (`executor.ts:213-218`) | page-visit/step tested; tool-call/duration/output not |
+| 4 | Global administrator-configured limits per step/tool/page/search/output/duration | PARTIAL | `runtime.ts:154,184,230`; `tools.ts:56-61,89-95`; worker reads `systemSettings.agentLimits`; tool-call overflow throws `AgentCancelledError('step_limit')` which the executor records as **cancelled** (`executor.ts:213-218`) | default/admin budgets and worker selection tested; runtime enforcement coverage remains partial |
 | 5 | Retrieved content wrapped as untrusted | IMPLEMENTED | `prompt.ts:3-9,46-53` | `runtime.test.ts:101-111` |
 | 6 | Sources collected, deduped, persisted with confidence | IMPLEMENTED | `runtime.ts:77-84`; `executor.ts:159-165,172-187`; `execution_sources` unique index | `execution.test.ts:275-277` |
 | 7 | Final answer stored as Markdown + summary/sources/uncertainty | IMPLEMENTED | `executor.ts:159-165` (`report` jsonb) | `execution.test.ts:260-267` |

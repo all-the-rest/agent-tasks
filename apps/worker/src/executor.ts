@@ -21,7 +21,6 @@ import type { SearchProvider } from '@agent-tasks/browser-tools';
 import { ProviderError, SecretBox, contextFor, createProvider, redact, resolveCredential } from '@agent-tasks/ai-providers';
 import {
   buildMemoryContext,
-  limitsSchema,
   parseMemorySettings,
   renderEmailDocument,
   reportToMarkdown,
@@ -150,7 +149,7 @@ export class Executor {
       void heartbeat(db, executionId, LEASE_SECONDS);
     }, 2_000);
 
-    const limits = limitsSchema.parse(task.limits);
+    const limits = settings.agentLimits;
     let deadlineReached = false;
     const deadline = setTimeout(() => {
       deadlineReached = true;
