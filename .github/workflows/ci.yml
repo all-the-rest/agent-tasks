@@ -58,6 +58,20 @@ jobs:
             sh deployment/stack.sh "$stack" config -q
             echo "validated deployment/compose.$stack.yaml"
           done
+      - name: Check deployment scripts and compose parity
+        run: |
+          bash -n deployment/deploy.sh
+          sh -n deployment/stack.sh
+          sh -n scripts/test-deploy-dry-run.sh
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
+          shellcheck -S warning deployment/deploy.sh deployment/stack.sh scripts/test-deploy-dry-run.sh .githooks/pre-commit
+          DEPLOY_TEST_RENDER_COMPOSE=1 sh scripts/test-deploy-dry-run.sh
+          node scripts/test-compose-parity.mjs
+          node scripts/check-deploy-compose-contract.mjs
+          node scripts/check-compose-parity.mjs
 
   unit:
     name: Unit tests
