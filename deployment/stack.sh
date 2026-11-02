@@ -1,11 +1,13 @@
 #!/bin/sh
-# Start, stop or inspect one named deployment stack.
+# Start, stop or inspect one local deployment stack.
 #
-#   deployment/stack.sh production --profile search up -d
 #   deployment/stack.sh local --profile mail --profile search up -d --build
 #   deployment/stack.sh e2e --profile mail --profile search up -d --build
 #   deployment/stack.sh local ps
 #   deployment/stack.sh e2e down -v
+#   deployment/stack.sh production config -q   # local validation only
+#
+# Production itself runs on the Docker host and is deployed by deployment/deploy.sh.
 #
 # The stack is selected by its compose file (name: agent-tasks[-local|-e2e]);
 # every service also carries the label com.agent-tasks.stack=<stack>.
@@ -13,12 +15,18 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: deployment/stack.sh <production|local|e2e> <docker compose arguments...>
+Usage: deployment/stack.sh <local|e2e> <docker compose arguments...>
+       deployment/stack.sh production config [docker compose config arguments...]
 
 The environment file deployment/env/<stack>.env is created from the example on
 first use. For local and e2e every __GENERATE__ marker is replaced with a random
-value. production.env is never generated silently: copy the example and replace
-the replace-with-* values (config validation is allowed before that).
+value.
+
+Production is deployed on the Docker host from /opt/stacks/agent-tasks by
+deployment/deploy.sh. `stack.sh production` only renders the vendored production
+compose file with deployment/env/production.env.example for local config
+validation; it never starts, stops or pulls the production stack and never creates
+a local production.env.
 EOF
 }
 
@@ -31,25 +39,30 @@ case "$stack" in
   *) usage >&2; exit 2 ;;
 esac
 
-dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-env_file="$dir/env/$stack.env"
+dir=$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd)
 example="$dir/env/$stack.env.example"
 
+# Production is host-managed. Do not let this helper create or start a local
+# production stack: only config rendering is supported, and it uses the committed
+# example so no local production.env can drift from the host .env.
+if [ "$stack" = production ]; then
+  # Only the `config` subcommand is allowed. Checking the first argument (not a
+  # substring of all arguments) keeps `production up config` and similar
+  # combinations from starting or mutating anything.
+  if [ "$#" -eq 0 ] || [ "$1" != "config" ]; then
+    echo "stack: production is managed on the Docker host in /opt/stacks/agent-tasks" >&2
+    echo "       Deploy from a checkout with DEPLOY_HOST=user@host deployment/deploy.sh" >&2
+    echo "       stack.sh production is limited to local 'config' validation" >&2
+    exit 1
+  fi
+  exec docker compose -p agent-tasks --env-file "$example" \
+    --project-directory "$dir/.." -f "$dir/compose.production.yaml" "$@"
+fi
+
+env_file="$dir/env/$stack.env"
+
 if [ ! -f "$env_file" ]; then
-  case " $* " in
-    *" config "*)
-      cp "$example" "$env_file"
-      echo "stack: created $env_file from the example for validation" >&2
-      ;;
-    *)
-      if [ "$stack" = production ]; then
-        echo "stack: $env_file is missing" >&2
-        echo "       cp $example $env_file, then replace every replace-with-* value" >&2
-        exit 1
-      fi
-      cp "$example" "$env_file"
-      ;;
-  esac
+  cp "$example" "$env_file"
 fi
 
 # Fill generated values once. The temporary file keeps base64 padding and
@@ -62,7 +75,7 @@ fill() {
   mv "$tmp" "$env_file"
 }
 
-if [ "$stack" != production ] && grep -q '=__GENERATE__$' "$env_file"; then
+if grep -q '=__GENERATE__$' "$env_file"; then
   umask 077
   fill POSTGRES_PASSWORD "$(openssl rand -hex 24)"
   fill AUTH_SECRET "$(openssl rand -hex 32)"
@@ -86,23 +99,11 @@ if [ "$stack" != production ] && grep -q '=__GENERATE__$' "$env_file"; then
 fi
 
 if grep -qE '^[A-Za-z_][A-Za-z0-9_]*=replace-with' "$env_file"; then
-  case " $* " in
-    *" config "*) ;;
-    *)
-      echo "stack: $env_file still has replace-with-* placeholders" >&2
-      echo "       fill them before starting the production stack" >&2
-      exit 1
-      ;;
-  esac
+  echo "stack: $env_file still has replace-with-* placeholders" >&2
+  echo "       fill them before starting the stack" >&2
+  exit 1
 fi
 
-# The production file is standalone: Compose would resolve its relative host
-# paths (seccomp profile, SearXNG settings) against deployment/, although they
-# are written against the repository root. The local and E2E files use `include`,
-# which resolves its path against the project directory, so they must keep the
-# default one.
-if [ "$stack" = production ]; then
-  exec docker compose --env-file "$env_file" --project-directory "$dir/.." \
-    -f "$dir/compose.$stack.yaml" "$@"
-fi
+# The local and E2E files use `include`, which resolves its path against the
+# project directory, so they keep the default one.
 exec docker compose --env-file "$env_file" -f "$dir/compose.$stack.yaml" "$@"

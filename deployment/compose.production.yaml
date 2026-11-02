@@ -1,15 +1,24 @@
 # Production stack, deployed by deployment/deploy.sh as the compose project
-# `agent-tasks` in /opt/stacks/agent-tasks. The host copy is only overwritten from
-# this file; secrets and host paths live in /opt/stacks/agent-tasks/.env. The
-# relative host paths below (seccomp profile, SearXNG settings) resolve against
-# the repository root, so a host deploy sets RUNNER_SECCOMP_PATH and
-# SEARXNG_SETTINGS_PATH to absolute paths in that .env.
+# `agent-tasks` in /opt/stacks/agent-tasks. This file is a deliberately vendored
+# host snapshot, not an overlay of ../compose.yaml: it adds the proxy-owned
+# external `webnet` and the fixed API address, omits `build`, and uses absolute
+# host paths for the seccomp profile and optional SearXNG settings. The security
+# invariants shared with ../compose.yaml are checked by
+# scripts/check-compose-parity.mjs in CI.
+#
+# Critical values have no insecure fallback here. Secrets and host paths live in
+# /opt/stacks/agent-tasks/.env (root:root 0600, host-only).
 name: agent-tasks
+
+# Every production service carries this label for docker ps/monitoring and for
+# the host-side verification in deployment/README.md.
+x-stack-label: &stack-label
+  com.agent-tasks.stack: production
 
 x-app-env: &app-env
   NODE_ENV: production
-  DATABASE_URL: postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:-agent}@postgres:5432/${POSTGRES_DB:-agent_tasks}
-  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+  DATABASE_URL: postgres://${POSTGRES_USER:-agent}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-agent_tasks}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL in .env}
   AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
   SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?set SECRETS_ENCRYPTION_KEY in .env}
   # Optional when ADMIN_EMAIL/ADMIN_PASSWORD bootstrap the first admin.
@@ -27,11 +36,11 @@ x-app-env: &app-env
   SMTP_URL: ${SMTP_URL:-}
   SMTP_FROM: ${SMTP_FROM:-}
   SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
-  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  COOKIE_SECURE: ${COOKIE_SECURE:?set COOKIE_SECURE in .env}
   RATE_LIMIT_SIGNIN_MAX: ${RATE_LIMIT_SIGNIN_MAX:-5}
   RATE_LIMIT_SESSION_MAX: ${RATE_LIMIT_SESSION_MAX:-600}
   RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
-  TRUST_PROXY: ${TRUST_PROXY:-true}
+  TRUST_PROXY: ${TRUST_PROXY:?set TRUST_PROXY in .env}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
 services:
@@ -40,7 +49,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agent}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-agent_tasks}
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -52,6 +61,8 @@ services:
       retries: 10
     security_opt:
       - no-new-privileges:true
+    labels:
+      <<: *stack-label
 
   api:
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/api:${IMAGE_TAG:-latest}
@@ -84,6 +95,7 @@ services:
       retries: 10
       start_period: 30s
     labels:
+      <<: *stack-label
       com.centurylinklabs.watchtower.enable: "true"
 
   worker:
@@ -113,6 +125,7 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
     labels:
+      <<: *stack-label
       com.centurylinklabs.watchtower.enable: "true"
     stop_grace_period: 40s
 
@@ -142,10 +155,9 @@ services:
       - /dev/shm:size=512m,mode=1777
     security_opt:
       - no-new-privileges:true
-      # Read by the Docker daemon before the container starts. The relative
-      # default only resolves in a repository checkout; the host .env sets an
-      # absolute path (/opt/agent-tasks/seccomp-browser.json).
-      - seccomp=${RUNNER_SECCOMP_PATH:-docker/seccomp-browser.json}
+      # Read by the Docker daemon before the container starts. deploy.sh ships
+      # the repository profile to this absolute host path; .env may override it.
+      - seccomp=${RUNNER_SECCOMP_PATH:-/opt/stacks/agent-tasks/docker/seccomp-browser.json}
     cap_drop: [ALL]
     # Chromium's user-namespace sandbox chroots into an empty directory after
     # unshare(CLONE_NEWUSER). The seccomp profile grants chroot only with
@@ -162,6 +174,7 @@ services:
       retries: 10
       start_period: 20s
     labels:
+      <<: *stack-label
       com.centurylinklabs.watchtower.enable: "false"
 
   # Optional, profile "mail": local SMTP sink for development and tests.
@@ -179,6 +192,8 @@ services:
     networks: [backend]
     security_opt:
       - no-new-privileges:true
+    labels:
+      <<: *stack-label
 
   spamassassin:
     image: axllent/spamassassin:3
@@ -187,6 +202,8 @@ services:
     networks: [backend]
     security_opt:
       - no-new-privileges:true
+    labels:
+      <<: *stack-label
 
   # Optional, profile "search": self-hosted metasearch used for real web research.
   searxng:
@@ -196,16 +213,24 @@ services:
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
     volumes:
-      # Same rule as the seccomp profile: the host .env sets an absolute path.
-      - ${SEARXNG_SETTINGS_PATH:-./docker/searxng/settings.yml}:/etc/searxng/settings.yml:ro
+      # Host-only file with a generated server.secret_key. deploy.sh never ships
+      # the repository placeholder; preflight requires this file only while the
+      # search profile is active.
+      - ${SEARXNG_SETTINGS_PATH:-/opt/stacks/agent-tasks/docker/searxng/settings.yml}:/etc/searxng/settings.yml:ro
     networks: [backend]
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
+    labels:
+      <<: *stack-label
 
 networks:
   backend:
     internal: false
+  # Prerequisite owned by the Caddy/proxy stack, not by this Compose project.
+  # Expected subnet 172.18.0.0/16, gateway 172.18.0.1; the API reserves
+  # 172.18.0.70 for the proxy upstream. deploy.sh verifies this before changing
+  # the active stack and never creates the network.
   webnet:
     external: true
     name: webnet

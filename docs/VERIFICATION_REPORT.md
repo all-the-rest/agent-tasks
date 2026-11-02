@@ -30,7 +30,7 @@ runner) against the exact production container posture.
 | `node apps/api/dist/index.js` + worker + runner (production bundles) | healthz OK, setup/login/session role verified | 0 |
 | `node local Ollama 0.40.13 + llama3.2:1b` via `scripts/verify-ollama-local.ts` | real tool call `get_weather {city: "Vienna"}` | 0 |
 | `docker compose config -q` | three app images + postgres + runner (+ search profile) | 0 |
-| `deployment/stack.sh {local,e2e,production} config -q` | projects `agent-tasks-local`, `agent-tasks-e2e`, `agent-tasks`; web ports 8090/8180/8080; volumes `agent-tasks-local_postgres-data`, `agent-tasks-e2e_postgres-data`, `agent-tasks_postgres-data`; every service labelled `com.agent-tasks.stack` | 0 |
+| `deployment/stack.sh {local,e2e,production} config -q` | projects `agent-tasks-local`, `agent-tasks-e2e`, `agent-tasks`; web ports 8090/8180/8080; volumes `agent-tasks-local_postgres-data`, `agent-tasks-e2e_postgres-data`, `agent-tasks_postgres-data`; local/E2E services labelled `com.agent-tasks.stack` (the production label was added in the 2026-11-02 follow-up and is checked by CI) | 0 |
 | local + E2E stacks started together | `agent-tasks-local-web-1` on 8090 and `agent-tasks-e2e-web-1` on 8180, both `/api/healthz` → `{"ok":true}`; label filters returned only each stack's containers; `down -v` removed only its own volumes | 0 |
 | CI compose job (`Browser E2E`, GitHub run 41235394232) | stack started with the sandbox **enabled**; runner `/healthz` asserts `sandbox: true`, `browserVersion 156.0.8078.4`; 9/9 Playwright tests passed | 0 |
 | CI same job: env bootstrap and registration | `ADMIN_EMAIL` admin created, login as ADMIN, `403` without invitation, OpenCode Go provider + shared credential, enable → `200`, disable → `403` (`ENV_BOOTSTRAP_OK`) | 0 |
@@ -175,9 +175,11 @@ compose configuration validates and resolves the published `:0` images for api,
 worker and browser-runner. **Production startup against the published images is
 not verified in this run:** the operator chose to skip it after the remote Docker
 daemon became unresponsive during the first registry pull. This remains an open
-gate rather than a PASS.
+gate for that 2026-11-01 run; the owner-supplied host evidence from 2026-11-02
+below closes the startup gate for the current production host, but not the
+historical run itself.
 
-### Deployment path (Portainer + Watchtower)
+### Deployment path (historical Portainer + Watchtower)
 
 > **2026-11-02:** Portainer was removed from the production host. The stack now
 > runs as the compose project `agent-tasks` in `/opt/stacks/agent-tasks` and is
@@ -190,10 +192,12 @@ The production stack can be deployed from Portainer without committing a secret
 environment file:
 
 - `deployment/stack.sh` passes `deployment/env/<stack>.env` with `--env-file`;
-  the `deployment/compose.*.yaml` overlays contain no `env_file`. A
+  the `deployment/compose.*.yaml` overlays contain no `env_file`. The historical
   Portainer-style `docker compose -f deployment/compose.production.yaml config`
-  with only `AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY` and `RUNNER_TOKEN` in the
-  environment passes, so a fresh checkout plus stack environment is enough.
+  with only `AUTH_SECRET`, `SECRETS_ENCRYPTION_KEY` and `RUNNER_TOKEN` passed at
+  that time; the current production file additionally requires
+  `POSTGRES_PASSWORD`, `PUBLIC_BASE_URL`, `COOKIE_SECURE` and `TRUST_PROXY`, and
+  `deployment/stack.sh production` is now limited to local `config` validation.
 - api, worker and browser-runner set `pull_policy: always`; the production tag is
   `IMAGE_TAG=0`. A manually pasted root `compose.yaml` therefore pulls the public
   GHCR image instead of building the local Dockerfiles.
@@ -209,6 +213,63 @@ environment file:
 - Documentation-only pushes do not start CI: `.github/workflows/ci.yml` ignores
   `**/*.md` and `docs/**`. Commits `90e60e7` and `3f08980` have
   `workflow_runs=0` in the GitHub Actions API. This commit is docs-only as well.
+
+### Production host follow-up (2026-11-02)
+
+Owner-supplied evidence from the live production host, recorded without reading
+or printing any secret value:
+
+| Check | Result |
+| --- | --- |
+| `docker compose config -q` in `/opt/stacks/agent-tasks` | exit 0 |
+| `docker compose ps` | `api`, `browser-runner` and `postgres` healthy; `worker` running |
+| `https://tasks.all-the.rest/` | HTTP 200 |
+| `docker network inspect webnet` | subnet `172.18.0.0/16`, gateway `172.18.0.1` |
+| `/opt/stacks/agent-tasks/.env` | owner/group `0:0`, mode `600`; values not read or printed |
+
+Scope: this run proves the host stack starts and serves the application over
+HTTPS with the core containers healthy. It did **not** execute a login/UI/auth
+E2E flow, a redeploy, a rollback, or the optional `search` profile; those remain
+unverified and are not claimed. The follow-up deploy preflight now fails closed on
+a missing `webnet` or an IPAM entry that is not exactly `172.18.0.0/16` with
+gateway `172.18.0.1`, an insecure host `.env`, an implicit `compose.override.*`
+file or a host `.env` that sets `COMPOSE_FILE`/`COMPOSE_PROJECT_NAME`, effective
+Compose-interpolated values that are empty/placeholders or use a
+hostless/non-HTTPS `PUBLIC_BASE_URL`, a `RUNNER_TOKEN` missing from `worker` or
+`browser-runner`, differing between them or reaching `api`, a rendered project
+name other than `agent-tasks`, a rendered Postgres mount that is not the existing
+`agent-tasks_postgres-data:/var/lib/postgresql/data`, an active `mail` profile,
+and an active search profile without a real
+host-only settings file. It also enforces strict SSH host-key checking, parses
+the staged seccomp profile as JSON locally before transfer, pins every remote
+Compose command to project `agent-tasks` and `/opt/stacks/agent-tasks/compose.yaml`,
+and recreates only `browser-runner` when the staged seccomp bytes changed.
+Local, non-host checks for this follow-up (no SSH, no deployment, no host
+mutation):
+
+| Command | Result |
+| --- | --- |
+| `bash -n deployment/deploy.sh` | exit 0 |
+| `sh -n deployment/stack.sh` | exit 0 |
+| `sh -n scripts/test-deploy-dry-run.sh` | exit 0 |
+| `shellcheck -S warning deployment/deploy.sh deployment/stack.sh scripts/test-deploy-dry-run.sh .githooks/pre-commit` | exit 0 |
+| `sh scripts/test-deploy-dry-run.sh` | OK: offline dry run; strict SSH/known_hosts handling; executed prereq/preflight/backup/promote bodies with stub docker/stat; valid env/network; bad `.env` mode; effective placeholder; hostless/non-HTTPS/malformed URL; `0.0.0.0/0` and wrong subnet; missing/placeholder search settings; RUNNER_TOKEN moved to api, missing from worker and mismatched between worker/runner; wrong project name; wrong Postgres volume source; active mail profile; override/`COMPOSE_FILE`/`COMPOSE_PROJECT_NAME` rejection; pinned Compose project/file on every remote call; DB backup success, empty-dump failure, stopped-postgres failure without confirmation, confirmed and first-deploy paths; promotion ordering (`.env` copy and `pg_dump` before `compose.yaml` promotion and `up`); unchanged/changed/missing seccomp recreation; invalid local seccomp JSON fails before transfer; `stack.sh production` accepts only `config` |
+| `node scripts/check-deploy-compose-contract.mjs --fixture …` | exit 0: `RUNNER_TOKEN` on `worker` and `browser-runner` only and the fixture mounts `agent-tasks_postgres-data`; a fixture with the token moved to `api`, missing from `worker` or a different Postgres volume fails |
+| `node scripts/test-compose-parity.mjs` | exit 0: mismatched named-volume source/mode and undocumented bind paths fail; privileged/user/network_mode/devices/sysctls/ulimits, volume external/driver/options and `backend.internal` mismatches fail; the documented SearXNG host bind is allowed by logical asset |
+| `pnpm lint` | exit 0 |
+| `pnpm -r typecheck` | exit 0 |
+| `pnpm test:unit` | 213 passed, 30 files |
+| `pnpm exec ratchet check` | 11 of 11 gates passed |
+| `git diff --check` | exit 0 |
+| `node scripts/check-compose-parity.mjs` | not run locally: this checkout has no Docker CLI; the CI lint job runs it and renders the real compose files |
+| `docker compose config -q` with a dummy env | not run locally for the same reason; the generated-stack validation and parity checks are CI gates |
+
+These local checks did **not** run Docker, Compose rendering, a live deploy, a
+rollback or a production login/E2E flow. The remote backup/promotion bodies were
+executed only against local stubs with temporary directories.
+
+Production host operations were not run by the agent. The owner evidence above
+is the only production evidence in this follow-up.
 
 ### Security review
 
@@ -267,7 +328,7 @@ HTTPS); and the API image contains unserved source maps.
 | 10 | Prompt injection, XSS, CSRF, secret leaks | runtime untrusted wrapper, `rehype-sanitize`, origin hook, `secretBox`, redaction | runtime tests; `markdown-safety.test.tsx`; `auth.test.ts` CSRF; `providers.test.ts` no secret in admin responses; `audit.test.ts`; ciphertext assertion | PASS |
 | 11 | Reports/exports | `reportToMarkdown`, JSON/Markdown export routes | execution test persists report+sources; export routes covered in isolation tests | PASS (core) / PARTIAL (comparison view) |
 | 12 | UI pages, i18n en/de, daisyUI | `apps/web` (React 19, Vite 8, Tailwind 4, daisyUI 5, Lingui 6) | 34 web tests (MFA, XSS, live de↔en switch), production build, 11 Playwright flows (local memory run 11/11) | PASS |
-| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `deployment/`, `DEPLOYMENT.md` | local stack up (postgres/api/worker/runner healthy, setup+login+role in containers); CI compose job starts the stack and runs 9/9 E2E; production/local/E2E stacks render with distinct project names, host ports, volumes and `com.agent-tasks.stack` labels, and local + E2E ran at the same time | PASS |
+| 13 | Docker Compose deployment | `compose.yaml`, `docker/*`, `deployment/`, `DEPLOYMENT.md` | local stack up (postgres/api/worker/runner healthy, setup+login+role in containers); CI compose job starts the stack and runs 9/9 E2E; local/E2E stacks render with distinct project names, host ports, volumes and `com.agent-tasks.stack` labels and ran at the same time; the production file declares the same label on every service and adds the external `webnet`; owner-supplied host evidence 2026-11-02: config valid, containers healthy, HTTPS 200 | PASS |
 | 14 | Unit/integration/E2E | `test/`, `packages/*/test`, `apps/*/test`, `e2e/` | 210 unit, 77 integration, 34 web, 11 E2E (API-served SPA run) | PASS |
 | 15 | GitHub Actions | `.github/workflows/ci.yml` | run 41235394232: lint/typecheck, unit, integration, compose E2E (sandbox, env bootstrap, two-worker/crash recovery, mail blocks/Mailpit), api/runner image builds and security all success | PASS |
 | 16 | Docs | README, ARCHITECTURE, SECURITY, DEPLOYMENT, TESTING, CONTRIBUTING, CHANGELOG, `.env.example`, `docs/` | files present; provider docs OpenAI-compatible-first | PASS |
@@ -278,7 +339,9 @@ HTTPS); and the API image contains unserved source maps.
 ## Docker Compose (executed)
 
 `docker compose --env-file … --profile search up -d --build` started the real stack;
-`docker compose ps` reported:
+`docker compose ps` reported. This table is a historical run from before the SPA
+was merged into the API image; the separate `web` container no longer exists in
+the current compose files:
 
 | Service | Status |
 | --- | --- |
@@ -479,14 +542,15 @@ green.
 
 `deployment/` provides three entrypoints over the shared root `compose.yaml`:
 production (`agent-tasks`), local (`agent-tasks-local`) and E2E
-(`agent-tasks-e2e`). Each include carries its own env file, so project name,
-networks, volumes and host ports are isolated; every service gets the label
+(`agent-tasks-e2e`). Local and E2E include the root compose file and carry their
+own env file, so project name, networks, volumes and host ports are isolated;
+production is the vendored host file and every service gets the label
 `com.agent-tasks.stack=<stack>`. Local publishes web on 8090 and Mailpit on
 1025/8025, E2E uses 8180 and 1126/8126, production keeps `HTTP_PORT` (default
-8080). `deployment/stack.sh` generates the development secrets once, keeps the
+8080). `deployment/stack.sh` generates the development secrets once and keeps the
 `SETUP_TOKEN`/`E2E_SETUP_TOKEN` and `ADMIN_PASSWORD`/`E2E_ADMIN_PASSWORD` pairs
-equal, and refuses to start production while a `replace-with-*` placeholder is
-present.
+equal. In the 2026-11-02 follow-up, `stack.sh production` became local `config`
+validation only; the host workflow is `deployment/deploy.sh`.
 
 Executed: all three `config -q` variants exited 0; local and E2E were started at
 the same time on the remote Docker daemon and answered `/api/healthz` with
@@ -519,9 +583,10 @@ in the same file still produced a finding.
 - `OPENCODE_GO_API_KEY` (+ `OPENCODE_GO_MODEL`/`OPENCODE_GO_MODELS`) seeds the
   `OpenCode Go` provider once, with the key encrypted at rest via
   `SECRETS_ENCRYPTION_KEY`; it never updates an existing provider.
-- `.env.production` is a committed template (no real secrets) with
-  `ALLOW_REGISTRATION=false`, the admin bootstrap and OpenCode Go configuration;
-  start it with `docker compose --env-file .env.production up -d`.
+- `.env.production` is a committed **local/single-host** template (no real
+  secrets) with `ALLOW_REGISTRATION=false`, the admin bootstrap and OpenCode Go
+  configuration; it is not the production host environment. The host uses
+  `/opt/stacks/agent-tasks/.env` from `deployment/env/production.env.example`.
 - Tests: `apps/api/test/env.test.ts` (5) and `test/integration/bootstrap.test.ts`
   (4, including the runtime toggle).
 - CI run 41230606215 starts the compose stack with `ADMIN_EMAIL`/`ADMIN_PASSWORD`
