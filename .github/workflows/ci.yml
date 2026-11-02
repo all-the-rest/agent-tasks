@@ -231,7 +231,8 @@ jobs:
         run: pnpm test:e2e
       - name: Verify parallel workers and crash recovery
         run: |
-          docker compose up -d --scale worker=2
+          # Keep the images built above instead of re-pulling published :latest.
+          docker compose up -d --pull never --scale worker=2
           for attempt in $(seq 1 60); do
             if curl -fsS http://localhost:8080/api/healthz >/dev/null; then break; fi
             sleep 2
