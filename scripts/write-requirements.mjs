@@ -332,7 +332,7 @@ Agent-runtime injection test, isolation/CSRF tests, ratchet gates \`no-raw-html\
   },
   {
     slug: '14-deployment-and-operations',
-    title: 'Docker Compose deployment, Portainer auto-update, documentation',
+    title: 'Docker Compose deployment, Watchtower auto-update, documentation',
     labels: ['deploy', 'docs'],
     body: `## Acceptance criteria
 

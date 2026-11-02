@@ -96,4 +96,13 @@ if grep -qE '^[A-Za-z_][A-Za-z0-9_]*=replace-with' "$env_file"; then
   esac
 fi
 
+# The production file is standalone: Compose would resolve its relative host
+# paths (seccomp profile, SearXNG settings) against deployment/, although they
+# are written against the repository root. The local and E2E files use `include`,
+# which resolves its path against the project directory, so they must keep the
+# default one.
+if [ "$stack" = production ]; then
+  exec docker compose --env-file "$env_file" --project-directory "$dir/.." \
+    -f "$dir/compose.$stack.yaml" "$@"
+fi
 exec docker compose --env-file "$env_file" -f "$dir/compose.$stack.yaml" "$@"

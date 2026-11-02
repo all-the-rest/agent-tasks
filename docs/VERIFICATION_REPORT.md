@@ -179,6 +179,13 @@ gate rather than a PASS.
 
 ### Deployment path (Portainer + Watchtower)
 
+> **2026-11-02:** Portainer was removed from the production host. The stack now
+> runs as the compose project `agent-tasks` in `/opt/stacks/agent-tasks` and is
+> pushed from the repository by `deployment/deploy.sh`; see
+> [DEPLOYMENT.md](../DEPLOYMENT.md#production-on-the-docker-host-optstacks). The
+> notes below describe the verification run that predates the migration and are
+> kept as evidence.
+
 The production stack can be deployed from Portainer without committing a secret
 environment file:
 
