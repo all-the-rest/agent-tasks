@@ -10,7 +10,10 @@ the existing runtime.
 - **Single configuration source.** The shared OpenCode Go connection, its key and
   its model catalog are written only through the admin API/UI. `OPENCODE_GO_*`
   environment seeding is gone, so no deployment file carries an inference secret.
-  The admin provider card shows the discovered catalog.
+  The admin provider card shows the discovered catalog, marks one model as the
+  default for new tasks, can hide models from the task editor, reports the last
+  health check and links to the audit log. Hide/default are provider config, not
+  catalog rows, so a model refresh never loses the administrator's choice.
 - **One egress exit.** `opencode` and `opencode-runtime` are internal Docker
   networks; only the provisioner joins `opencode-egress`. The runtime container is
   never published and has no direct route out. Inference traffic crosses the

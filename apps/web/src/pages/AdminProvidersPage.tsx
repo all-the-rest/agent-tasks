@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
+import { formatDate } from '../lib/format';
 import {
   REDACTED_HEADER_VALUE,
   buildProviderUpdateConfig,
+  disabledModelIds,
+  providerBaseUrl,
   providerConfigNeedsUpdate,
   providerHeaderNames,
 } from '../lib/provider-config';
@@ -47,7 +51,7 @@ const EMPTY_FORM: ProviderForm = {
 };
 
 export function AdminProvidersPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
@@ -65,7 +69,7 @@ export function AdminProvidersPage() {
 
   const [deleteProvider, setDeleteProvider] = useState<AdminProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [health, setHealth] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [health, setHealth] = useState<Record<string, { ok: boolean; text: string; checkedAt: string }>>({});
 
   useEffect(() => {
     if (!formOpen) return;
@@ -178,12 +182,30 @@ export function AdminProvidersPage() {
         [id]: {
           ok: result.ok !== false,
           text: result.message ?? (result.ok === false ? t('admin.healthFail') : t('admin.healthOk')),
+          checkedAt: new Date().toISOString(),
         },
       }));
     },
     onError: (cause, id) => {
-      setHealth((current) => ({ ...current, [id]: { ok: false, text: errorMessage(cause) } }));
+      setHealth((current) => ({ ...current, [id]: { ok: false, text: errorMessage(cause), checkedAt: new Date().toISOString() } }));
     },
+  });
+
+  // Catalog policy (default model, hidden models) is part of the provider config so
+  // the next task's preselection follows it without a redeploy. The config sent back
+  // still carries the `***` header sentinel, which the API resolves server-side.
+  const saveModelPolicy = useMutation({
+    mutationFn: (input: { provider: AdminProvider; disabledModels?: string[]; defaultModel?: string }) => {
+      const config = buildProviderUpdateConfig(input.provider.config, providerBaseUrl(input.provider.config));
+      if (input.disabledModels !== undefined) config.disabledModels = input.disabledModels;
+      if (input.defaultModel !== undefined) config.defaultModel = input.defaultModel;
+      return api.admin.updateProvider(input.provider.id, { config });
+    },
+    onSuccess: async () => {
+      showToast(t('admin.modelPolicySaved'));
+      await invalidate();
+    },
+    onError: (cause) => setError(errorMessage(cause)),
   });
 
   return (
@@ -224,6 +246,8 @@ export function AdminProvidersPage() {
         <div className="flex flex-col gap-3">
           {providers.data.map((provider) => {
             const result = health[provider.id];
+            const hidden = disabledModelIds(provider.config);
+            const defaultModel = typeof provider.config.defaultModel === 'string' ? provider.config.defaultModel : undefined;
             return (
               <section key={provider.id} className="card border border-base-300 bg-base-100 shadow-sm">
                 <div className="card-body gap-3 p-4 sm:p-5">
@@ -238,6 +262,11 @@ export function AdminProvidersPage() {
                         <span className={`badge badge-sm ${provider.enabled ? 'badge-success' : 'badge-ghost'}`}>
                           {provider.enabled ? t('common.enabled') : t('common.disabled')}
                         </span>
+                        {result ? (
+                          <span className={`badge badge-sm ${result.ok ? 'badge-success' : 'badge-error'}`}>
+                            {result.ok ? t('admin.healthOkShort') : t('admin.healthFailShort')}
+                          </span>
+                        ) : null}
                       </div>
                       <p className="mt-1 break-all font-mono text-xs opacity-60">
                         {typeof provider.config.baseUrl === 'string' ? provider.config.baseUrl : '—'}
@@ -255,18 +284,49 @@ export function AdminProvidersPage() {
                           <p className="mt-1 text-xs opacity-70">{t('admin.modelCatalogEmpty')}</p>
                         ) : (
                           <ul className="mt-2 flex flex-col gap-1">
-                            {provider.models.map((model) => (
-                              <li key={model.id} className="flex flex-wrap items-center gap-2 text-xs">
-                                <code className="break-all">{model.id}</code>
-                                {model.label ? <span className="opacity-70">{model.label}</span> : null}
-                                {model.supportsTools ? (
-                                  <span className="badge badge-ghost badge-xs">{t('admin.modelSupportsTools')}</span>
-                                ) : null}
-                                {model.contextLength ? (
-                                  <span className="opacity-60">{t('admin.modelContext', { count: model.contextLength })}</span>
-                                ) : null}
-                              </li>
-                            ))}
+                            {provider.models.map((model) => {
+                              const isDefault = defaultModel === model.id;
+                              const isHidden = hidden.includes(model.id);
+                              return (
+                                <li key={model.id} className="flex flex-wrap items-center gap-2 text-xs">
+                                  <code className="break-all">{model.id}</code>
+                                  {model.label ? <span className="opacity-70">{model.label}</span> : null}
+                                  {model.supportsTools ? (
+                                    <span className="badge badge-ghost badge-xs">{t('admin.modelSupportsTools')}</span>
+                                  ) : null}
+                                  {model.contextLength ? (
+                                    <span className="opacity-60">{t('admin.modelContext', { count: model.contextLength })}</span>
+                                  ) : null}
+                                  {isDefault ? <span className="badge badge-primary badge-xs">{t('admin.defaultModelBadge')}</span> : null}
+                                  {isHidden ? <span className="badge badge-ghost badge-xs">{t('admin.modelHidden')}</span> : null}
+                                  {!isDefault ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-xs btn-ghost"
+                                      disabled={saveModelPolicy.isPending}
+                                      onClick={() => saveModelPolicy.mutate({ provider, defaultModel: model.id })}
+                                    >
+                                      {t('admin.setDefaultModel')}
+                                    </button>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="btn btn-xs btn-ghost"
+                                    disabled={saveModelPolicy.isPending}
+                                    onClick={() =>
+                                      saveModelPolicy.mutate({
+                                        provider,
+                                        disabledModels: isHidden
+                                          ? hidden.filter((id) => id !== model.id)
+                                          : [...hidden, model.id],
+                                      })
+                                    }
+                                  >
+                                    {isHidden ? t('admin.showModel') : t('admin.hideModel')}
+                                  </button>
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </div>
@@ -328,6 +388,9 @@ export function AdminProvidersPage() {
                       >
                         {t('common.edit')}
                       </button>
+                      <Link className="btn btn-xs btn-ghost" to="/admin/audit">
+                        {t('admin.viewAudit')}
+                      </Link>
                       <button
                         type="button"
                         className="btn btn-xs btn-ghost text-error"
@@ -340,6 +403,9 @@ export function AdminProvidersPage() {
                   {result ? (
                     <div className={`alert py-1 ${result.ok ? 'alert-success' : 'alert-error'}`} role="status">
                       <span className="text-xs">{result.text}</span>
+                      <span className="text-xs opacity-70">
+                        {t('admin.checkedAt', { time: formatDate(result.checkedAt, i18n.language) })}
+                      </span>
                     </div>
                   ) : null}
                 </div>

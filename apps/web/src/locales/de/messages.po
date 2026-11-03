@@ -49,6 +49,9 @@ msgstr "Erlaubte Browser-Ports"
 msgid "admin.byStatus"
 msgstr "Ausführungen nach Status"
 
+msgid "admin.checkedAt"
+msgstr "Geprüft {time}"
+
 msgid "admin.copyLink"
 msgstr "Link kopieren"
 
@@ -66,6 +69,9 @@ msgstr "Gemeinsamer Schlüssel für {name}"
 
 msgid "admin.defaultModel"
 msgstr "Standardmodell"
+
+msgid "admin.defaultModelBadge"
+msgstr "Standard"
 
 msgid "admin.defaultProvider"
 msgstr "Standardanbieter"
@@ -100,8 +106,17 @@ msgstr "Zustandsprüfung"
 msgid "admin.healthFail"
 msgstr "Zustandsprüfung des Anbieters fehlgeschlagen."
 
+msgid "admin.healthFailShort"
+msgstr "nicht erreichbar"
+
 msgid "admin.healthOk"
 msgstr "Anbieter ist erreichbar."
+
+msgid "admin.healthOkShort"
+msgstr "erreichbar"
+
+msgid "admin.hideModel"
+msgstr "Ausblenden"
 
 msgid "admin.invitations"
 msgstr "Einladungen"
@@ -168,6 +183,12 @@ msgstr "Noch keine Modelle. Zuerst den gemeinsamen Schlüssel speichern, dann di
 
 msgid "admin.modelContext"
 msgstr "{count} Kontext"
+
+msgid "admin.modelHidden"
+msgstr "ausgeblendet"
+
+msgid "admin.modelPolicySaved"
+msgstr "Modellkatalog aktualisiert."
 
 msgid "admin.modelSupportsTools"
 msgstr "Tools"
@@ -286,6 +307,9 @@ msgstr "Such-Basis-URL"
 msgid "admin.searchProvider"
 msgstr "Suchanbieter"
 
+msgid "admin.setDefaultModel"
+msgstr "Als Standard"
+
 msgid "admin.settings"
 msgstr "Systemeinstellungen"
 
@@ -303,6 +327,9 @@ msgstr "Systemeinstellungen"
 
 msgid "admin.sharedCredential"
 msgstr "Gemeinsamer Schlüssel"
+
+msgid "admin.showModel"
+msgstr "Einblenden"
 
 msgid "admin.smtpFrom"
 msgstr "SMTP-Absenderadresse"
@@ -333,6 +360,9 @@ msgstr "Benutzer"
 
 msgid "admin.usersCount"
 msgstr "Benutzer"
+
+msgid "admin.viewAudit"
+msgstr "Audit-Protokoll"
 
 msgid "app.name"
 msgstr "Agent Tasks"

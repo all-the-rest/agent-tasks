@@ -28,6 +28,11 @@ What is now implemented and tested:
   provisioner registers it and proxies `/mcp`. `compose_email` and
   `add_email_block` reuse the validated DSL/block schema and feed the execution
   result; the report page and report e-mail already render from that shape.
+- **Admin catalog policy.** The provider card marks the default model for new
+  tasks, hides models from the task editor, shows a health badge with the
+  last-checked time and links to the audit log. Default/hidden choices live in the
+  provider config (never secrets) and are covered by an API integration test;
+  provider updates audit which fields changed without their values.
 - **Report parity.** The execution page renders the sanitized markdown, sources
   and a read-only preview of the notification e-mail blocks the agent composed.
   The preview maps blocks to React elements (no `dangerouslySetInnerHTML`) and
