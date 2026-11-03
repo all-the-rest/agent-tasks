@@ -145,6 +145,21 @@ describe('OpenCode tool bridge', () => {
     expect(bridge.recommendationOps).toEqual([]);
   });
 
+  it('rejects a token after its session closes', async () => {
+    hub = await createToolBridgeHub({ port: 0 });
+    const session = hub.open({ tools: ['compose_email'] });
+    const target = { url: hub.url, token: session.token } as unknown as ToolBridge;
+    const before = await rpc(target, { jsonrpc: '2.0', id: 8, method: 'tools/list' });
+    expect((before as { result: { tools: unknown[] } }).result.tools).toHaveLength(1);
+    session.close();
+    const response = await fetch(hub.url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list' }),
+    });
+    expect(response.status).toBe(401);
+  });
+
   it('refuses to register a research tool without an execution context', async () => {
     hub = await createToolBridgeHub({ port: 0 });
     expect(() => hub.open({ tools: ['search_web'] })).toThrow('requires a tool context');

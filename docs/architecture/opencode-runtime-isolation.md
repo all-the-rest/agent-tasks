@@ -83,6 +83,31 @@ untrusted transport. Native Go Connect is not used as the store of record: the
 encrypted Agent Tasks credential remains authoritative and the runtime receives a
 short-lived value.
 
+## Tool bridge protocol and threat model
+
+The bridge is a worker-hosted MCP server. OpenCode sends JSON-RPC 2.0 over
+`POST /mcp`; each reply is an SSE `event: message` frame. The server-initiated
+`GET` stream is declined with `405`, which OpenCode 2.2.5 tolerates, and every
+response echoes `mcp-session-id` so the transport stays correlated.
+
+- **Token lifecycle.** A random 32-byte bearer is minted in worker memory when the
+  execution opens its bridge, registered with that session's allowlist and call
+  budget, and handed to the provisioner only as runtime configuration. It is never
+  written to the database, a report or a log. Closing the execution removes the
+  session; a later request with the same token gets `401`.
+- **Allowlist and budget.** Only the exact tools the task is entitled to are
+  registered. Denied tools, malformed arguments and exhausted budgets are returned
+  to the model as structured `isError` results, not exceptions. Request bodies are
+  size-capped and error replies carry no stack traces or configuration.
+- **Capability, not ambient authority.** Research tools are registered only when
+  the bridge received the execution's browser and search clients; otherwise
+  `open()` fails. URLs pass the same `checkUrl` policy as the native runtime, page
+  text is treated as data, and tool output is truncated to `maxOutputBytes`.
+- **Validated writes only.** E-mail blocks are parsed from the product DSL, memory
+  operations are schema-checked and secret-scanned, and recommendations cannot set
+  a user decision. The bridge never writes to the database; the Executor persists
+  the collected result only after the execution completed successfully.
+
 ## Recovery contract
 
 The session mapping and message ID are persisted before prompt dispatch. On

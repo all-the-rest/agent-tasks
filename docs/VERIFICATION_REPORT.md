@@ -45,7 +45,7 @@ Current verification for this change:
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm -r typecheck` | passed (10 workspace projects) |
-| `pnpm test:unit` | **253 passed, 3 skipped**, 36 files passed / 1 skipped |
+| `pnpm test:unit` | **254 passed, 3 skipped**, 36 files passed / 1 skipped |
 | `pnpm test:integration` | **85 passed**, 13 files |
 | `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
 | `services/opencode-provisioner` unit tests | **6 passed** |
