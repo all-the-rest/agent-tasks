@@ -60,6 +60,7 @@ describe('isolated OpenCode runtime integration', () => {
       } as unknown as OpenCodeSessionStore;
       const open = vi.fn<IsolatedOpenCodeProvisioner['open']>(async ({ toolBridge }) => {
         expect(toolBridge?.token).toMatch(/^[A-Za-z0-9_-]{32,}$/);
+        expect(toolBridge?.tools).toEqual(['compose_email', 'add_email_block']);
         const response = await fetch(hub.url, {
           method: 'POST',
           headers: { authorization: `Bearer ${toolBridge?.token}`, 'content-type': 'application/json' },
@@ -68,8 +69,9 @@ describe('isolated OpenCode runtime integration', () => {
         expect(response.status).toBe(200);
         const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
           const path = (url as URL).pathname;
-          const data = path === '/api/session' ? { id: 'ses_bridge' }
-            : path.endsWith('/message') ? [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'answer' }] }] : {};
+          const data = path === '/api/mcp' ? [{ name: 'agent_tasks_tools', status: { status: 'connected' } }]
+            : path === '/api/session' ? { id: 'ses_bridge' }
+              : path.endsWith('/message') ? [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'answer' }] }] : {};
           return new Response(JSON.stringify({ data }));
         });
         return { client: new OpenCodeV2Client({ baseUrl: 'http://test.invalid', password: 'test', fetch: fetchMock }), directory: '/isolated', model: { providerID: 'provider', id: 'model' }, release: vi.fn(async () => undefined) };

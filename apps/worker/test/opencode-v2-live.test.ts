@@ -12,6 +12,9 @@ import { SecretBox } from '@agent-tasks/ai-providers';
 import { afterAll, describe, expect, it } from 'vitest';
 import { OpenCodeV2Client } from '../src/opencode-v2-client.js';
 import { createOpenCodeV2Runner } from '../src/opencode-v2-runner.js';
+import { createIsolatedOpenCodeRunner } from '../src/opencode-isolated-runtime.js';
+import { createToolBridgeHub } from '../src/opencode-tool-bridge.js';
+import type { OpenCodeSessionStore } from '../src/opencode-session-store.js';
 import { Executor } from '../src/executor.js';
 import type { WorkerEnv } from '../src/env.js';
 import { createBoss, executionWorkOptions, QUEUE_EXECUTION } from '../src/queues.js';
@@ -124,6 +127,8 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
         return chain;
       } }),
       update: (table: unknown) => ({ set: (values: Record<string, unknown>) => ({ where: async () => { updates.push({ table, values }); } }) }),
+      delete: () => ({ where: async () => undefined }),
+      insert: () => ({ values: async () => undefined }),
     };
     const env = { NODE_ENV: 'test', DATABASE_URL: 'postgres://unused', SECRETS_ENCRYPTION_KEY: key, RUNNER_URL: 'http://127.0.0.1:1', RUNNER_TOKEN: 'live-test-runner-token', WORKER_CONCURRENCY: 1, CODEX_HOME_ROOT: directory, CODEX_ISOLATED_RUNNER: '0', LOG_LEVEL: 'silent', PUBLIC_BASE_URL: 'http://localhost:8080' } satisfies WorkerEnv;
     const runner = createOpenCodeV2Runner({ client, directory, model: { providerID: 'mock', id: 'mock-model' } });
@@ -167,4 +172,154 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       }
     }
   }, 40_000);
+
+  it('offers the bridged e-mail tool to the real model and captures validated blocks', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'agent-tasks-opencode-mcp-'));
+    const config = join(workspace, 'config', 'opencode');
+    await mkdir(config, { recursive: true });
+    const chat = createServer();
+    let sawTool = false;
+    chat.on('request', (request, response) => {
+      if (request.method !== 'POST' || !request.url?.endsWith('/chat/completions')) {
+        response.writeHead(404).end();
+        return;
+      }
+      let raw = '';
+      request.on('data', (chunk: Buffer) => { raw += chunk.toString(); });
+      request.on('end', () => {
+        const body = JSON.parse(raw) as { model: string; tools?: Array<{ function?: { name?: string }; name?: string }>; messages?: Array<{ role?: string }> };
+        const names = (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name);
+        console.log('LIVE_MCP_TOOLS', JSON.stringify(names));
+        const target = names.find((name) => typeof name === 'string' && name.endsWith('compose_email'));
+        const hasToolResult = (body.messages ?? []).some((message) => message.role === 'tool');
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        const emit = (delta: object, finish: string | null = null) => response.write(
+          `data: ${JSON.stringify({ id: 'chatcmpl-mcp', object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`,
+        );
+        emit({ role: 'assistant', content: '' });
+        if (target && !hasToolResult) {
+          sawTool = true;
+          emit({ tool_calls: [{ index: 0, id: 'call_mcp_1', type: 'function', function: { name: target, arguments: JSON.stringify({ dsl: '# Live report\n\nBridge works.' }) } }] }, 'tool_calls');
+        } else {
+          emit({ content: 'MCP FINAL ANSWER' });
+          emit({}, 'stop');
+        }
+        response.end('data: [DONE]\n\n');
+      });
+    });
+    chat.listen(0, '127.0.0.1');
+    await once(chat, 'listening');
+    const chatAddress = chat.address();
+    if (!chatAddress || typeof chatAddress === 'string') throw new Error('chat port unavailable');
+    const reservation = createNetServer().listen(0, '127.0.0.1');
+    await once(reservation, 'listening');
+    const serverAddress = reservation.address();
+    if (!serverAddress || typeof serverAddress === 'string') throw new Error('server port unavailable');
+    await new Promise<void>((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));
+
+    const hub = await createToolBridgeHub({ port: 0 });
+    const session = hub.open({ tools: ['compose_email'] });
+    let proc: ChildProcess | undefined;
+    try {
+      const openCodeConfig = JSON.stringify({
+        update: 'disable',
+        model: 'agent_tasks/mock-model',
+        plugins: [],
+        mcp: {
+          servers: {
+            agent_tasks_tools: {
+              type: 'remote',
+              url: hub.url,
+              headers: { authorization: `Bearer ${session.token}` },
+              codemode: false,
+              timeout: { startup: 10_000, catalog: 10_000, execution: 30_000 },
+            },
+          },
+        },
+        default_agent: 'agent-tasks',
+        policies: [
+          { action: 'mcp.use', resource: 'agent_tasks_tools', effect: 'allow' },
+          { action: 'provider.use', resource: 'agent_tasks', effect: 'allow' },
+        ],
+        agents: {
+          'agent-tasks': {
+            description: 'Live bridge test',
+            mode: 'primary',
+            steps: 10,
+            system: 'Call compose_email once, then answer.',
+            permissions: [
+              { action: '*', resource: '*', effect: 'deny' },
+              { action: 'agent_tasks_tools_compose_email', resource: '*', effect: 'allow' },
+            ],
+          },
+        },
+        providers: {
+          agent_tasks: {
+            name: 'Mock',
+            package: '@opencode/ai/providers/openai-compatible',
+            settings: { baseURL: `http://127.0.0.1:${chatAddress.port}/v1`, apiKey: 'fake-key' },
+            models: { 'mock-model': { name: 'Mock Model', tool_call: true, limit: { context: 32_000, output: 1_024 } } },
+          },
+        },
+      });
+      await writeFile(join(config, 'opencode.json'), openCodeConfig);
+      const password = 'local-test-only';
+      proc = spawn('opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(serverAddress.port)], {
+        cwd: workspace,
+        env: { PATH: process.env.PATH, HOME: workspace, XDG_CONFIG_HOME: join(workspace, 'config'), XDG_DATA_HOME: join(workspace, 'data'), XDG_CACHE_HOME: join(workspace, 'cache'), OPENCODE_SERVER_PASSWORD: password },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let logs = '';
+      proc.stderr?.on('data', (data: Buffer) => { logs += data.toString(); });
+      const baseUrl = `http://127.0.0.1:${serverAddress.port}`;
+      let ready = false;
+      for (let attempt = 0; attempt < 150; attempt++) {
+        if (proc.exitCode !== null) throw new Error(`OpenCode exited: ${logs}`);
+        try {
+          if ((await fetch(`${baseUrl}/api/info`, { headers: { authorization: `Basic ${btoa(`opencode:${password}`)}` } })).ok) { ready = true; break; }
+        } catch { /* server is starting */ }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(ready, logs).toBe(true);
+
+      const client = new OpenCodeV2Client({ baseUrl, password });
+      const mappings = new Map<string, { sessionId: string; messageId: string; promptDispatched: boolean }>();
+      const store = {
+        access: async (lease: { executionId: string }, candidate?: { sessionId: string; messageId: string; promptDispatched: boolean }) => {
+          if (candidate && !mappings.has(lease.executionId)) mappings.set(lease.executionId, candidate);
+          return mappings.get(lease.executionId) ?? null;
+        },
+        claimPrompt: async () => true,
+      } as unknown as OpenCodeSessionStore;
+      // The runtime config carries the token of `session`; the runner must use
+      // that same pre-opened session so the tool result lands in our result.
+      const testHub = { url: hub.url, open: () => session, close: async () => undefined };
+      const runner = createIsolatedOpenCodeRunner({
+        open: async () => ({ client, directory: workspace, model: { providerID: 'agent_tasks', id: 'mock-model' }, release: async () => undefined }),
+      }, store, testHub);
+      const result = await runner({
+        provider: { kind: 'openai-compatible' },
+        providerContext: { apiKey: 'fake-key', config: {} },
+        model: 'mock-model',
+        title: 'Bridge test',
+        prompt: 'Compose the e-mail.',
+        timezone: 'UTC',
+        allowWebResearch: false,
+        allowForms: false,
+        emailNotification: true,
+        limits: AGENT_RUNTIME_LIMITS,
+      } as never, { executionId: randomUUID(), ownerId: randomUUID(), workerId: 'live-bridge-worker' });
+      expect(sawTool, logs).toBe(true);
+      expect(result.markdown).toBe('MCP FINAL ANSWER');
+      expect(result.emailBlocks.map((block) => block.type)).toEqual(['heading', 'paragraph']);
+    } finally {
+      if (proc && proc.exitCode === null) {
+        proc.kill('SIGTERM');
+        await Promise.race([once(proc, 'exit'), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+      }
+      await hub.close();
+      await new Promise<void>((resolve, reject) => chat.close((error) => error ? reject(error) : resolve()));
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

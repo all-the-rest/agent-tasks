@@ -107,7 +107,12 @@ export function runtimeConfig(input, providerBaseUrl) {
   if (!model) throw new Error('Task model is not configured on its provider');
   const { headers } = safeProviderHeaders(input.provider, input.lease.executionId);
   headers['x-agent-tasks-egress'] = '{env:AGENT_TASKS_EGRESS_TOKEN}';
-  const modelConfig = { name: model.label ?? model.id };
+  // OpenCode prefixes MCP tool names with the server key. The wildcard deny is
+  // evaluated last, so each bridge tool needs an explicit allow after it.
+  const bridgeTools = input.toolBridge?.tools ?? [];
+  // Without `tool_call` OpenCode never offers tools to the model, even when an
+  // MCP server is connected and allowed.
+  const modelConfig = { name: model.label ?? model.id, tool_call: model.supportsTools === true };
   modelConfig.limit = {
     ...(Number.isInteger(model.contextLength) && model.contextLength > 0 ? { context: model.contextLength } : {}),
     output: Math.max(1, Math.floor(input.maxOutputBytes / 4)),
@@ -132,11 +137,14 @@ export function runtimeConfig(input, providerBaseUrl) {
     default_agent: 'agent-tasks',
     agents: {
       'agent-tasks': {
-        description: 'Text-only Agent Tasks execution with all tools denied.',
+        description: 'Agent Tasks execution with only the bridged tools allowed.',
         mode: 'primary',
         steps: input.maxAgentSteps,
         system: input.systemPrompt,
-        permissions: [{ action: '*', resource: '*', effect: 'deny' }],
+        permissions: [
+          { action: '*', resource: '*', effect: 'deny' },
+          ...bridgeTools.map((tool) => ({ action: `agent_tasks_tools_${tool}`, resource: '*', effect: 'allow' })),
+        ],
       },
     },
     providers: {
@@ -410,7 +418,9 @@ function validateInput(value) {
     || !Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > MAX_REQUEST_BYTES
     || typeof value.apiKey !== 'undefined' && (typeof value.apiKey !== 'string' || value.apiKey.length > 8_192)
     || typeof value.toolBridge !== 'undefined' && (!value.toolBridge || typeof value.toolBridge !== 'object'
-      || typeof value.toolBridge.token !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(value.toolBridge.token))) {
+      || typeof value.toolBridge.token !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(value.toolBridge.token)
+      || !Array.isArray(value.toolBridge.tools) || value.toolBridge.tools.length > 16
+      || !value.toolBridge.tools.every((tool) => typeof tool === 'string' && /^[a-z][a-z0-9_]{1,63}$/.test(tool)))) {
     throw new Error('Invalid isolated runtime request');
   }
   if (!Array.isArray(value.provider.models) || !value.provider.models.some((model) => model?.id === value.model.id)) {

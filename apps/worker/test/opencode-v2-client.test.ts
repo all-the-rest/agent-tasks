@@ -6,7 +6,7 @@ function response(body: unknown, status = 200): Response {
 }
 
 describe('OpenCode V2 HTTP adapter spike', () => {
-  it('creates a location-scoped session with model and restrictive permissions', async () => {
+  it('creates a location-scoped session without overriding agent permissions', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response({ data: { id: 'ses_1' } }));
     const client = new OpenCodeV2Client({ baseUrl: 'http://opencode.test/', password: 'secret', fetch: fetchMock });
     await expect(client.createSession({ directory: '/workspace', model: { providerID: 'openai', id: 'gpt-test' } })).resolves.toEqual({ id: 'ses_1' });
@@ -16,9 +16,6 @@ describe('OpenCode V2 HTTP adapter spike', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       location: { directory: '/workspace' },
       model: { providerID: 'openai', id: 'gpt-test' },
-      permissions: [
-        { action: '*', resource: '*', effect: 'deny' },
-      ],
     });
   });
 

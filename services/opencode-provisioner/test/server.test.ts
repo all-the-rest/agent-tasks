@@ -37,6 +37,8 @@ describe('isolated OpenCode provisioner service', () => {
     expect(config.model).toBe('agent_tasks/model-a');
     expect(config.agents['agent-tasks']).toMatchObject({ steps: 9, system: 'Prompt policy goes here' });
     expect(config.providers.agent_tasks.models['model-a'].limit).toEqual({ context: 32_000, output: 2_048 });
+    // Without tool_call OpenCode offers no tools at all, including MCP tools.
+    expect(config.providers.agent_tasks.models['model-a'].tool_call).toBe(true);
     expect(config.providers.agent_tasks).toMatchObject({
       env: ['AGENT_TASKS_API_KEY'],
       package: '@opencode/ai/providers/openai-compatible',
@@ -55,9 +57,10 @@ describe('isolated OpenCode provisioner service', () => {
     expect(JSON.stringify(config)).not.toContain('egress-token');
   });
 
-  it('registers the worker MCP bridge only when the execution has a tool token', () => {
+  it('registers the worker MCP bridge and allows exactly its namespaced tools', () => {
     const bridgeToken = 'b'.repeat(43);
-    const config = runtimeConfig({ ...input, toolBridge: { token: bridgeToken } }, 'http://opencode-provisioner:4090/provider');
+    const tools = ['compose_email', 'add_email_block'];
+    const config = runtimeConfig({ ...input, toolBridge: { token: bridgeToken, tools } }, 'http://opencode-provisioner:4090/provider');
     expect(config.mcp.servers).toEqual({
       agent_tasks_tools: {
         type: 'remote',
@@ -67,6 +70,12 @@ describe('isolated OpenCode provisioner service', () => {
         timeout: { startup: 10_000, catalog: 10_000, execution: 60_000 },
       },
     });
+    // The wildcard deny must stay first; OpenCode evaluates later rules last.
+    expect(config.agents['agent-tasks'].permissions).toEqual([
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'agent_tasks_tools_compose_email', resource: '*', effect: 'allow' },
+      { action: 'agent_tasks_tools_add_email_block', resource: '*', effect: 'allow' },
+    ]);
     expect(JSON.stringify(config)).not.toContain(input.apiKey);
   });
 

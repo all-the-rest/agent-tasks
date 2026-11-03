@@ -99,15 +99,12 @@ describe('OpenCode tool bridge', () => {
     expect(bob.emailBlocks).toHaveLength(1);
   });
 
-  it('serves an SSE stream for the MCP GET handshake', async () => {
+  it('declines the server-initiated SSE stream without hiding the catalog', async () => {
     bridge = await startToolBridge({ token: 'secret-token', port: 0 });
-    const controller = new AbortController();
     const response = await fetch(bridge.url, {
       headers: { authorization: `Bearer ${bridge.token}`, accept: 'text/event-stream' },
-      signal: controller.signal,
     });
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('text/event-stream');
-    controller.abort();
+    expect(response.status).toBe(405);
+    expect(response.headers.get('allow')).toContain('POST');
   });
 });
