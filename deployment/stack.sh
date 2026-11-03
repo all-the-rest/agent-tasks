@@ -81,6 +81,8 @@ if grep -q '=__GENERATE__$' "$env_file"; then
   fill AUTH_SECRET "$(openssl rand -hex 32)"
   fill SECRETS_ENCRYPTION_KEY "$(openssl rand -base64 32)"
   fill RUNNER_TOKEN "$(openssl rand -hex 24)"
+  fill OPENCODE_SERVER_PASSWORD "$(openssl rand -hex 32)"
+  fill OPENCODE_PROVISIONER_TOKEN "$(openssl rand -hex 32)"
 
   setup_token="setup-$(openssl rand -hex 16)"
   fill SETUP_TOKEN "$setup_token"

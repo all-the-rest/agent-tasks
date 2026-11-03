@@ -11,6 +11,28 @@ afterEach(async () => {
 });
 
 describe('administrator invariants', () => {
+  it('does not expose legacy per-agent limits through system settings', async () => {
+    harness = await createHarness();
+    const admin = await bootstrapAdmin(harness);
+
+    const saved = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+      payload: { agentLimits: { maxDurationSec: 30, maxAgentSteps: 1 } },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json()).not.toHaveProperty('agentLimits');
+
+    const response = await harness.app.inject({
+      method: 'GET',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).not.toHaveProperty('agentLimits');
+  });
+
   it('answers 404 for a malformed invitation id instead of a database error', async () => {
     harness = await createHarness();
     const admin = await bootstrapAdmin(harness);

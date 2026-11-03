@@ -12,7 +12,9 @@ own server, with your own provider key.
 > for the evidence and open gates. The OpenAI-compatible adapter is tested against
 > deterministic local mocks; no OpenCode Go account was available in the
 > verification environment, so real-account behaviour is **NOT VERIFIED**
-> ([details](docs/architecture/providers.md#verification-status)).
+> ([details](docs/architecture/providers.md#verification-status)). OpenCode 2.x is
+> additionally packaged as a separate, internal integration spike; the existing
+> worker runtime is still the execution backend.
 
 ## A quick tour
 
@@ -81,7 +83,9 @@ and committed under [`docs/images/`](docs/images/).
                                  PostgreSQL ◄── worker (pg-boss)
                                       ▲              │ agent loop
                                       │              ▼
-                                 executions     browser-runner ──► enforcing proxy ──► Internet
+                                  executions     browser-runner ──► enforcing proxy ──► Internet
+                                                 OpenCode V2 (isolated spike;
+                                                 not yet in the execution path)
                                                                      │
                                                                 blocked: loopback,
                                                                 RFC1918, link-local,
@@ -107,12 +111,14 @@ AUTH_SECRET=$(openssl rand -hex 32)
 SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)
 SETUP_TOKEN=$(openssl rand -hex 32)
 RUNNER_TOKEN=$(openssl rand -base64 24)
+OPENCODE_SERVER_PASSWORD=$(openssl rand -hex 32)
 sed -i \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" \
   -e "s|^AUTH_SECRET=.*|AUTH_SECRET=${AUTH_SECRET}|" \
   -e "s|^SECRETS_ENCRYPTION_KEY=.*|SECRETS_ENCRYPTION_KEY=${SECRETS_ENCRYPTION_KEY}|" \
   -e "s|^SETUP_TOKEN=.*|SETUP_TOKEN=${SETUP_TOKEN}|" \
   -e "s|^RUNNER_TOKEN=.*|RUNNER_TOKEN=${RUNNER_TOKEN}|" \
+  -e "s|^OPENCODE_SERVER_PASSWORD=.*|OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}|" \
   .env
 docker compose --profile search up -d --build
 grep '^SETUP_TOKEN=' .env

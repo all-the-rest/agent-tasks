@@ -57,3 +57,11 @@ describe('executor shutdown', () => {
     await expect(executor.abortAll(10)).resolves.toEqual({ settled: false, pending: 1 });
   });
 });
+
+describe('OpenCode feature gate', () => {
+  it('fails closed when enabled without a provisioned runtime', () => {
+    expect(() => new Executor({ db: {} as never, env: { ...env, OPENCODE_RUNTIME_ENABLED: '1' }, boss: {} as never, workerId: 'unit-worker' }))
+      .toThrow('without an isolated execution provisioner');
+    expect(() => makeExecutor()).not.toThrow();
+  });
+});

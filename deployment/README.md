@@ -83,8 +83,9 @@ deployment/stack.sh e2e logs --no-color --tail=100 api worker
 deployment/stack.sh e2e down -v
 ```
 
-Without profiles only the core services start (`postgres`, `api`, `worker`,
-`browser-runner`). `--profile mail` adds Mailpit and SpamAssassin;
+Without profiles the core services start (`postgres`, `api`, `worker`,
+`browser-runner`, `opencode`). OpenCode is isolated and not yet used by the worker
+for task execution. `--profile mail` adds Mailpit and SpamAssassin;
 `--profile search` adds SearXNG. `deployment/stack.sh local config --services`
 lists exactly what a selection starts.
 
@@ -96,6 +97,7 @@ lists exactly what a selection starts.
 | `AUTH_SECRET` | `openssl rand -hex 32` |
 | `SECRETS_ENCRYPTION_KEY` | `openssl rand -base64 32` |
 | `RUNNER_TOKEN` | `openssl rand -hex 24` |
+| `OPENCODE_SERVER_PASSWORD` | `openssl rand -hex 32` |
 | `SETUP_TOKEN` and `E2E_SETUP_TOKEN` | the same `setup-<hex>` value |
 | `ADMIN_PASSWORD` and `E2E_ADMIN_PASSWORD` | the same `Admin-<hex>` value |
 
@@ -161,7 +163,8 @@ host. There is no Portainer stack anymore: the host runs the compose project
 directly, and Watchtower updates the images.
 
 The API image contains the built SPA; there is no separate web container. The
-release workflow publishes `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`
+release workflow publishes
+`ghcr.io/all-the-rest/agent-tasks/{api,browser-runner,opencode,opencode-provisioner}`
 for every `v*` tag. `IMAGE_TAG` selects the release; the production compose file
 has no `build` section and pulls the registry tag. A local source checkout can
 still use `deployment/stack.sh local ... --build`.

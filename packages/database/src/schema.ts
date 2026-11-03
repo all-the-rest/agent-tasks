@@ -259,6 +259,14 @@ export const executions = pgTable(
   ],
 );
 
+/** Internal runtime mapping; never returned as part of the public execution record. */
+export const executionOpenCodeSessions = pgTable('execution_opencode_sessions', {
+  executionId: uuid('execution_id').primaryKey().references(() => executions.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id').notNull(),
+  messageId: text('message_id').notNull(),
+  promptDispatched: boolean('prompt_dispatched').notNull().default(false),
+});
+
 export const executionSteps = pgTable(
   'execution_steps',
   {
@@ -536,6 +544,7 @@ export const schema = {
   providerModels,
   tasks,
   executions,
+  executionOpenCodeSessions,
   executionSteps,
   executionSources,
   memories,

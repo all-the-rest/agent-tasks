@@ -1,8 +1,7 @@
 import { compatibleConfigSchema } from '../src/schemas.js';
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_LIMITS,
-  HARD_LIMITS,
+  AGENT_RUNTIME_LIMITS,
   systemSettingsSchema,
   taskInputSchema,
   taskUpdateSchema,
@@ -45,13 +44,10 @@ describe('PATCH schemas do not apply create defaults', () => {
     expect(update).toEqual({});
   });
 
-  it('defaults global agent limits to the finite hard caps and lets admins lower them', () => {
-    expect(DEFAULT_LIMITS).toEqual(HARD_LIMITS);
-    expect(systemSettingsSchema.parse({}).agentLimits).toEqual(HARD_LIMITS);
-    expect(systemSettingsSchema.parse({ agentLimits: { maxDurationSec: 600 } }).agentLimits)
-      .toMatchObject({ ...HARD_LIMITS, maxDurationSec: 600 });
-    expect(systemSettingsSchema.safeParse({ agentLimits: { maxDurationSec: HARD_LIMITS.maxDurationSec + 1 } }).success)
-      .toBe(false);
+  it('does not expose legacy per-agent limits as administrator settings', () => {
+    const settings = systemSettingsSchema.parse({ agentLimits: { maxDurationSec: 600 } });
+    expect(settings).not.toHaveProperty('agentLimits');
+    expect(AGENT_RUNTIME_LIMITS).toMatchObject({ maxDurationSec: 3600, maxAgentSteps: 60 });
   });
 
   it('leaves omitted preference fields absent on update', () => {

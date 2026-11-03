@@ -1,6 +1,5 @@
 import type {
   ExecutionStatus,
-  Limits,
   MemoryCategory,
   MemoryLearningMode,
   MemoryScope,
@@ -12,7 +11,6 @@ import type {
 
 export type {
   ExecutionStatus,
-  Limits,
   MemoryCategory,
   MemoryLearningMode,
   MemoryScope,
@@ -358,7 +356,6 @@ export interface SystemSettings {
   defaultModel?: string;
   maxConcurrentExecutionsPerUser: number;
   maxTaskExecutionsPerDay: number;
-  agentLimits: Limits;
   browserAllowHttp: boolean;
   browserAllowedPorts: number[];
   searchProvider: 'searxng' | 'none';

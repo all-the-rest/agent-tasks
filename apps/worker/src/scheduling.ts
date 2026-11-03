@@ -2,6 +2,8 @@ import type { Database } from '@agent-tasks/database';
 import { executions, tasks } from '@agent-tasks/database';
 import { nextOccurrence, scheduleSchema } from '@agent-tasks/shared';
 import { and, eq, lt, sql as raw } from 'drizzle-orm';
+import { exceededExecutionLimit } from './quota.js';
+import type { ExecutionLimits, LimitRefusal } from './quota.js';
 
 export interface DueTask {
   taskId: string;
@@ -52,27 +54,96 @@ export async function scheduleDueExecutions(db: Database, now: Date = new Date()
   });
 }
 
+export type ClaimExecutionResult =
+  | { status: 'claimed' }
+  | { status: 'not_claimed' }
+  | { status: 'refused'; reason: LimitRefusal; retryAttempt: number | null };
+
 /**
- * Lease-based claim. Two workers can receive the same job (at-least-once delivery);
- * only one of them flips `queued` to `running`.
+ * Claim and reserve an owner's execution slot in one transaction. The advisory lock
+ * makes the running-count check atomic across worker processes; the row lock keeps
+ * at-least-once delivery from claiming the same execution twice.
  */
 export async function claimExecution(
   db: Database,
   executionId: string,
   workerId: string,
   leaseSeconds: number,
-): Promise<boolean> {
-  const rows = await db.execute<{ id: string }>(raw`
-    update executions
-    set status = 'running',
-        worker_id = ${workerId},
-        started_at = coalesce(started_at, now()),
-        finished_at = null,
-        lease_expires_at = now() + (${leaseSeconds} || ' seconds')::interval
-    where id = ${executionId} and status = 'queued'
-    returning id
-  `);
-  return rows.rows.length > 0;
+  limits: ExecutionLimits,
+  maxAttempts: number,
+): Promise<ClaimExecutionResult> {
+  return db.transaction(async (tx) => {
+    const candidates = await tx.execute<{ owner_id: string; attempt: number; already_admitted_today: boolean }>(raw`
+      select owner_id, attempt,
+             coalesce(started_at > now() - interval '24 hours', false) as already_admitted_today
+      from executions
+      where id = ${executionId} and status = 'queued'
+      for update
+    `);
+    const candidate = candidates.rows[0];
+    if (!candidate) return { status: 'not_claimed' };
+
+    await tx.execute(raw`select pg_advisory_xact_lock(hashtext(${candidate.owner_id}))`);
+    const counts = await tx.execute<{ prior_executions_today: number; other_running_for_owner: number }>(raw`
+      select
+        (select count(*)::int from executions
+          where owner_id = ${candidate.owner_id}
+            and started_at > now() - interval '24 hours'
+            and id <> ${executionId}) as prior_executions_today,
+        (select count(*)::int from executions
+          where owner_id = ${candidate.owner_id}
+            and status = 'running'
+            and id <> ${executionId}) as other_running_for_owner
+    `);
+    const refusal = exceededExecutionLimit(
+      {
+        priorExecutionsToday: candidate.already_admitted_today
+          ? 0
+          : Number(counts.rows[0]?.prior_executions_today ?? 0),
+        otherRunningForOwner: Number(counts.rows[0]?.other_running_for_owner ?? 0),
+      },
+      limits,
+    );
+    if (!refusal) {
+      await tx.execute(raw`
+        update executions
+        set status = 'running',
+            worker_id = ${workerId},
+            started_at = case
+              when started_at is null or started_at <= now() - interval '24 hours' then now()
+              else started_at
+            end,
+            finished_at = null,
+            lease_expires_at = now() + (${leaseSeconds} || ' seconds')::interval
+        where id = ${executionId} and status = 'queued'
+      `);
+      return { status: 'claimed' };
+    }
+
+    if (candidate.attempt >= maxAttempts) {
+      await tx.execute(raw`
+        update executions
+        set status = 'failed',
+            finished_at = now(),
+            lease_expires_at = null,
+            error = ${refusal === 'quota' ? 'daily execution quota exceeded' : 'per-user concurrency limit exceeded'}
+        where id = ${executionId} and status = 'queued'
+      `);
+      return { status: 'refused', reason: refusal, retryAttempt: null };
+    }
+
+    const retryAttempt = candidate.attempt + 1;
+    await tx.execute(raw`
+      update executions
+      set status = 'queued',
+          worker_id = null,
+          lease_expires_at = null,
+          attempt = ${retryAttempt},
+          updated_at = now()
+      where id = ${executionId} and status = 'queued'
+    `);
+    return { status: 'refused', reason: refusal, retryAttempt };
+  });
 }
 
 export async function heartbeat(db: Database, executionId: string, leaseSeconds: number): Promise<void> {
@@ -82,32 +153,6 @@ export async function heartbeat(db: Database, executionId: string, leaseSeconds:
 export async function isCancelRequested(db: Database, executionId: string): Promise<boolean> {
   const rows = await db.execute<{ cancel_requested: boolean }>(raw`select cancel_requested from executions where id = ${executionId}`);
   return rows.rows[0]?.cancel_requested === true;
-}
-
-/**
- * Number of the owner's executions that are running right now, excluding
- * `excludeExecutionId` (the execution asking the question: it is already `running`).
- */
-export async function countRunningForOwner(db: Database, ownerId: string, excludeExecutionId?: string): Promise<number> {
-  const exclude = excludeExecutionId ? raw`and id <> ${excludeExecutionId}` : raw`and true`;
-  const rows = await db.execute<{ count: number }>(raw`
-    select count(*)::int as count from executions
-    where owner_id = ${ownerId} and status = 'running' ${exclude}
-  `);
-  return Number(rows.rows[0]?.count ?? 0);
-}
-
-/**
- * Number of the owner's executions created in the last 24 hours, excluding
- * `excludeExecutionId` (the execution asking the question: its own row already exists).
- */
-export async function countExecutionsToday(db: Database, ownerId: string, excludeExecutionId?: string): Promise<number> {
-  const exclude = excludeExecutionId ? raw`and id <> ${excludeExecutionId}` : raw`and true`;
-  const rows = await db.execute<{ count: number }>(raw`
-    select count(*)::int as count from executions
-    where owner_id = ${ownerId} and created_at > now() - interval '24 hours' ${exclude}
-  `);
-  return Number(rows.rows[0]?.count ?? 0);
 }
 
 /**
@@ -225,4 +270,3 @@ export async function resendQueuedExecutions(
 export async function pauseTask(db: Database, taskId: string): Promise<void> {
   await db.update(tasks).set({ enabled: false, nextRunAt: null, updatedAt: new Date() }).where(and(eq(tasks.id, taskId), eq(tasks.enabled, true)));
 }
-

@@ -110,12 +110,15 @@ services:
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       CODEX_HOME_ROOT: /var/lib/agent-tasks/codex
       CODEX_ISOLATED_RUNNER: ${CODEX_ISOLATED_RUNNER:-0}
+      OPENCODE_RUNTIME_ENABLED: ${OPENCODE_RUNTIME_ENABLED:-0}
+      OPENCODE_PROVISIONER_URL: http://opencode-provisioner:4090
+      OPENCODE_PROVISIONER_TOKEN: ${OPENCODE_PROVISIONER_TOKEN:-}
     depends_on:
       postgres:
         condition: service_healthy
       browser-runner:
         condition: service_started
-    networks: [backend]
+    networks: [backend, opencode, opencode-runtime]
     read_only: true
     tmpfs: [/tmp]
     volumes:
@@ -128,6 +131,71 @@ services:
       <<: *stack-label
       com.centurylinklabs.watchtower.enable: "true"
     stop_grace_period: 40s
+
+  # Separate OpenCode V2 server image. No port is published; only the worker
+  # shares this network. OpenCode has no database or browser-runner access.
+  opencode:
+    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/opencode:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      OPENCODE_SERVER_USERNAME: opencode
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?set OPENCODE_SERVER_PASSWORD in .env}
+    volumes:
+      - opencode-data:/home/opencode/.local/share/opencode
+    networks: [opencode]
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /home/opencode/.cache:size=128m,mode=0700,uid=10001,gid=10001
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: ${OPENCODE_MEMORY_LIMIT:-1g}
+    cpus: ${OPENCODE_CPUS:-1.0}
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error --user \"$${OPENCODE_SERVER_USERNAME}:$${OPENCODE_SERVER_PASSWORD}\" http://127.0.0.1:4096/api/info >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+
+  # Trusted Docker API boundary for per-execution OpenCode containers.
+  # Requires explicit profile opt-in; the worker itself never gets the socket.
+  opencode-provisioner:
+    profiles: [opencode-runtime]
+    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/opencode-provisioner:${IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: ${COMPOSE_PROJECT_NAME:-agent-tasks}-opencode-provisioner
+    restart: unless-stopped
+    environment:
+      OPENCODE_PROVISIONER_TOKEN: ${OPENCODE_PROVISIONER_TOKEN:-}
+      OPENCODE_RUNTIME_IMAGE: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/opencode:${IMAGE_TAG:-latest}
+      OPENCODE_RUNTIME_MEMORY_LIMIT: ${OPENCODE_MEMORY_LIMIT:-1g}
+      OPENCODE_RUNTIME_CPUS: ${OPENCODE_CPUS:-1.0}
+      OPENCODE_RUNTIME_TTL_SECONDS: ${OPENCODE_RUNTIME_TTL_SECONDS:-2592000}
+      PROVISIONER_CONTAINER_NAME: ${COMPOSE_PROJECT_NAME:-agent-tasks}-opencode-provisioner
+      PROVISIONER_PUBLIC_URL: http://opencode-provisioner:4090
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [opencode-runtime]
+    read_only: true
+    tmpfs: [/tmp:size=64m,mode=1777]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
 
   # Hardened browser execution: non-root, read-only root, no capabilities, no
   # published ports, its own throwaway filesystem and a process limit. The worker
@@ -231,6 +299,11 @@ networks:
   # Expected subnet 172.18.0.0/16, gateway 172.18.0.1; the API reserves
   # 172.18.0.70 for the proxy upstream. deploy.sh verifies this before changing
   # the active stack and never creates the network.
+  opencode:
+    internal: false
+  opencode-runtime:
+    name: ${COMPOSE_PROJECT_NAME:-agent-tasks}_opencode-runtime
+    internal: false
   webnet:
     external: true
     name: webnet
@@ -238,3 +311,4 @@ networks:
 volumes:
   postgres-data:
   codex-homes:
+  opencode-data:

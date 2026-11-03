@@ -1,5 +1,37 @@
 # Verification report
 
+## OpenCode V2 groundwork — 2026-11-03
+
+The separate OpenCode 2.2.5 image was built with `docker build --pull -f
+docker/Dockerfile.opencode --build-arg OPENCODE_VERSION=2.2.5 -t
+agent-tasks-opencode:spike .`. Root, local, E2E and production Compose
+configurations validated with their example environment files. `pnpm -r
+--workspace-concurrency=1 typecheck`, `pnpm lint`, `pnpm test:unit` (221 tests),
+and `git diff --check` passed.
+
+The opt-in command `OPENCODE_LIVE_TEST=1 pnpm exec vitest run --project unit
+apps/worker/test/opencode-v2-live.test.ts` passed (1 test) against the locally
+installed OpenCode 2.2.5. It starts an isolated OpenCode process and fake
+OpenAI-compatible HTTP provider, checks authentication, creates a session through
+the adapter, sends a prompt, and verifies the fake response in session messages.
+It also calls the real Executor with an explicitly injected text-only OpenCode
+runner, using a fake persistence layer, and checks the resulting execution report.
+
+The same test also ran with `OPENCODE_TEST_DATABASE_URL` pointing to a dedicated,
+migrated local PostgreSQL 15.19 database. With `OPENCODE_LIVE_TEST=1`, it inserts
+a task and queued execution, delivers the job through pg-boss to the real Executor,
+calls OpenCode 2.2.5 against the fake provider, and verifies the report in PostgreSQL.
+An independent SQL query returned `status=completed` and
+`markdown=mock integration answer`. The focused scheduler, task and admin
+integration tests also passed (15 tests). Never point this test at production data;
+the optional database branch creates test records and pg-boss infrastructure.
+
+**Not verified:** the container smoke test could not run because the execution
+harness denied `docker run`; image build is not runtime verification. The OpenCode
+runner is not enabled in the deployed worker. The live test uses a preconfigured mock
+provider, not owner-specific provider credential mapping into OpenCode. Tenant
+isolation, real provider credentials, tools, recovery, and product parity remain open.
+
 Scope: the implementation in this repository against the original brief
 ("Agent Tasks — self-hosted AI task scheduler"). Every row names the code that
 implements the requirement and the command/test that proves it. A row is `PASS`

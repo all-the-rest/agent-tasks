@@ -7,7 +7,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { executions, memories, providerCredentials, providers, recommendations } from '@agent-tasks/database';
 import { SecretBox } from '@agent-tasks/ai-providers';
 import type { RunAgentOptions } from '@agent-tasks/agent-runtime';
-import { HARD_LIMITS } from '@agent-tasks/shared';
+import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
 import { Executor } from '../src/executor.js';
 import type { WorkerEnv } from '../src/env.js';
 
@@ -70,14 +70,18 @@ function fakeDb(input: FakeInput) {
   const execute = async (query: unknown) => {
     // `loadSettings` passes a plain string; everything else is a drizzle SQL object.
     const sql = typeof query === 'string' ? query : dialect.sqlToQuery(query as never).sql;
-    if (sql.includes('update executions') && sql.includes("set status = 'running'")) return { rows: [{ id: input.execution.id }] };
+    if (sql.includes('select owner_id, attempt')) return { rows: [{ owner_id: input.execution.ownerId, attempt: 0, already_admitted_today: false }] };
+    if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
+    if (sql.includes('prior_executions_today')) return { rows: [{ prior_executions_today: 0, other_running_for_owner: 0 }] };
+    if (sql.includes('update executions') && sql.includes("set status = 'running'")) return { rows: [] };
     if (sql.includes('from system_settings')) return { rows: [{ values: input.settings ?? {} }] };
     if (sql.includes('select cancel_requested')) return { rows: [{ cancel_requested: false }] };
     if (sql.includes('count(*)::int as count')) return { rows: [{ count: 0 }] };
     throw new Error(`unexpected SQL: ${sql}`);
   };
 
-  return { db: { select, update, execute } as never, updates };
+  const transaction = async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) => callback({ execute });
+  return { db: { select, update, execute, transaction } as never, updates };
 }
 
 function workerEnv(codexHomeRoot: string, isolatedRunner = true): WorkerEnv {
@@ -129,6 +133,26 @@ function codexFixture(ownerId: string) {
 }
 
 describe('executor Codex home', () => {
+  it('uses an explicitly injected agent runner and persists its result', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
+    try {
+      const { executionId, input } = codexFixture(OWNER);
+      const fake = fakeDb(input);
+      const agentRunner = vi.fn(async () => ({
+        markdown: 'injected answer', summary: 'injected answer', sources: [], uncertainty: [],
+        steps: [], usage: {}, emailBlocks: [], memoryOps: [], recommendationOps: [],
+        stopReason: 'completed' as const,
+      }));
+      const executor = new Executor({ db: fake.db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker', agentRunner });
+      await executor.handle(executionId);
+      expect(agentRunner).toHaveBeenCalledOnce();
+      expect(fake.updates.find((update) => update.table === executions && update.values.status === 'completed')?.values.report)
+        .toMatchObject({ markdown: 'injected answer', summary: 'injected answer' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('passes the owner-scoped Codex home to the adapter and creates it owner-only when isolation is opted in', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
     try {
@@ -137,7 +161,7 @@ describe('executor Codex home', () => {
       await executor.handle(executionId);
 
       expect(state.options?.provider.kind).toBe('codex');
-      expect(state.options?.limits).toEqual(HARD_LIMITS);
+      expect(state.options?.limits).toEqual(AGENT_RUNTIME_LIMITS);
       expect(state.options?.providerContext.config.codexHome).toBe(join(root, homeSegment(OWNER)));
       const info = await stat(join(root, homeSegment(OWNER)));
       expect(info.isDirectory()).toBe(true);
@@ -147,7 +171,7 @@ describe('executor Codex home', () => {
     }
   });
 
-  it('uses administrator execution budgets instead of legacy per-task values', async () => {
+  it('uses fixed execution budgets instead of obsolete administrator or task values', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
     try {
       state.options = null;
@@ -164,7 +188,7 @@ describe('executor Codex home', () => {
       const executor = new Executor({ db: fake.db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker' });
       await executor.handle(executionId);
 
-      expect(state.options?.limits).toEqual(agentLimits);
+      expect(state.options?.limits).toEqual(AGENT_RUNTIME_LIMITS);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
