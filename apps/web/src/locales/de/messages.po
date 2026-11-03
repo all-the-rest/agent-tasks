@@ -19,12 +19,6 @@ msgstr "Akteur"
 msgid "admin.addProvider"
 msgstr "Anbieter hinzufügen"
 
-msgid "admin.agentLimitsHint"
-msgstr "Globale Grenzen für jeden Lauf. Aufgabenbesitzer können diese Werte nicht ändern."
-
-msgid "admin.agentLimitsTitle"
-msgstr "Agent-Ausführungsgrenzen"
-
 msgid "admin.allowRegistration"
 msgstr "Offene Registrierung erlauben"
 
@@ -154,24 +148,6 @@ msgstr "OpenAI-kompatibel"
 msgid "admin.lastUpdated"
 msgstr "Zuletzt aktualisiert"
 
-msgid "admin.maxAgentDuration"
-msgstr "Maximale Dauer (Sekunden)"
-
-msgid "admin.maxAgentOutputBytes"
-msgstr "Maximale Ausgabe (Bytes)"
-
-msgid "admin.maxAgentPageVisits"
-msgstr "Maximale Seitenaufrufe"
-
-msgid "admin.maxAgentSearchQueries"
-msgstr "Maximale Suchanfragen"
-
-msgid "admin.maxAgentSteps"
-msgstr "Maximale Agent-Schritte"
-
-msgid "admin.maxAgentToolCalls"
-msgstr "Maximale Tool-Aufrufe"
-
 msgid "admin.maxConcurrent"
 msgstr "Gleichzeitige Ausführungen pro Benutzer"
 
@@ -183,6 +159,18 @@ msgstr "Metadaten"
 
 msgid "admin.metrics"
 msgstr "Kennzahlen"
+
+msgid "admin.modelCatalog"
+msgstr "Modellkatalog"
+
+msgid "admin.modelCatalogEmpty"
+msgstr "Noch keine Modelle. Zuerst den gemeinsamen Schlüssel speichern, dann die Modelle aktualisieren."
+
+msgid "admin.modelContext"
+msgstr "{count} Kontext"
+
+msgid "admin.modelSupportsTools"
+msgstr "Tools"
 
 msgid "admin.modelsRefreshed"
 msgstr "Modelle aktualisiert."
@@ -204,6 +192,9 @@ msgstr "Noch keine Anbieter konfiguriert."
 
 msgid "admin.noUsers"
 msgstr "Keine Benutzer gefunden."
+
+msgid "admin.openCodeGoHint"
+msgstr "Die gemeinsame OpenCode-Go-Verbindung nutzt den offiziellen Endpunkt."
 
 msgid "admin.personalCredentialCount"
 msgstr "Persönliche Schlüssel: {count}"
@@ -330,6 +321,9 @@ msgstr "Aufgaben"
 
 msgid "admin.title"
 msgstr "Verwaltung"
+
+msgid "admin.useOpenCodeGo"
+msgstr "OpenCode Go verwenden"
 
 msgid "admin.userUpdated"
 msgstr "Benutzer aktualisiert."
@@ -771,6 +765,12 @@ msgstr "Ausführungsdetails"
 
 msgid "executions.duration"
 msgstr "Dauer"
+
+msgid "executions.emailPreview"
+msgstr "Benachrichtigungs-E-Mail"
+
+msgid "executions.emailPreviewHint"
+msgstr "Blöcke, die der Agent für die Abschluss-E-Mail erstellt hat; sie werden als bereinigte HTML-E-Mail versendet."
 
 msgid "executions.empty"
 msgstr "Keine Ausführungen gefunden"

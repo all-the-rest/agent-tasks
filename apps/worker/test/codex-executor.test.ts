@@ -140,14 +140,26 @@ describe('executor Codex home', () => {
       const fake = fakeDb(input);
       const agentRunner = vi.fn(async () => ({
         markdown: 'injected answer', summary: 'injected answer', sources: [], uncertainty: [],
-        steps: [], usage: {}, emailBlocks: [], memoryOps: [], recommendationOps: [],
+        steps: [], usage: {}, emailBlocks: [
+          { type: 'heading' as const, text: 'Injected report', level: 1 as const },
+          { type: 'paragraph' as const, text: 'Details.' },
+        ], memoryOps: [], recommendationOps: [],
         stopReason: 'completed' as const,
       }));
       const executor = new Executor({ db: fake.db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker', agentRunner });
       await executor.handle(executionId);
       expect(agentRunner).toHaveBeenCalledOnce();
+      // The report page and the report e-mail both read the durable report, so the
+      // composed blocks must be part of it, not only of the mail payload.
       expect(fake.updates.find((update) => update.table === executions && update.values.status === 'completed')?.values.report)
-        .toMatchObject({ markdown: 'injected answer', summary: 'injected answer' });
+        .toMatchObject({
+          markdown: 'injected answer',
+          summary: 'injected answer',
+          email: { blocks: [
+            { type: 'heading', text: 'Injected report', level: 1 },
+            { type: 'paragraph', text: 'Details.' },
+          ] },
+        });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

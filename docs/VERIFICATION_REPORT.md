@@ -28,6 +28,11 @@ What is now implemented and tested:
   provisioner registers it and proxies `/mcp`. `compose_email` and
   `add_email_block` reuse the validated DSL/block schema and feed the execution
   result; the report page and report e-mail already render from that shape.
+- **Report parity.** The execution page renders the sanitized markdown, sources
+  and a read-only preview of the notification e-mail blocks the agent composed.
+  The preview maps blocks to React elements (no `dangerouslySetInnerHTML`) and
+  drops non-http(s) URLs; the same blocks feed `renderEmailDocument` for the
+  actual mail.
 
 Still open before cutover:
 
@@ -48,6 +53,7 @@ Current verification for this change:
 | `pnpm -r typecheck` | passed (10 workspace projects) |
 | `pnpm test:unit` | **255 passed, 3 skipped**, 36 files passed / 1 skipped |
 | `pnpm test:integration` | **85 passed**, 13 files |
+| `pnpm --filter @agent-tasks/web test` | **43 passed**, 10 files (includes e-mail block preview and sanitizer) |
 | `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
 | `services/opencode-provisioner` unit tests | **6 passed** |
 | `scripts/verify-opencode-provisioner.mjs` in the rebuilt provisioner container | all lifecycle/isolation checks passed (fake credentials only) |

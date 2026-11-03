@@ -19,12 +19,6 @@ msgstr "Actor"
 msgid "admin.addProvider"
 msgstr "Add provider"
 
-msgid "admin.agentLimitsHint"
-msgstr "Global limits for each run. Task owners cannot change these values."
-
-msgid "admin.agentLimitsTitle"
-msgstr "Agent execution limits"
-
 msgid "admin.allowRegistration"
 msgstr "Allow open registration"
 
@@ -154,24 +148,6 @@ msgstr "OpenAI-compatible"
 msgid "admin.lastUpdated"
 msgstr "Last updated"
 
-msgid "admin.maxAgentDuration"
-msgstr "Maximum duration (seconds)"
-
-msgid "admin.maxAgentOutputBytes"
-msgstr "Maximum output (bytes)"
-
-msgid "admin.maxAgentPageVisits"
-msgstr "Maximum page visits"
-
-msgid "admin.maxAgentSearchQueries"
-msgstr "Maximum search queries"
-
-msgid "admin.maxAgentSteps"
-msgstr "Maximum agent steps"
-
-msgid "admin.maxAgentToolCalls"
-msgstr "Maximum tool calls"
-
 msgid "admin.maxConcurrent"
 msgstr "Concurrent executions per user"
 
@@ -183,6 +159,18 @@ msgstr "Metadata"
 
 msgid "admin.metrics"
 msgstr "Metrics"
+
+msgid "admin.modelCatalog"
+msgstr "Model catalog"
+
+msgid "admin.modelCatalogEmpty"
+msgstr "No models yet. Store the shared credential, then refresh models."
+
+msgid "admin.modelContext"
+msgstr "{count} ctx"
+
+msgid "admin.modelSupportsTools"
+msgstr "tools"
 
 msgid "admin.modelsRefreshed"
 msgstr "Models refreshed."
@@ -204,6 +192,9 @@ msgstr "No providers configured yet."
 
 msgid "admin.noUsers"
 msgstr "No users found."
+
+msgid "admin.openCodeGoHint"
+msgstr "The shared OpenCode Go connection uses the official endpoint."
 
 msgid "admin.personalCredentialCount"
 msgstr "Personal keys: {count}"
@@ -330,6 +321,9 @@ msgstr "Tasks"
 
 msgid "admin.title"
 msgstr "Administration"
+
+msgid "admin.useOpenCodeGo"
+msgstr "Use OpenCode Go"
 
 msgid "admin.userUpdated"
 msgstr "User updated."
@@ -771,6 +765,12 @@ msgstr "Execution detail"
 
 msgid "executions.duration"
 msgstr "Duration"
+
+msgid "executions.emailPreview"
+msgstr "Notification e-mail"
+
+msgid "executions.emailPreviewHint"
+msgstr "Blocks the agent composed for the completion e-mail; they are sent as a sanitized HTML e-mail."
 
 msgid "executions.empty"
 msgstr "No executions found"

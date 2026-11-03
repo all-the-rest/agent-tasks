@@ -468,6 +468,8 @@ export const en = {
       report: 'Report',
       noReport: 'No report yet. It appears when the run completes.',
       uncertainty: 'Uncertainty',
+      emailPreview: 'Notification e-mail',
+      emailPreviewHint: 'Blocks the agent composed for the completion e-mail; they are sent as a sanitized HTML e-mail.',
       exportMarkdown: 'Export Markdown',
       exportJson: 'Export JSON',
       retrievedAt: 'Retrieved',
