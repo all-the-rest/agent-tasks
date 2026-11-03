@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { executions, providerCredentials, providers, tasks } from '@agent-tasks/database';
 import {
   AppError,
@@ -19,6 +19,59 @@ import type { AppContext } from '../context.js';
 import { AUDIT_ACTIONS } from '../lib/audit.js';
 import { requireUser, requireUuid } from '../lib/session.js';
 import { enqueueExecution } from '../lib/queue.js';
+
+interface PageCursor {
+  createdAt: string;
+  id: string;
+}
+
+const CURSOR_TIMESTAMP_PATTERN = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{6})Z$/;
+const CURSOR_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function encodePageCursor(cursor: PageCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodePageCursor(value: string | undefined): PageCursor | undefined {
+  if (value === undefined) return undefined;
+  const invalid = () => AppError.badRequest('invalid pagination cursor');
+  if (!value || value.length > 512) throw invalid();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  } catch {
+    throw invalid();
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw invalid();
+  const cursor = parsed as Record<string, unknown>;
+  if (typeof cursor.createdAt !== 'string' || typeof cursor.id !== 'string') throw invalid();
+  if (!CURSOR_UUID_PATTERN.test(cursor.id)) throw invalid();
+  const timestamp = CURSOR_TIMESTAMP_PATTERN.exec(cursor.createdAt);
+  const parsedTimestamp = Date.parse(`${cursor.createdAt.slice(0, 23)}Z`);
+  if (
+    !timestamp ||
+    Number.isNaN(parsedTimestamp) ||
+    new Date(parsedTimestamp).toISOString().slice(0, 19) !== timestamp[1]
+  ) {
+    throw invalid();
+  }
+  return { createdAt: cursor.createdAt, id: cursor.id };
+}
+
+function cursorPageLimit(value: string | undefined, fallback: number): number {
+  const limit = value === undefined ? fallback : Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw AppError.badRequest('invalid pagination limit');
+  }
+  return limit;
+}
+
+function cursorPaginationEnabled(pagination: string | undefined, cursor: string | undefined): boolean {
+  if (pagination !== undefined && pagination !== 'cursor') throw AppError.badRequest('invalid pagination mode');
+  if (cursor !== undefined && pagination !== 'cursor') throw AppError.badRequest('cursor requires cursor pagination');
+  return pagination === 'cursor';
+}
 
 function parseSchedule(input: unknown): ParsedSchedule {
   const parsed = scheduleSchema.safeParse(input);
@@ -80,19 +133,63 @@ async function assertProviderUsable(context: AppContext, userId: string, provide
 export async function registerTaskRoutes(app: FastifyInstance, context: AppContext): Promise<void> {
   const { db } = context;
 
-  app.get<{ Querystring: { limit?: string; status?: string } }>('/api/tasks', async (request) => {
+  app.get<{ Querystring: { limit?: string; status?: string; pagination?: string; cursor?: string } }>('/api/tasks', async (request) => {
     const me = await requireUser(context, request);
-    const limit = Math.min(Number(request.query.limit ?? 50), 100);
+    const status = request.query.status;
+    if (status && !['active', 'paused', 'completed'].includes(status)) {
+      throw AppError.badRequest('invalid task status filter');
+    }
+    const cursorPagination = cursorPaginationEnabled(request.query.pagination, request.query.cursor);
+    const cursor = cursorPagination ? decodePageCursor(request.query.cursor) : undefined;
+    const limit = cursorPagination ? cursorPageLimit(request.query.limit, 50) : Math.min(Number(request.query.limit ?? 50), 100);
+    const conditions = [eq(tasks.ownerId, me.id)];
+    if (status === 'active') conditions.push(eq(tasks.enabled, true), isNull(tasks.completedAt));
+    if (status === 'paused') conditions.push(eq(tasks.enabled, false), isNull(tasks.completedAt));
+    if (status === 'completed') conditions.push(isNotNull(tasks.completedAt));
+    if (cursor) {
+      conditions.push(
+        sql`(${tasks.createdAt}, ${tasks.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`,
+      );
+    }
     const rows = await db
-      .select()
+      .select({
+        task: tasks,
+        cursorCreatedAt: sql<string>`to_char(${tasks.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      })
       .from(tasks)
-      .where(eq(tasks.ownerId, me.id))
-      .orderBy(desc(tasks.createdAt))
-      .limit(limit);
-    return rows.map((task) => ({
+      .where(and(...conditions))
+      .orderBy(desc(tasks.createdAt), desc(tasks.id))
+      .limit(cursorPagination ? limit + 1 : limit);
+    const hasMore = cursorPagination && rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const unreadCounts = new Map<string, number>();
+    if (pageRows.length > 0) {
+      const counts = await db
+        .select({ taskId: executions.taskId, count: sql<number>`count(*)::int` })
+        .from(executions)
+        .where(
+          and(
+            eq(executions.ownerId, me.id),
+            inArray(executions.taskId, pageRows.map((row) => row.task.id)),
+            eq(executions.status, 'completed'),
+            isNull(executions.readAt),
+          ),
+        )
+        .groupBy(executions.taskId);
+      for (const count of counts) unreadCounts.set(count.taskId, Number(count.count));
+    }
+    const items = pageRows.map(({ task }) => ({
       ...omitTaskLimits(task),
+      status: task.completedAt ? 'completed' : task.enabled ? 'active' : 'paused',
+      unreadCount: unreadCounts.get(task.id) ?? 0,
       scheduleDescription: describeSchedule(scheduleSchema.parse(task.schedule)),
     }));
+    if (!cursorPagination) return items;
+    const last = pageRows.at(-1);
+    return {
+      items,
+      nextCursor: hasMore && last ? encodePageCursor({ createdAt: last.cursorCreatedAt, id: last.task.id }) : null,
+    };
   });
 
   app.post<{ Body: unknown }>('/api/tasks', async (request, reply) => {
@@ -383,7 +480,10 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     return omitTaskLimits(copy);
   });
 
-  app.get<{ Params: { id: string }; Querystring: { limit?: string; before?: string } }>('/api/tasks/:id/executions', async (request) => {
+  app.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; before?: string; pagination?: string; cursor?: string };
+  }>('/api/tasks/:id/executions', async (request) => {
     const me = await requireUser(context, request);
     const taskId = requireUuid(request.params.id, 'task');
     const taskRows = await db
@@ -392,10 +492,20 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
       .limit(1);
     if (!taskRows[0]) throw AppError.notFound('task');
-    const limit = Math.min(Number(request.query.limit ?? 20), 100);
+    const cursorPagination = cursorPaginationEnabled(request.query.pagination, request.query.cursor);
+    if (cursorPagination && request.query.before !== undefined) {
+      throw AppError.badRequest('before cannot be combined with cursor pagination');
+    }
+    const cursor = cursorPagination ? decodePageCursor(request.query.cursor) : undefined;
+    const limit = cursorPagination ? cursorPageLimit(request.query.limit, 20) : Math.min(Number(request.query.limit ?? 20), 100);
     const before = request.query.before ? new Date(request.query.before) : null;
-    const conditions = [eq(executions.taskId, taskId)];
+    const conditions = [eq(executions.taskId, taskId), eq(executions.ownerId, me.id)];
     if (before) conditions.push(lt(executions.createdAt, before));
+    if (cursor) {
+      conditions.push(
+        sql`(${executions.createdAt}, ${executions.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`,
+      );
+    }
     const rows = await db
       .select({
         id: executions.id,
@@ -407,12 +517,25 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         error: executions.error,
         taskTitle: executions.taskTitle,
         scheduledFor: executions.scheduledFor,
+        readAt: executions.readAt,
+        createdAt: executions.createdAt,
+        cursorCreatedAt: sql<string>`to_char(${executions.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
       })
       .from(executions)
       .where(and(...conditions))
-      .orderBy(desc(executions.createdAt))
-      .limit(limit);
-    return rows;
+      .orderBy(desc(executions.createdAt), desc(executions.id))
+      .limit(cursorPagination ? limit + 1 : limit);
+    const hasMore = cursorPagination && rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    if (!cursorPagination) {
+      return pageRows.map(({ createdAt: _createdAt, cursorCreatedAt: _cursorCreatedAt, ...row }) => row);
+    }
+    const items = pageRows.map(({ cursorCreatedAt: _cursorCreatedAt, ...row }) => row);
+    const last = pageRows.at(-1);
+    return {
+      items,
+      nextCursor: hasMore && last ? encodePageCursor({ createdAt: last.cursorCreatedAt, id: last.id }) : null,
+    };
   });
 
   app.get<{ Querystring: { limit?: string; status?: string } }>('/api/executions', async (request) => {
@@ -431,6 +554,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         finishedAt: executions.finishedAt,
         durationMs: executions.durationMs,
         error: executions.error,
+        readAt: executions.readAt,
       })
       .from(executions)
       .where(and(...conditions))
@@ -454,6 +578,33 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .where(eq(executionStepsTable.executionId, execution.id))
       .orderBy(executionStepsTable.step);
     return { ...execution, steps };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/executions/:id/read', async (request) => {
+    const me = await requireUser(context, request);
+    const executionId = requireUuid(request.params.id, 'execution');
+    const rows = await db
+      .select({ status: executions.status, readAt: executions.readAt })
+      .from(executions)
+      .where(and(eq(executions.id, executionId), eq(executions.ownerId, me.id)))
+      .limit(1);
+    const execution = rows[0];
+    if (!execution) throw AppError.notFound('execution');
+    if (execution.status !== 'completed') throw AppError.conflict('only completed executions can be marked read');
+
+    const [updated] = await db
+      .update(executions)
+      .set({ readAt: sql`coalesce(${executions.readAt}, now())` })
+      .where(
+        and(
+          eq(executions.id, executionId),
+          eq(executions.ownerId, me.id),
+          eq(executions.status, 'completed'),
+        ),
+      )
+      .returning({ readAt: executions.readAt });
+    if (!updated?.readAt) throw AppError.conflict('only completed executions can be marked read');
+    return { readAt: updated.readAt };
   });
 
   app.post<{ Params: { id: string } }>('/api/executions/:id/cancel', async (request) => {

@@ -826,6 +826,12 @@ msgstr "Filter by status"
 msgid "executions.finishedAt"
 msgstr "Finished"
 
+msgid "executions.markRead"
+msgstr "Mark as read"
+
+msgid "executions.markedReadMsg"
+msgstr "Execution marked as read."
+
 msgid "executions.noFailures"
 msgstr "No recent failures."
 
@@ -1708,6 +1714,9 @@ msgstr "Number of scheduled runs"
 msgid "tasks.executionsTitle"
 msgstr "Executions"
 
+msgid "tasks.filterStatus"
+msgstr "Filter by status"
+
 msgid "tasks.formInvalid"
 msgstr "Please correct the highlighted fields."
 
@@ -1716,6 +1725,18 @@ msgstr "Hour"
 
 msgid "tasks.lastRun"
 msgstr "Last run"
+
+msgid "tasks.loadMoreRuns"
+msgstr "Load more runs"
+
+msgid "tasks.loadMoreTasks"
+msgstr "Load more tasks"
+
+msgid "tasks.loadingMoreRuns"
+msgstr "Loading more runs…"
+
+msgid "tasks.loadingMoreTasks"
+msgstr "Loading more tasks…"
 
 msgid "tasks.minute"
 msgstr "Minute"
@@ -1737,6 +1758,9 @@ msgstr "This provider has no models. Refresh its model list in the admin area."
 
 msgid "tasks.noProviders"
 msgstr "No providers are configured. Ask an administrator to add one."
+
+msgid "tasks.noTasksForStatus"
+msgstr "No tasks in this status"
 
 msgid "tasks.notification"
 msgstr "Notification"
@@ -1840,6 +1864,15 @@ msgstr "Select a model"
 msgid "tasks.selectProvider"
 msgstr "Select a provider"
 
+msgid "tasks.status.active"
+msgstr "Active"
+
+msgid "tasks.status.completed"
+msgstr "Completed"
+
+msgid "tasks.status.paused"
+msgstr "Paused"
+
 msgid "tasks.subtitle"
 msgstr "Scheduled research jobs and their guardrails."
 
@@ -1884,6 +1917,12 @@ msgstr "Title"
 
 msgid "tasks.titlePlaceholder"
 msgstr "Weekly competitor briefing"
+
+msgid "tasks.unread"
+msgstr "Unread"
+
+msgid "tasks.unreadRuns"
+msgstr "{count, plural, one {# unread run} other {# unread runs}}"
 
 msgid "tasks.useLocalTimezone"
 msgstr "Use my timezone ({timezone})"

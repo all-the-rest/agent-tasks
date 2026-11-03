@@ -15,7 +15,7 @@ import {
   StatusBadge,
   useToast,
 } from '../components/ui';
-import type { ExecutionSource, ExecutionStep } from '../lib/types';
+import type { Execution, ExecutionSource, ExecutionStep } from '../lib/types';
 import { EmailBlocksPreview } from '../components/EmailBlocksPreview';
 
 type Tab = 'report' | 'timeline' | 'sources' | 'memory';
@@ -132,6 +132,22 @@ export function ExecutionDetailPage() {
     onError: (cause) => setActionError(errorMessage(cause)),
   });
 
+  const markRead = useMutation({
+    mutationFn: () => api.executions.markRead(id),
+    onSuccess: async ({ readAt }) => {
+      queryClient.setQueryData<Execution>(['execution', id], (current) =>
+        current ? { ...current, readAt } : current,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['task-executions'] }),
+        queryClient.invalidateQueries({ queryKey: ['executions'] }),
+      ]);
+      showToast(t('executions.markedReadMsg'));
+    },
+    onError: (cause) => setActionError(errorMessage(cause)),
+  });
+
   const data = execution.data;
   const visited = useMemo(
     () => collectVisited(data?.steps ?? [], data?.report?.sources ?? []),
@@ -172,6 +188,16 @@ export function ExecutionDetailPage() {
             >
               {t('executions.exportJson')}
             </a>
+            {data.status === 'completed' && !data.readAt ? (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                disabled={markRead.isPending}
+                onClick={() => markRead.mutate()}
+              >
+                {markRead.isPending ? t('common.saving') : t('executions.markRead')}
+              </button>
+            ) : null}
             {canCancel ? (
               <button type="button" className="btn btn-sm btn-error" onClick={() => setCancelOpen(true)}>
                 {t('executions.cancel')}

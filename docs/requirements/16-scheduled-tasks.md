@@ -389,12 +389,12 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 
 | Reference behaviour | Ours | Note |
 | --- | --- | --- |
-| Dedicated scheduled surface in the nav | ✅ | *Tasks* page, not an inbox yet |
-| Filter active / paused / completed | ❌ | Only a title search; completed state is now tracked and shown, but no status filter exists. `GET /api/tasks` already types a `status` param but ignores it (`tasks.ts:57-66`) |
-| Unread marker on new runs | ❌ | Executions page is a log with status tabs |
+| Dedicated scheduled surface in the nav | ✅ | *Tasks* page now includes the inbox slice: status filters, per-task unread counts and run history with an explicit review action |
+| Filter active / paused / completed | ✅ | `GET /api/tasks?status=…`; status is derived from `completed_at` first, then `enabled` |
+| Unread marker on new runs | ✅ | Completed runs are unread by default; owners explicitly mark an individual execution read. Existing completed runs are backfilled as read |
 | Composer-first creation | ❌ | `TaskFormPage` is a form with *Task / Schedule / Behaviour* sections |
 | One-click suggestions | ❌ | Empty state only links to "create your first task" |
-| Relative "next run" in the list | 🟡 | Absolute date in the list; the relative value labelled "last run" is computed from `updatedAt`, not `lastRunAt`, so editing moves it |
+| Relative "next run" in the list | ✅ | Active tasks show a locale-aware relative next run; paused and completed tasks show no next run |
 
 **Definition**
 
@@ -458,7 +458,7 @@ Kept deliberately, per §5:
 
 | Rank | Gap | Why it matters | Size |
 | --- | --- | --- | --- |
-| 1 | **Inbox with unread + active/paused/completed filter** | Runs are currently a log, not something you review | M — needs `archived`/state model, `read_at`, list query |
+| 1 | ✅ **Inbox slice shipped in #20** | Owner-scoped unread counts and explicit read markers, with active / paused / completed filtering and relative next-run text | Shipped using existing task and execution state; no separate archive state |
 | 2 | **Prompt-first creation with a confirmed draft** | The form asks for provider/model/schedule before the user has said what they want | M — composer + draft object + confirm step |
 | 3 | **Destination choice** | Every run looks the same; no "continue this thread" | L — needs a conversation concept |
 | 4 | **End conditions (date / after N runs)** | Long-running monitors never stop | ✅ Shipped in #20; after N counts scheduled bookings, while manual runs and retries remain independent |
@@ -475,8 +475,10 @@ Kept deliberately, per §5:
    by the scheduler before booking; date is inclusive in the task timezone.
 2. **Monitoring diff + quiet runs** — store the previous report, compare, and make
    "nothing changed" a first-class result that suppresses e-mail.
-3. **Inbox** — task state (`active / paused / completed`), unread runs, status
-   filter, relative next run. Reuses the executions table.
+3. ✅ **Inbox slice shipped in #20** — task state (`active / paused / completed`),
+   owner-scoped unread runs, an explicit per-execution read action, status filter
+   and relative next run. Reuses the executions table; existing completed runs
+   are treated as already read.
 4. **Prompt-first creation** — composer on the tasks page; the form becomes the
    second step, pre-filled from the draft.
 5. **Notification channels** — abstract `notification` into channels; add
@@ -503,8 +505,8 @@ Kept deliberately, per §5:
 
 **Open — the work in §9**
 
-- [ ] Task state: active / paused / completed, with a filter on the list (completed is tracked and displayed; the filter remains open)
-- [ ] Unread runs and an inbox-style review surface
+- [x] Task state: active / paused / completed, with a filter on the list
+- [x] Unread runs and an inbox-style review surface with an explicit per-run read action
 - [ ] Prompt-first creation with a confirmable draft
 - [x] End condition: never / on a date / after N scheduled bookings (manual runs and retries do not count)
 - [ ] "Nothing to report" outcome that suppresses notification

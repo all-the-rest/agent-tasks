@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
 import { describeSchedule } from '../lib/describe';
-import { formatDate, formatRelative } from '../lib/format';
+import { formatRelative } from '../lib/format';
 import {
   ConfirmDialog,
   EmptyState,
@@ -13,15 +13,27 @@ import {
   Spinner,
   useToast,
 } from '../components/ui';
-import type { Task } from '../lib/types';
+import type { Task, TaskStatus } from '../lib/types';
 
 type TaskAction = 'pause' | 'resume' | 'run' | 'duplicate';
+const TASK_STATUSES: TaskStatus[] = ['active', 'paused', 'completed'];
+const taskStatusClass: Record<TaskStatus, string> = {
+  active: 'badge-success',
+  paused: 'badge-ghost',
+  completed: 'badge-info',
+};
 
 export function TasksPage() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const tasks = useQuery({ queryKey: ['tasks'], queryFn: api.tasks.list });
+  const [taskStatus, setTaskStatus] = useState<TaskStatus>('active');
+  const tasks = useInfiniteQuery({
+    queryKey: ['tasks', taskStatus],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => api.tasks.listPage({ status: taskStatus, cursor: pageParam ?? undefined }),
+    getNextPageParam: (page) => page.nextCursor ?? null,
+  });
 
   const [filter, setFilter] = useState('');
   const [toDelete, setToDelete] = useState<Task | null>(null);
@@ -67,13 +79,13 @@ export function TasksPage() {
   });
 
   const visible = useMemo(() => {
-    const rows = tasks.data ?? [];
+    const rows = tasks.data?.pages.flatMap((page) => page.items) ?? [];
     const needle = filter.trim().toLowerCase();
     return needle ? rows.filter((task) => task.title.toLowerCase().includes(needle)) : rows;
   }, [tasks.data, filter]);
 
-  if (tasks.isLoading) return <Spinner label={t('common.loadingPage')} />;
-  if (tasks.isError) {
+  if (tasks.isPending) return <Spinner label={t('common.loadingPage')} />;
+  if (tasks.isError && !tasks.data) {
     return (
       <ErrorAlert
         message={t('errors.loadFailed')}
@@ -102,8 +114,8 @@ export function TasksPage() {
         </div>
       ) : null}
 
-      {tasks.data && tasks.data.length > 0 ? (
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="w-full max-w-xs">
             <label className="sr-only" htmlFor="task-filter">
               {t('tasks.searchPlaceholder')}
@@ -117,15 +129,30 @@ export function TasksPage() {
               onChange={(event) => setFilter(event.target.value)}
             />
           </div>
-          <p className="text-xs opacity-60" aria-live="polite">
-            {t('tasks.count', { count: visible.length })}
-          </p>
         </div>
-      ) : null}
+        <label className="sr-only" htmlFor="task-status-filter">
+          {t('tasks.filterStatus')}
+        </label>
+        <select
+          id="task-status-filter"
+          className="select select-sm w-full max-w-48"
+          value={taskStatus}
+          onChange={(event) => setTaskStatus(event.target.value as TaskStatus)}
+        >
+          {TASK_STATUSES.map((status) => (
+            <option key={status} value={status}>
+              {t(`tasks.status.${status}`)}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs opacity-60" aria-live="polite">
+          {t('tasks.count', { count: visible.length })}
+        </p>
+      </div>
 
-      {!tasks.data || tasks.data.length === 0 ? (
+      {visible.length === 0 && tasks.data.pages.every((page) => page.items.length === 0) ? (
         <EmptyState
-          title={t('tasks.empty')}
+          title={t('tasks.noTasksForStatus')}
           description={t('tasks.emptyHint')}
           action={
             <Link className="btn btn-primary btn-sm" to="/tasks/new">
@@ -148,14 +175,21 @@ export function TasksPage() {
                       </Link>
                       <p className="text-xs opacity-60">{task.model}</p>
                     </div>
-                    <span className={`badge badge-sm ${task.enabled ? 'badge-success' : task.completedAt ? 'badge-info' : 'badge-ghost'}`}>
-                      {task.completedAt ? t('tasks.completed') : task.enabled ? t('common.enabled') : t('common.disabled')}
+                    <span className={`badge badge-sm ${taskStatusClass[task.status ?? (task.completedAt ? 'completed' : task.enabled ? 'active' : 'paused')]}`}>
+                      {t(`tasks.status.${task.status ?? (task.completedAt ? 'completed' : task.enabled ? 'active' : 'paused')}`)}
                     </span>
                   </div>
                   <p className="text-xs opacity-70">{describeSchedule(task.schedule, t)}</p>
                   <p className="text-xs opacity-60">
-                    {t('tasks.nextRun')}: {task.enabled && !task.completedAt ? formatDate(task.nextRunAt, i18n.language) : t('common.never')}
+                    {t('tasks.nextRun')}: {task.status === 'active' || (!task.status && task.enabled && !task.completedAt)
+                      ? formatRelative(task.nextRunAt, i18n.language)
+                      : t('common.never')}
                   </p>
+                  {(task.unreadCount ?? 0) > 0 ? (
+                    <p className="text-xs font-medium text-primary" aria-label={t('tasks.unreadRuns', { count: task.unreadCount ?? 0 })}>
+                      {t('tasks.unreadRuns', { count: task.unreadCount ?? 0 })}
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap items-center gap-1 border-t border-base-200 pt-2">
                     {!task.completedAt ? (
                       <button
@@ -231,21 +265,26 @@ export function TasksPage() {
               <tbody>
                 {visible.map((task) => (
                   <tr key={task.id} className="hover:bg-base-200/50">
-                    <td className="max-w-64">
-                      <Link to={`/tasks/${task.id}`} className="font-medium link-hover">
-                        {task.title}
-                      </Link>
-                      <p className="truncate text-xs opacity-60">{task.model}</p>
+                      <td className="max-w-64">
+                        <Link to={`/tasks/${task.id}`} className="font-medium link-hover">
+                          {task.title}
+                        </Link>
+                        <p className="truncate text-xs opacity-60">{task.model}</p>
+                        {(task.unreadCount ?? 0) > 0 ? (
+                          <p className="text-xs font-medium text-primary">{t('tasks.unreadRuns', { count: task.unreadCount ?? 0 })}</p>
+                        ) : null}
                     </td>
                     <td className="hidden max-w-64 text-xs opacity-70 md:table-cell">
                       {describeSchedule(task.schedule, t)}
                     </td>
                     <td className="hidden whitespace-nowrap text-xs opacity-70 sm:table-cell">
-                        {task.enabled && !task.completedAt ? formatDate(task.nextRunAt, i18n.language) : t('common.never')}
+                        {task.status === 'active' || (!task.status && task.enabled && !task.completedAt)
+                          ? formatRelative(task.nextRunAt, i18n.language)
+                          : t('common.never')}
                       </td>
                       <td>
-                      <span className={`badge badge-sm ${task.enabled ? 'badge-success' : task.completedAt ? 'badge-info' : 'badge-ghost'}`}>
-                        {task.completedAt ? t('tasks.completed') : task.enabled ? t('common.enabled') : t('common.disabled')}
+                      <span className={`badge badge-sm ${taskStatusClass[task.status ?? (task.completedAt ? 'completed' : task.enabled ? 'active' : 'paused')]}`}>
+                        {t(`tasks.status.${task.status ?? (task.completedAt ? 'completed' : task.enabled ? 'active' : 'paused')}`)}
                       </span>
                     </td>
                     <td>
@@ -287,9 +326,6 @@ export function TasksPage() {
                           {t('common.delete')}
                         </button>
                       </div>
-                      <p className="text-right text-[11px] opacity-40">
-                        {t('tasks.lastRun')}: {formatRelative(task.updatedAt, i18n.language)}
-                      </p>
                     </td>
                   </tr>
                 ))}
@@ -299,6 +335,25 @@ export function TasksPage() {
         </div>
         </>
       )}
+
+      {tasks.isFetchNextPageError ? (
+        <div className="mt-4">
+          <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void tasks.fetchNextPage()} />
+        </div>
+      ) : null}
+      {tasks.hasNextPage ? (
+        <div className="mt-4 flex justify-center" aria-live="polite">
+          <button
+            type="button"
+            className="btn btn-outline"
+            disabled={tasks.isFetchingNextPage}
+            aria-busy={tasks.isFetchingNextPage}
+            onClick={() => void tasks.fetchNextPage()}
+          >
+            {tasks.isFetchingNextPage ? t('tasks.loadingMoreTasks') : t('tasks.loadMoreTasks')}
+          </button>
+        </div>
+      ) : null}
 
       <ConfirmDialog
         open={toDelete !== null}

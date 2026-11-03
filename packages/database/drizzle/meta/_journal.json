@@ -43,6 +43,13 @@
       "when": 1793727294005,
       "tag": "0005_deep_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793731269351,
+      "tag": "0006_illegal_chamber",
+      "breakpoints": true
     }
   ]
 }
