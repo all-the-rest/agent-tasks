@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
 import type { PgBoss } from 'pg-boss';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, ne } from 'drizzle-orm';
 import type { Database } from '@agent-tasks/database';
 import {
   applyTaskLearning,
@@ -10,12 +9,13 @@ import {
   executionSteps,
   loadMemoryContextData,
   providerCredentials,
+  providerModels,
   providers,
   tasks,
   user,
   userPreferences,
 } from '@agent-tasks/database';
-import { AgentCancelledError, runAgent } from '@agent-tasks/agent-runtime';
+import { AgentCancelledError } from '@agent-tasks/agent-runtime';
 import type { RunAgentOptions, AgentRunResult } from '@agent-tasks/agent-runtime';
 import { BrowserRunnerClient, NoopSearchProvider, SearxngSearchProvider } from '@agent-tasks/browser-tools';
 import type { SearchProvider } from '@agent-tasks/browser-tools';
@@ -23,17 +23,21 @@ import { ProviderError, SecretBox, contextFor, createProvider, redact, resolveCr
 import {
   AGENT_RUNTIME_LIMITS,
   buildMemoryContext,
+  catalogModelSupportsTools,
+  mergeProviderCatalog,
   parseMemorySettings,
   renderEmailDocument,
   reportToMarkdown,
+  reportChangeStatus,
   scheduleSchema,
   systemSettingsSchema,
+  taskRequiresTools,
+  isExecutableProviderKind,
 } from '@agent-tasks/shared';
 import type { MemoryCategory, MemoryContextRecord, MemoryScope, RecommendationContextRecord } from '@agent-tasks/shared';
 import { claimExecution, heartbeat, isCancelRequested } from './scheduling.js';
 import { settleWithin } from './lifecycle.js';
 import type { SettleResult } from './lifecycle.js';
-import { resolveProviderConfig } from './codex-home.js';
 import { collectKnownSecrets } from './credentials.js';
 import { createMailer } from './mailer.js';
 import type { Mailer } from './mailer.js';
@@ -48,10 +52,8 @@ export interface ExecutorDeps {
   workerId: string;
   /** Injectable for tests; defaults to SMTP/log based on the environment. */
   mailer?: Mailer;
-  /** Explicit injection seam for experimental runtimes; production defaults to runAgent. */
-  agentRunner?: (options: RunAgentOptions, lease: OpenCodeExecutionLease) => Promise<AgentRunResult>;
-  /** Provisioned OpenCode runner; never fall back silently when the feature is enabled. */
-  openCodeRunner?: (options: RunAgentOptions, lease: OpenCodeExecutionLease) => Promise<AgentRunResult>;
+  /** The only supported task execution path: a provisioned isolated OpenCode runtime. */
+  openCodeRunner: (options: RunAgentOptions, lease: OpenCodeExecutionLease) => Promise<AgentRunResult>;
 }
 
 const LEASE_SECONDS = 120;
@@ -67,9 +69,7 @@ export class Executor {
   private inFlight = new Set<Promise<void>>();
 
   constructor(private readonly deps: ExecutorDeps) {
-    if (deps.env.OPENCODE_RUNTIME_ENABLED === '1' && !deps.openCodeRunner) {
-      throw new Error('OpenCode runtime enabled without an isolated execution provisioner');
-    }
+    if (!deps.openCodeRunner) throw new Error('Isolated OpenCode execution provisioner is required');
     this.secrets = new SecretBox(deps.env.SECRETS_ENCRYPTION_KEY, deps.env.SECRETS_ENCRYPTION_KEY_PREVIOUS);
     this.browser = new BrowserRunnerClient({ baseUrl: deps.env.RUNNER_URL, token: deps.env.RUNNER_TOKEN, timeoutMs: 60_000 });
     this.mailer =
@@ -160,13 +160,45 @@ export class Executor {
       if (!provider) throw new Error('provider record no longer exists');
       if (!provider.enabled) throw new Error('provider is disabled');
 
-      // `codex exec` can run arbitrary shell commands, and a per-user CODEX_HOME is only a
-      // path convention, not a sandbox. Until an operator has isolated the runner itself,
-      // a Codex execution must fail closed. `unsupported` is terminal (never retried).
-      if (provider.kind === 'codex' && this.deps.env.CODEX_ISOLATED_RUNNER !== '1') {
+      // The provisioned OpenCode runtime currently accepts only OpenAI-compatible
+      // provider records. Do not alias or silently translate Ollama, Codex, or the
+      // legacy `openai` kind into a different execution contract.
+      if (!isExecutableProviderKind(provider.kind)) {
+        throw new ProviderError('unsupported', `provider kind ${provider.kind} is not supported by isolated OpenCode execution`);
+      }
+
+      // The task editor talks to the persisted discovery catalog, not to the
+      // provider's declared fallback list. Load it so an id that the admin refreshed
+      // stays runnable, and merge the admin's explicit capability overrides on top.
+      const discovered = await db
+        .select({
+          id: providerModels.modelId,
+          label: providerModels.label,
+          supportsTools: providerModels.supportsTools,
+          contextLength: providerModels.contextLength,
+        })
+        .from(providerModels)
+        .where(eq(providerModels.providerId, provider.id));
+      const providerConfig = {
+        ...(provider.config as Record<string, unknown>),
+        models: mergeProviderCatalog((provider.config as { models?: unknown }).models, discovered.map((model) => ({
+          id: model.id,
+          label: model.label,
+          supportsTools: model.supportsTools,
+          ...(model.contextLength !== null ? { contextLength: model.contextLength } : {}),
+        }))),
+      };
+
+      const memorySettings = parseMemorySettings(task.memorySettings);
+      // E-mail, research and memory are only real when the runtime may offer tools.
+      // Refuse before provisioning instead of letting OpenCode run without them.
+      if (taskRequiresTools({
+        allowWebResearch: task.allowWebResearch,
+        memoryMode: memorySettings.mode,
+      }) && !catalogModelSupportsTools(providerConfig.models, task.model)) {
         throw new ProviderError(
           'unsupported',
-          'codex execution requires an isolated runner: set CODEX_ISOLATED_RUNNER=1 only after wiring per-user process isolation',
+          `model ${task.model} is not marked tool-capable on provider ${provider.name}; enable tools for it in the admin provider catalog or disable research and memory`,
         );
       }
 
@@ -178,13 +210,8 @@ export class Executor {
       // used for this run.
       knownSecrets.push(...collectKnownSecrets(credential.apiKey, credentials, decrypt));
 
-      // Codex logins are account-scoped: never use the directory stored on the global
-      // provider row. Derive it from the task owner and create it owner-only.
-      const resolvedConfig = resolveProviderConfig(provider.kind, provider.config as Record<string, unknown>, task.ownerId, this.deps.env.CODEX_HOME_ROOT);
-      if (resolvedConfig.codexHome) await mkdir(resolvedConfig.codexHome, { recursive: true, mode: 0o700 });
-
       const adapter = createProvider(provider.kind);
-      const providerContext = contextFor({ ...provider, config: resolvedConfig.config }, credential.apiKey);
+      const providerContext = contextFor({ ...provider, config: providerConfig }, credential.apiKey);
 
       if (task.allowWebResearch) {
         const session = await this.browser.createSession();
@@ -192,14 +219,10 @@ export class Executor {
       }
 
       const search = this.searchProvider(settings);
-      const memorySettings = parseMemorySettings(task.memorySettings);
-      // A model declared as non-tool-capable cannot receive memory tools. It can
-      // still receive read-only context, but automatic learning is skipped.
-      // Codex never executes tool calls, so it is treated the same way.
-      const memoryToolsEnabled =
-        memorySettings.mode !== 'off' &&
-        provider.kind !== 'codex' &&
-        modelSupportsTools(resolvedConfig.config, task.model);
+      // The preflight above already refused a task that needs tools on a model that
+      // the catalog does not explicitly mark as tool-capable, so memory tools are
+      // never silently dropped here.
+      const memoryToolsEnabled = memorySettings.mode !== 'off';
       let memoryContext: string | null = null;
       if (memorySettings.mode !== 'off') {
         // Read fresh on every execution: a deleted or edited memory can never be
@@ -239,10 +262,7 @@ export class Executor {
         memoryContext = built.text;
       }
 
-      const runner = this.deps.env.OPENCODE_RUNTIME_ENABLED === '1'
-        ? this.deps.openCodeRunner!
-        : (this.deps.agentRunner ?? runAgent);
-      const result = await runner({
+      const result = await this.deps.openCodeRunner({
         provider: adapter,
         providerContext,
         model: task.model,
@@ -252,7 +272,7 @@ export class Executor {
         timezone: task.timezone,
         allowWebResearch: task.allowWebResearch,
         allowForms: false,
-        emailNotification: task.notification === 'email',
+        emailNotification: task.notification !== 'none',
         memoryEnabled: memoryToolsEnabled,
         memoryContext,
         limits,
@@ -283,6 +303,19 @@ export class Executor {
       }, { executionId, ownerId: execution.ownerId, workerId: this.deps.workerId });
 
       const finishedAt = new Date();
+      // Quiet runs: compare with the previous completed run so the notification
+      // decision and the stored report can say whether anything actually changed.
+      const previousRows = await db
+        .select({ id: executions.id, report: executions.report })
+        .from(executions)
+        .where(and(eq(executions.taskId, task.id), eq(executions.status, 'completed'), ne(executions.id, executionId)))
+        .orderBy(desc(executions.finishedAt))
+        .limit(1);
+      const previous = previousRows[0];
+      const change = reportChangeStatus(
+        (previous?.report as { markdown?: string } | null | undefined)?.markdown,
+        result.markdown,
+      );
       await db
         .update(executions)
         .set({
@@ -294,6 +327,7 @@ export class Executor {
             markdown: result.markdown,
             sources: result.sources,
             uncertainty: result.uncertainty,
+            change: { status: change, ...(previous ? { previousExecutionId: previous.id } : {}) },
             ...(result.emailBlocks.length > 0 ? { email: { blocks: result.emailBlocks } } : {}),
           },
           usage: result.usage,
@@ -373,7 +407,9 @@ export class Executor {
         }
       }
 
-      if (task.notification === 'email') {
+      const notifyByEmail = task.notification === 'email'
+        || (task.notification === 'email_on_change' && change !== 'unchanged');
+      if (notifyByEmail) {
         // A notification failure must never turn a completed execution into a failure.
         await this.sendCompletionEmail({ task, executionId, result, finishedAt }).catch((error: unknown) => {
           console.error(
@@ -403,7 +439,7 @@ export class Executor {
   private async sendCompletionEmail(input: {
     task: typeof tasks.$inferSelect;
     executionId: string;
-    result: Awaited<ReturnType<typeof runAgent>>;
+    result: AgentRunResult;
     finishedAt: Date;
   }): Promise<void> {
     const rows = await this.deps.db
@@ -483,20 +519,13 @@ export function parseTaskSchedule(value: unknown): ReturnType<typeof scheduleSch
 }
 
 /**
- * Whether a configured model may receive tool definitions. Providers that do not
- * declare `supportsTools: false` are left unchanged; only an explicit false
- * disables the optional memory tools.
+ * Whether the provider catalog explicitly marks the model as tool-capable. An
+ * unknown model, an empty catalog or an undeclared capability is `false`: tool
+ * support is never inferred.
  */
 export function modelSupportsTools(config: unknown, model: string): boolean {
-  if (!config || typeof config !== 'object') return true;
-  const models = (config as { models?: unknown }).models;
-  if (!Array.isArray(models)) return true;
-  const base = model.split(':')[0];
-  const declared = models.find(
-    (entry): entry is { id?: unknown; supportsTools?: unknown } =>
-      typeof entry === 'object' && entry !== null && ((entry as { id?: unknown }).id === model || (entry as { id?: unknown }).id === base),
-  );
-  return declared?.supportsTools !== false;
+  if (!config || typeof config !== 'object') return false;
+  return catalogModelSupportsTools((config as { models?: unknown }).models, model);
 }
 
 export async function loadUserTimezone(db: Database, userId: string): Promise<string> {

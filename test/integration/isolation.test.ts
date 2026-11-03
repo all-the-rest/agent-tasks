@@ -100,6 +100,56 @@ describe('multi-user isolation', () => {
     expect(aliceRead.json().ownerId).not.toBe(undefined);
   });
 
+  it('exports the full execution record as JSON and Markdown', async () => {
+    const created = await harness.app.inject({ method: 'POST', url: '/api/tasks', headers: { cookie: aliceCookie }, payload: { ...taskPayload(), title: 'Export task' } });
+    expect(created.statusCode, created.body).toBe(201);
+    const taskId = created.json().id as string;
+    const owner = await harness.db.pool.query('select owner_id from tasks where id = $1', [taskId]);
+    const executionId = randomUUID();
+    await harness.db.pool.query(
+      `insert into executions (id, task_id, owner_id, task_title, status, trigger, provider_id, model, started_at, finished_at, duration_ms, report, usage)
+       values ($1,$2,$3,'Export task','completed','manual',$4,'mock-researcher',now(),now(),1500,$5,$6)`,
+      [
+        executionId,
+        taskId,
+        owner.rows[0].owner_id,
+        providerId,
+        JSON.stringify({
+          summary: 'Short answer',
+          markdown: 'Long body',
+          sources: [{ url: 'https://example.com/', title: 'Example', confidence: 'verified', retrievedAt: '2026-11-03T00:00:00.000Z' }],
+          uncertainty: ['Only one source was available'],
+        }),
+        JSON.stringify({ totalTokens: 42 }),
+      ],
+    );
+    await harness.db.pool.query(
+      `insert into execution_steps (id, execution_id, step, tool, args, ok, started_at, finished_at, duration_ms, result_preview)
+       values ($1,$2,1,'search_web','{}',true,now(),now(),10,'two results')`,
+      [randomUUID(), executionId],
+    );
+
+    // The JSON export must carry the timeline and failure detail, not only the text.
+    const json = await harness.app.inject({ method: 'GET', url: `/api/executions/${executionId}/export?format=json`, headers: { cookie: aliceCookie } });
+    expect(json.statusCode, json.body).toBe(200);
+    expect(String(json.headers['content-disposition'])).toContain('.json');
+    const body = json.json();
+    expect(body.durationMs).toBe(1500);
+    expect(body.steps.map((step: { tool: string }) => step.tool)).toEqual(['search_web']);
+    expect(body.report.uncertainty).toHaveLength(1);
+    expect(body.usage.totalTokens).toBe(42);
+
+    // The Markdown export must include the summary and the uncertainty section.
+    const md = await harness.app.inject({ method: 'GET', url: `/api/executions/${executionId}/export?format=md`, headers: { cookie: aliceCookie } });
+    expect(md.statusCode, md.body).toBe(200);
+    expect(String(md.headers['content-disposition'])).toContain('.md');
+    expect(md.body).toContain('## Summary');
+    expect(md.body).toContain('Short answer');
+    expect(md.body).toContain('## Uncertainty');
+    expect(md.body).toContain('Only one source was available');
+    expect(md.body).toContain('https://example.com/');
+  });
+
   it('does not give an administrator implicit access to user tasks', async () => {
     const adminRead = await harness.app.inject({ method: 'GET', url: `/api/tasks/${aliceTaskId}`, headers: { cookie: adminCookie } });
     expect(adminRead.statusCode).toBe(404);

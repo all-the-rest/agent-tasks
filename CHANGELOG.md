@@ -56,6 +56,16 @@
 
 ### Changed
 
+- Task execution has a single backend: the isolated, provisioned OpenCode 2.x
+  runtime. The worker no longer has a legacy `runAgent` fallback or an
+  `OPENCODE_RUNTIME_ENABLED` flag, rejects every provider kind except
+  `openai-compatible`, and requires a healthy provisioner before it registers
+  queues. Local/E2E Compose uses a test-only fake provisioner without a Docker
+  socket, egress or provider credentials. Production keeps the real provisioner
+  behind `opencode-runtime`; `deployment/deploy.sh` refuses every real deploy
+  while the source-controlled `deployment/OPENCODE_RUNTIME_APPROVED` marker is
+  absent, and the preflight additionally rejects that profile and an
+  empty worker token until the documented verification gates pass.
 - Production deployment documentation now treats
   `/opt/stacks/agent-tasks` + `deployment/deploy.sh` as the primary path.
   `deployment/stack.sh production` is local `config` validation only, and the
@@ -64,3 +74,51 @@
   `agent-tasks` and the existing volumes. The manual backup/restore and rollback
   snippets fail fast before replacing `.env` or starting the stack and write
   their dumps root-only (`umask 077`, `chmod`/`install -m 0600`).
+
+### Fixed
+
+- The worker and the provisioner now use the persisted provider catalog instead
+  of the admin-declared `config.models` snapshot: discovered models work without a
+  duplicate declaration, declared metadata overrides discovery, and declared-only
+  models stay usable. A provider created through the UI and refreshed through the
+  normal `POST /api/admin/providers/<id>/models/refresh` route can create and run
+  a task, which previously failed provisioning with "Task model is not configured
+  on its provider".
+- Tool support is explicit only. Discovery cannot prove it, so a model is
+  tool-capable only with `config.models[] = { id, supportsTools: true }` (admin
+  toggle). Tasks that need web research or memory are refused with a clear
+  400/typed `unsupported` error before provisioning instead of silently running
+  without their tools; the worker, runner and provisioner all repeat the check.
+  Completion e-mail does not need tools (the worker sends it itself) and no longer
+  blocks a tool-less model.
+- Provider kinds other than `openai-compatible` are refused on task creation,
+  execution-relevant updates and manual runs with an explicit message instead of
+  being mapped to another adapter. The task editor lists only executable
+  providers; admin and settings still show every provider, marked
+  `executable: false`, and existing rows and credentials are preserved.
+- A task model with a reasoning variant (`model#high`) no longer fails the
+  isolated runtime with a catalog mismatch. The worker splits the suffix with the
+  adapter's `parseModelVariant` semantics, validates the base id against the
+  provider, and sends `{ id, variant }` through the provisioner. The provisioner
+  declares all six variants on the runtime model as `reasoning_effort`, and the
+  client, runner and provisioner reject a dropped, rewritten or unsupported
+  variant instead of silently running the wrong effort.
+- Retry, resume and duplicate validate the stored provider, model and tool
+  requirements before they queue or re-enable work, so a legacy provider cannot
+  produce a guaranteed-to-fail execution.
+- A runtime-reported provider failure is classified again: HTTP 429 becomes
+  `rate_limited`, 5xx/timeouts become `unavailable`, and both keep the existing
+  bounded backoff. Unclear failures stay terminal.
+- A discovered tool capability survives an admin override that only renames or
+  adds metadata; only an explicit `supportsTools` value overrides it.
+- Upgrading an existing local/E2E env removes the retired
+  `OPENCODE_SERVER_PASSWORD`/`OPENCODE_RUNTIME_ENABLED` entries instead of
+  tripping the placeholder gate.
+- The test-only fake runtime's reports start with a “Simulated execution” banner
+  and its startup log says TEST-ONLY, so a local run cannot be mistaken for a
+  real model call.
+- Tasks can notify "only when the report changes". Every completed run records
+  its relation to the previous completed run (`report.change`, `first`/`changed`/
+  `unchanged`/`unknown`), and the quieter mode suppresses the e-mail when the
+  report text is identical while still delivering a first, changed or
+  uncomparable report.

@@ -102,22 +102,18 @@ services:
       RUNNER_URL: http://browser-runner:8081
       RUNNER_TOKEN: ${RUNNER_TOKEN:?set RUNNER_TOKEN in .env}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
-      CODEX_HOME_ROOT: /var/lib/agent-tasks/codex
-      CODEX_ISOLATED_RUNNER: ${CODEX_ISOLATED_RUNNER:-0}
-      OPENCODE_RUNTIME_ENABLED: ${OPENCODE_RUNTIME_ENABLED:-0}
-      OPENCODE_PROVISIONER_URL: http://opencode-provisioner:4090
-      OPENCODE_PROVISIONER_TOKEN: ${OPENCODE_PROVISIONER_TOKEN:-}
+      OPENCODE_PROVISIONER_URL: http://opencode-test-provisioner:4090
+      OPENCODE_PROVISIONER_TOKEN: ${OPENCODE_PROVISIONER_TOKEN:?set OPENCODE_PROVISIONER_TOKEN in .env}
     depends_on:
       postgres:
         condition: service_healthy
       browser-runner:
         condition: service_started
-    networks: [backend, opencode, opencode-runtime]
+      opencode-test-provisioner:
+        condition: service_healthy
+    networks: [backend, opencode-runtime]
     read_only: true
     tmpfs: [/tmp]
-    volumes:
-      # One login directory per user for the opt-in Codex adapter (owner id subdirectory).
-      - codex-homes:/var/lib/agent-tasks/codex
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -126,46 +122,47 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
     stop_grace_period: 40s
 
-  # OpenCode V2 owns agent sessions/tool orchestration. It is a separate,
-  # version-pinned image on a worker-only network; it has no database, browser,
-  # host filesystem, Docker socket, or public port.
-  opencode:
+  # Test-only fake isolated runtime for local/E2E worker coverage. It ignores
+  # provider URLs and credentials, has no Docker socket or egress, and is
+  # reachable only over the internal runtime network. Production uses the
+  # separately profile-gated real provisioner in deployment/compose.production.yaml.
+  opencode-test-provisioner:
     build:
       context: .
-      dockerfile: docker/Dockerfile.opencode
-      args:
-        OPENCODE_VERSION: ${OPENCODE_VERSION:-2.2.5}
-    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/opencode:${IMAGE_TAG:-latest}
-    pull_policy: always
+      dockerfile: docker/Dockerfile.opencode-test-provisioner
+    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/opencode-test-provisioner:${IMAGE_TAG:-latest}
+    pull_policy: build
     restart: unless-stopped
     environment:
-      OPENCODE_SERVER_USERNAME: opencode
-      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?set OPENCODE_SERVER_PASSWORD in .env}
-    volumes:
-      - opencode-data:/home/opencode/.local/share/opencode
-    networks: [opencode]
+      OPENCODE_PROVISIONER_TOKEN: ${OPENCODE_PROVISIONER_TOKEN:?set OPENCODE_PROVISIONER_TOKEN in .env}
+      FAKE_RUNTIME_DELAY_MS: ${FAKE_RUNTIME_DELAY_MS:-0}
+      FAKE_RUNTIME_MEMORY_OPS: ${FAKE_RUNTIME_MEMORY_OPS:-0}
+      TOOL_BRIDGE_URL: http://worker:4091/mcp
+    networks: [opencode-runtime]
     read_only: true
+    # Block form: flow style would split `size=...,mode=...` into list items and
+    # Docker then rejects `mode=1777` as a mount path.
     tmpfs:
-      - /tmp:size=128m,mode=1777
-      - /home/opencode/.cache:size=128m,mode=0700,uid=10001,gid=10001
+      - /tmp:size=16m,mode=1777
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
-    pids_limit: 128
-    mem_limit: ${OPENCODE_MEMORY_LIMIT:-1g}
-    cpus: ${OPENCODE_CPUS:-1.0}
+    pids_limit: 32
+    mem_limit: 128m
+    cpus: 0.25
     healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent --show-error --user \"$${OPENCODE_SERVER_USERNAME}:$${OPENCODE_SERVER_PASSWORD}\" http://127.0.0.1:4096/api/info >/dev/null"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 5s
     labels:
       <<: *stack-label
       com.centurylinklabs.watchtower.enable: "false"
 
   # Trusted Docker API boundary for short-lived per-execution OpenCode runtimes.
-  # It is not started by default and is the only service with the Docker socket.
+  # This production service is profile-gated; enabling its Docker socket and
+  # provider egress remains blocked until the documented verification gates pass.
   opencode-provisioner:
     profiles: [opencode-runtime]
     build:
@@ -189,7 +186,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [opencode-runtime, opencode-egress]
     read_only: true
-    tmpfs: [/tmp:size=64m,mode=1777]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -300,11 +298,8 @@ services:
 networks:
   backend:
     internal: false
-  # OpenCode is never published and has no direct egress. It is reachable only
-  # by the worker/provisioner; inference traffic leaves through the provisioner,
-  # which is the single audited egress boundary.
-  opencode:
-    internal: true
+  # Worker-to-provisioner traffic stays on an internal network. The local/E2E
+  # fake service has no egress; production runtime egress remains provisioner-only.
   opencode-runtime:
     name: ${COMPOSE_PROJECT_NAME:-agent-tasks}_opencode-runtime
     internal: true
@@ -314,4 +309,5 @@ networks:
 volumes:
   postgres-data:
   codex-homes:
+  # Retained for existing deployments; no shared persistent OpenCode server is used.
   opencode-data:

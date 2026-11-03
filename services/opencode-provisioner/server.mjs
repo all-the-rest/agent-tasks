@@ -14,6 +14,10 @@ const API_PORT = 4090;
 const MAX_REQUEST_BYTES = 1_000_000;
 const MAX_PROXY_RESPONSE_BYTES = 32 * 1024 * 1024;
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
+// Must stay in sync with MODEL_VARIANTS in packages/ai-providers. The worker splits
+// `model#variant` before provisioning; each variant is declared on the runtime model
+// so OpenCode maps it to the provider's reasoning effort.
+const MODEL_VARIANTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 const runtimes = new Map();
 const networkAttachments = new Map();
 
@@ -112,7 +116,14 @@ export function runtimeConfig(input, providerBaseUrl) {
   const bridgeTools = input.toolBridge?.tools ?? [];
   // Without `tool_call` OpenCode never offers tools to the model, even when an
   // MCP server is connected and allowed.
-  const modelConfig = { name: model.label ?? model.id, tool_call: model.supportsTools === true };
+  const modelConfig = {
+    name: model.label ?? model.id,
+    tool_call: model.supportsTools === true,
+    // Declare every documented `model#variant`; without this OpenCode exposes only a
+    // provider-dependent subset (e.g. low/medium/high) and rejects the rest at run
+    // time. The body maps the variant onto the OpenAI-style reasoning effort.
+    variants: MODEL_VARIANTS.map((variant) => ({ id: variant, body: { reasoning_effort: variant } })),
+  };
   modelConfig.limit = {
     ...(Number.isInteger(model.contextLength) && model.contextLength > 0 ? { context: model.contextLength } : {}),
     output: Math.max(1, Math.floor(input.maxOutputBytes / 4)),
@@ -343,7 +354,12 @@ async function prepareRuntime(input, token) {
       await waitForRuntime(state, password);
     });
     const baseUrl = `${process.env.PROVISIONER_PUBLIC_URL ?? `http://${NETWORK_ALIAS}:${API_PORT}`}/v1/runtime/${input.lease.executionId}/`;
-    return { state, response: { baseUrl, password, directory: '/workspace', model: { providerID: 'agent_tasks', id: input.model.id } } };
+    return { state, response: {
+      baseUrl,
+      password,
+      directory: '/workspace',
+      model: { providerID: 'agent_tasks', id: input.model.id, ...(input.model.variant ? { variant: input.model.variant } : {}) },
+    } };
   } catch (error) {
     // Keep diagnostics useful without logging credentials, provider URLs, or
     // provider configuration received in the request body.
@@ -419,6 +435,9 @@ function validateInput(value) {
     || !validUuid(value.lease.ownerId) || typeof value.lease.workerId !== 'string' || value.lease.workerId.length > 200
     || value.providerKind !== 'openai-compatible' || !value.provider || typeof value.provider !== 'object'
     || typeof value.provider.baseUrl !== 'string' || typeof value.model?.id !== 'string' || value.model.id.length < 1 || value.model.id.length > 120
+    || value.model.id.includes('#')
+    || typeof value.model.variant !== 'undefined'
+      && (typeof value.model.variant !== 'string' || !MODEL_VARIANTS.includes(value.model.variant))
     || typeof value.systemPrompt !== 'string' || value.systemPrompt.length > 65_536
     || !Number.isInteger(value.maxAgentSteps) || value.maxAgentSteps < 1 || value.maxAgentSteps > 60
     || !Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > MAX_REQUEST_BYTES
@@ -429,8 +448,18 @@ function validateInput(value) {
       || !value.toolBridge.tools.every((tool) => typeof tool === 'string' && /^[a-z][a-z0-9_]{1,63}$/.test(tool)))) {
     throw new Error('Invalid isolated runtime request');
   }
-  if (!Array.isArray(value.provider.models) || !value.provider.models.some((model) => model?.id === value.model.id)) {
+  if (!Array.isArray(value.provider.models)) {
     throw new Error('Task model is not configured on its provider');
+  }
+  const selected = value.provider.models.find((model) => model?.id === value.model.id);
+  if (!selected) {
+    throw new Error('Task model is not configured on its provider');
+  }
+  // A bridge without an explicitly tool-capable model would let OpenCode connect
+  // tools that the runtime is configured not to offer, silently dropping e-mail,
+  // research or memory results.
+  if (value.toolBridge && selected.supportsTools !== true) {
+    throw new Error('Task model is not declared tool-capable');
   }
   return value;
 }

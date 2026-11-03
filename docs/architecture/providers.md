@@ -27,11 +27,17 @@ including for `kind: openai`).
 A trailing slash is removed. A value ending exactly in `/chat/completions` is used
 as-is for chat; that suffix is stripped only for model discovery.
 
-Model discovery calls `GET {baseUrl}/models`. If that route is missing or returns
-nothing and `config.models` is declared, the declared list is used; otherwise
-refresh fails with `unavailable`. The UI edits only the base URL; declare models
-through the API (`config.models[]`, at most 200 entries), for example
-`{ "id": "my-model", "supportsTools": true }`.
+Model discovery calls `GET {baseUrl}/models` and stores every returned id in
+`provider_models`; that table is the persisted catalog the API, worker and
+provisioner read. `config.models[]` (at most 200 entries) carries administrator
+metadata on top of it, for example `{ "id": "my-model", "supportsTools": true }`:
+an entry overrides the discovered label, context length and tool capability, and
+an id that discovery did not return is usable as a declared-only model. If
+`/models` is missing or empty and `config.models` is declared, refresh keeps the
+declared list instead of failing with `unavailable`. The merged view is what
+`GET /api/providers` and `GET /api/admin/providers` return as `models`; the
+persisted rows are never treated as the only source and the declared metadata is
+never lost on a later refresh.
 
 ### Headers
 
@@ -114,13 +120,23 @@ model API key.
 
 ### Models and tool calling
 
-`refresh models` stores every id returned by `/models`. A model is marked
-`supportsTools: true` only when `config.models[]` declares it; discovered-only ids
-are stored as `supportsTools: false`. `chat()` still sends the tool definitions
-unless a declared model explicitly says `supportsTools: false`, so the stored flag
-is advisory for undeclared models. Declared models also serve as the fallback when
-`/models` is unavailable. Providers created through the UI carry `models: []`, so
-their discovered models stay advisory until a config update declares them.
+Tool support is **explicit metadata, never inferred**. `refresh models` stores every
+id returned by `/models` with `supportsTools: false`, because the OpenAI `/models`
+route carries no capability information. A model becomes tool-capable only when
+`config.models[]` declares `supportsTools: true`; an absent, `false` or non-boolean
+value is not capability, and the discovery flag alone never enables tools.
+
+Admin → Providers shows a toggle per catalog model (**Enable tools** / **Disable
+tools**) that writes exactly this declaration into `config.models` without losing
+the model's label or context length. Tasks that use web research, e-mail
+composition or any memory mode except `off` require tools: the API refuses to
+create or execute such a task with HTTP 400 (`model <id> is not marked
+tool-capable on provider <name>`), the worker repeats the check before it
+provisions a runtime, the isolated runner repeats it again, and the provisioner
+refuses a tool bridge for a model that is not explicitly capability-flagged. A
+task with no tool requirements still runs on a tool-less model; nothing silently
+drops a requested tool capability. Declared models also serve as the fallback when
+`/models` is unavailable.
 
 ### Allowance and usage
 
@@ -142,15 +158,17 @@ absent, empty or non-numeric values are omitted.
 | fetch/network failure | `unavailable` | requeued with backoff, up to 3 attempts |
 | request timeout/abort | `timeout` | requeued with backoff, up to 3 attempts |
 
-Provider error text is passed through `redact()` before it is stored. A model that
-was declared as not tool-capable is refused with `unsupported` instead of being
+Provider error text is passed through `redact()` before it is stored. An execution
+whose task requires tools on a model without the explicit capability fails with a
+typed `unsupported` error before a runtime is provisioned, instead of being
 silently downgraded.
 
 ### Register the provider
 
 UI: **Admin → Providers → Add provider**, kind `openai-compatible`, base URL as
-above, save, add the credential, refresh models. The UI form exposes the base URL
-only; the other config fields (User-Agent, session header, extra headers, stream,
+above, save, add the credential, refresh models, then mark the models that really
+support tools. The UI form exposes the base URL and the per-model tool toggle; the
+other config fields (User-Agent, session header, extra headers, stream, free-form
 declared models) currently require the API.
 
 API payload:
@@ -187,14 +205,42 @@ Then `POST /api/admin/providers/<id>/models/refresh` and
 `kind: openai` uses the same adapter and the same required `baseUrl`; it has no
 preconfigured official URL.
 
+### Supported execution kinds
+
+The worker executor accepts only `openai-compatible`. Any other provider kind fails
+the execution explicitly instead of being mapped to another adapter; there is no
+fallback execution path. The API rejects task creation, an execution-relevant
+update (`providerId`, `model`, prompt, schedule, limits, tools) and a manual run on
+such a provider with HTTP 400 (`provider kind <kind> is not supported for task
+execution`). The same validation runs whenever an update changes an
+execution-relevant field (`providerId`, `model`, `allowWebResearch`,
+`notification` or `memorySettings`), using the resulting task's effective values.
+The task editor lists only executable providers and explains the
+filter; the admin and settings views still show every provider, marked
+`executable: false`, so existing credentials and provider rows remain visible and
+nothing is deleted or rewritten. A title-only update of a task that already points
+at an unsupported kind keeps working. For OpenAI, create a provider with kind
+`openai-compatible` and base URL `https://api.openai.com/v1`.
+
 ### Model variants (suffix)
 
 Tasks and the seeded model may append a variant to the model id, for example
 `kimi-k3#high`. Supported variants are `none`, `minimal`, `low`, `medium`,
-`high` and `xhigh`. The adapter strips the suffix and sends the base model id
-plus `reasoning_effort: <variant>`; an unknown suffix is rejected before any
-request with a typed `unsupported` error. Variants are opt-in: providers that do
-not accept `reasoning_effort` may reject the request.
+`high` and `xhigh`. The suffix is stripped before any catalog or wire lookup:
+the base id must be declared on the provider, and the variant is sent as
+`reasoning_effort: <variant>`; an unknown suffix is rejected before any request
+with a typed `unsupported` error. Variants are opt-in: providers that do not
+accept `reasoning_effort` may reject the request.
+
+The isolated OpenCode path preserves this contract. The worker splits the
+selection locally, validates the base id against the provider catalog, and sends
+the provisioner `{ id, variant }` separately. The provisioner matches the base id
+exactly, declares all six variants on the runtime model (each mapped to its
+`reasoning_effort`), and returns the variant it accepted; the client rejects a
+response that drops or rewrites it, and the runner refuses to start when the
+runtime's model selection does not match the task. OpenCode 2.2.5 exposes only a
+provider-dependent subset of variants without those declarations, so omitting
+them would fail `none`, `minimal` or `xhigh` at run time.
 
 ### Agent e-mail blocks
 
@@ -217,7 +263,8 @@ The adapter remains in `packages/ai-providers` for local development: models com
 from `/api/tags`, tool support from `/api/show`, and a model without the `tools`
 capability is refused unless `requireToolSupport` is `false`. It is not used in the
 production deployment, the compose stack does not ship it, and this repository
-pulls no model.
+pulls no model. The worker executor rejects `ollama` providers instead of falling
+back to this adapter.
 
 ## Codex (experimental, disabled by default)
 
@@ -229,18 +276,21 @@ The adapter therefore:
 
 - refuses to run unless `AGENT_TASKS_ENABLE_CODEX=1` **and** the provider record has
   `config.enabled: true`,
-- derives a per-user `CODEX_HOME` at `<CODEX_HOME_ROOT>/<owner-id>` (default root
-  `/var/lib/agent-tasks/codex`) and passes it as `CODEX_HOME`/`HOME`; the provider
-  record still needs an absolute `codexHome` because the config schema requires one,
-  but the worker replaces it per task owner,
+- reads `codexHome` from the provider record and passes it as
+  `CODEX_HOME`/`HOME`; callers are responsible for giving each owner a private
+  absolute directory,
 - never reads browser cookies and never calls undocumented endpoints,
 - cannot perform tool calls (the CLI is a text interface) and says so instead of
   inventing research.
 
-The compose worker is read-only and mounts no writable volume at
-`CODEX_HOME_ROOT`, so enabling Codex also requires a volume there. Until a
-documented, account-scoped, multi-user-safe interface is verified, this adapter
-stays experimental.
+The worker no longer resolves a per-user Codex home and accepts only the
+`openai-compatible` provider kind, so no task can execute through Codex. The
+adapter stays available for admin health checks and the library tests; its former
+worker settings (`CODEX_HOME_ROOT`, `CODEX_ISOLATED_RUNNER`) and the worker's
+`codex-homes` mount were removed. The named volume is intentionally kept so
+existing data is not destroyed by an upgrade. Until a documented,
+account-scoped, multi-user-safe interface is verified, this adapter stays
+experimental and is not a fallback.
 
 ## Verification status
 

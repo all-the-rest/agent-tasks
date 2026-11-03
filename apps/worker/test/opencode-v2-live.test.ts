@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { createDatabase, executions, executionSources, providerCredentials, providers } from '@agent-tasks/database';
-import { SecretBox } from '@agent-tasks/ai-providers';
+import { MODEL_VARIANTS, SecretBox } from '@agent-tasks/ai-providers';
 import { afterAll, describe, expect, it } from 'vitest';
 import { OpenCodeV2Client } from '../src/opencode-v2-client.js';
 import { createOpenCodeV2Runner } from '../src/opencode-v2-runner.js';
@@ -131,9 +131,14 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       delete: () => ({ where: async () => undefined }),
       insert: () => ({ values: async () => undefined }),
     };
-    const env = { NODE_ENV: 'test', DATABASE_URL: 'postgres://unused', SECRETS_ENCRYPTION_KEY: key, RUNNER_URL: 'http://127.0.0.1:1', RUNNER_TOKEN: 'live-test-runner-token', WORKER_CONCURRENCY: 1, CODEX_HOME_ROOT: directory, CODEX_ISOLATED_RUNNER: '0', LOG_LEVEL: 'silent', PUBLIC_BASE_URL: 'http://localhost:8080' } satisfies WorkerEnv;
+    const env = {
+      NODE_ENV: 'test', DATABASE_URL: 'postgres://unused', SECRETS_ENCRYPTION_KEY: key,
+      RUNNER_URL: 'http://127.0.0.1:1', RUNNER_TOKEN: 'live-test-runner-token', WORKER_CONCURRENCY: 1,
+      LOG_LEVEL: 'silent', PUBLIC_BASE_URL: 'http://localhost:8080',
+      OPENCODE_PROVISIONER_URL: 'http://127.0.0.1:4090', OPENCODE_PROVISIONER_TOKEN: 'live-test-provisioner-token-0123456789',
+    } satisfies WorkerEnv;
     const runner = createOpenCodeV2Runner({ client, directory, model: { providerID: 'mock', id: 'mock-model' } });
-    const executor = new Executor({ db: db as never, env, boss: {} as never, workerId: 'live-test-worker', agentRunner: runner });
+    const executor = new Executor({ db: db as never, env, boss: {} as never, workerId: 'live-test-worker', openCodeRunner: runner });
     await executor.handle(executionId);
     expect(updates.find((update) => update.table === executions && update.values.status === 'completed')?.values.report, JSON.stringify(updates.map((update) => update.values)))
       .toMatchObject({ markdown: 'mock integration answer' });
@@ -153,7 +158,7 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
         await database.pool.query(`insert into provider_credentials (id, provider_id, owner_id, label, ciphertext) values ($1,$2,$3,'test',$4)`, [randomUUID(), realProviderId, realOwnerId, new SecretBox(key).encrypt('fake-key')]);
         await database.pool.query(`insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, memory_settings) values ($1,$2,'Mock task','Respond to this test.',$3,'mock-model',true,$4,'UTC',$5,false,'none',$6)`, [realTaskId, realOwnerId, realProviderId, JSON.stringify({ preset: 'daily', timezone: 'UTC', hour: 6, minute: 0 }), JSON.stringify(AGENT_RUNTIME_LIMITS), JSON.stringify({ mode: 'off' })]);
         await database.pool.query(`insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Mock task','queued','manual','mock-model',$4)`, [realExecutionId, realTaskId, realOwnerId, realProviderId]);
-        const realExecutor = new Executor({ db: database.db, env: { ...env, DATABASE_URL: databaseUrl }, boss, workerId: 'live-postgres-worker', agentRunner: runner });
+        const realExecutor = new Executor({ db: database.db, env: { ...env, DATABASE_URL: databaseUrl }, boss, workerId: 'live-postgres-worker', openCodeRunner: runner });
         await boss.work<{ executionId: string }>(QUEUE_EXECUTION, executionWorkOptions(1), async (jobs) => {
           for (const job of jobs) await realExecutor.handle(job.data.executionId);
         });
@@ -306,7 +311,7 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       }, store, testHub);
       const result = await runner({
         provider: { kind: 'openai-compatible' },
-        providerContext: { apiKey: 'fake-key', config: {} },
+        providerContext: { apiKey: 'fake-key', config: { models: [{ id: 'mock-model', label: 'Mock Model', supportsTools: true }] } },
         model: 'mock-model',
         title: 'Bridge test',
         prompt: 'Compose the e-mail.',
@@ -506,8 +511,10 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       const env = {
         NODE_ENV: 'test', DATABASE_URL: 'postgres://unused', SECRETS_ENCRYPTION_KEY: key,
         RUNNER_URL: `http://127.0.0.1:${runnerAddress.port}`, RUNNER_TOKEN: 'live-test-runner-token',
-        WORKER_CONCURRENCY: 1, CODEX_HOME_ROOT: workspace, CODEX_ISOLATED_RUNNER: '0', LOG_LEVEL: 'silent',
-        PUBLIC_BASE_URL: 'http://localhost:8080', OPENCODE_RUNTIME_ENABLED: '1',
+        WORKER_CONCURRENCY: 1, LOG_LEVEL: 'silent',
+        PUBLIC_BASE_URL: 'http://localhost:8080',
+        OPENCODE_PROVISIONER_URL: 'http://127.0.0.1:4090',
+        OPENCODE_PROVISIONER_TOKEN: 'live-test-provisioner-token-0123456789',
       } satisfies WorkerEnv;
       const executor = new Executor({ db: db as never, env, boss: {} as never, workerId: 'live-research-worker', openCodeRunner });
       await executor.handle(executionId);
@@ -533,4 +540,111 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       await rm(workspace, { recursive: true, force: true });
     }
   }, 60_000);
+
+  it('maps every model variant to its reasoning effort through the provisioner runtime config', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'agent-tasks-opencode-variants-'));
+    const config = join(workspace, 'config', 'opencode');
+    await mkdir(config, { recursive: true });
+    const chat = createServer();
+    const requests: Array<{ messages?: Array<{ role?: string; content?: unknown }>; reasoning_effort?: string }> = [];
+    chat.on('request', (request, response) => {
+      if (request.method !== 'POST' || !request.url?.endsWith('/chat/completions')) {
+        response.writeHead(404).end();
+        return;
+      }
+      let raw = '';
+      request.on('data', (chunk: Buffer) => { raw += chunk.toString(); });
+      request.on('end', () => {
+        requests.push(JSON.parse(raw) as typeof requests[number]);
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.write(`data: ${JSON.stringify({ id: 'variant', object: 'chat.completion.chunk', created: 0, model: 'mock-model', choices: [{ index: 0, delta: { role: 'assistant', content: 'variant answer' }, finish_reason: null }] })}\n\n`);
+        response.write(`data: ${JSON.stringify({ id: 'variant', object: 'chat.completion.chunk', created: 0, model: 'mock-model', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+        response.end('data: [DONE]\n\n');
+      });
+    });
+    chat.listen(0, '127.0.0.1');
+    await once(chat, 'listening');
+    const chatAddress = chat.address();
+    if (!chatAddress || typeof chatAddress === 'string') throw new Error('chat port unavailable');
+    const reservation = createNetServer().listen(0, '127.0.0.1');
+    await once(reservation, 'listening');
+    const serverAddress = reservation.address();
+    if (!serverAddress || typeof serverAddress === 'string') throw new Error('server port unavailable');
+    await new Promise<void>((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));
+
+    let proc: ChildProcess | undefined;
+    let logs = '';
+    try {
+      // The provisioner's real runtime config declares every variant; this proves
+      // OpenCode 2.2.5 accepts the declarations and maps each one to reasoning_effort.
+      const openCodeConfig = runtimeConfig({
+        lease: { executionId: randomUUID(), ownerId: randomUUID(), workerId: 'live-variant-worker' },
+        providerKind: 'openai-compatible',
+        provider: {
+          baseUrl: `http://127.0.0.1:${chatAddress.port}/v1`,
+          models: [{ id: 'mock-model', label: 'Mock Model', supportsTools: false }],
+          headers: {},
+          sessionHeader: 'x-opencode-session',
+          timeoutMs: 30_000,
+        },
+        model: { providerID: 'agent_tasks', id: 'mock-model' },
+        apiKey: 'fake-key',
+        systemPrompt: 'Answer briefly.',
+        maxAgentSteps: 2,
+        maxOutputBytes: 4_096,
+      }, `http://127.0.0.1:${chatAddress.port}/v1`);
+      await writeFile(join(config, 'opencode.json'), JSON.stringify(openCodeConfig));
+      const password = 'local-test-only';
+      proc = spawn('opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(serverAddress.port)], {
+        cwd: workspace,
+        env: {
+          PATH: process.env.PATH, HOME: workspace, XDG_CONFIG_HOME: join(workspace, 'config'),
+          XDG_DATA_HOME: join(workspace, 'data'), XDG_CACHE_HOME: join(workspace, 'cache'),
+          OPENCODE_SERVER_PASSWORD: password,
+          AGENT_TASKS_API_KEY: 'fake-key',
+          AGENT_TASKS_EGRESS_TOKEN: 'test-egress-token',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      proc.stderr?.on('data', (data: Buffer) => { logs += data.toString(); });
+      const baseUrl = `http://127.0.0.1:${serverAddress.port}`;
+      let ready = false;
+      for (let attempt = 0; attempt < 150; attempt++) {
+        if (proc.exitCode !== null) throw new Error(`OpenCode exited: ${logs}`);
+        try {
+          if ((await fetch(`${baseUrl}/api/info`, { headers: { authorization: `Basic ${btoa(`opencode:${password}`)}` } })).ok) { ready = true; break; }
+        } catch { /* server is starting */ }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(ready, logs).toBe(true);
+
+      const client = new OpenCodeV2Client({ baseUrl, password });
+      let seq = 0;
+      for (const variant of MODEL_VARIANTS) {
+        const prompt = `variant probe ${variant}`;
+        requests.length = 0;
+        const session = await client.createSession({ directory: workspace, model: { providerID: 'agent_tasks', id: 'mock-model', variant } });
+        await client.prompt(session.id, `msg_${String(seq++).padStart(26, '0')}`, prompt);
+        let messages: unknown;
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          messages = await client.getMessages(session.id);
+          if (JSON.stringify(messages).includes('variant answer')) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        const transcript = JSON.stringify(messages);
+        expect(transcript, `${variant}: ${logs}`).toContain('variant answer');
+        expect(transcript).not.toContain('"outcome":"failed"');
+        const main = requests.find((body) =>
+          (body.messages ?? []).some((message) => message.role === 'user' && message.content === prompt));
+        expect(main?.reasoning_effort, `${variant} reasoning effort (${logs})`).toBe(variant);
+      }
+    } finally {
+      if (proc && proc.exitCode === null) {
+        proc.kill('SIGTERM');
+        await Promise.race([once(proc, 'exit'), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+      }
+      await new Promise<void>((resolve, reject) => chat.close((error: Error | undefined) => error ? reject(error) : resolve()));
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 90_000);
 });

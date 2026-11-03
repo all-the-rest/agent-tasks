@@ -94,8 +94,14 @@ msgstr "Make user"
 msgid "admin.disable"
 msgstr "Disable"
 
+msgid "admin.disableTools"
+msgstr "Disable tools"
+
 msgid "admin.enable"
 msgstr "Enable"
+
+msgid "admin.enableTools"
+msgstr "Enable tools"
 
 msgid "admin.executions24h"
 msgstr "Executions (24 h)"
@@ -193,6 +199,9 @@ msgstr "Model catalog updated."
 msgid "admin.modelSupportsTools"
 msgstr "tools"
 
+msgid "admin.modelToolsHint"
+msgstr "Tasks that use research or memory need an explicitly tool-capable model. Discovery cannot prove tool support, so mark it here after verifying it."
+
 msgid "admin.modelsRefreshed"
 msgstr "Models refreshed."
 
@@ -267,6 +276,9 @@ msgstr "Kind"
 
 msgid "admin.providerName"
 msgstr "Name"
+
+msgid "admin.providerNotExecutable"
+msgstr "not executable"
 
 msgid "admin.providerSaved"
 msgstr "Provider updated."
@@ -1516,6 +1528,9 @@ msgstr "These settings follow your account across devices."
 msgid "settings.provider"
 msgstr "Provider"
 
+msgid "settings.providerNotExecutable"
+msgstr "This provider kind cannot execute tasks; it is listed for credential management only."
+
 msgid "settings.removeKey"
 msgstr "Remove key"
 
@@ -1759,6 +1774,9 @@ msgstr "New task"
 msgid "tasks.nextRun"
 msgstr "Next run"
 
+msgid "tasks.noExecutableProviders"
+msgstr "No provider can run tasks. Ask an administrator to add an OpenAI-compatible provider."
+
 msgid "tasks.noExecutions"
 msgstr "This task has not run yet."
 
@@ -1776,6 +1794,9 @@ msgstr "Notification"
 
 msgid "tasks.notificationEmail"
 msgstr "Email me"
+
+msgid "tasks.notificationEmailOnChange"
+msgstr "Email me only when the report changes"
 
 msgid "tasks.notificationNone"
 msgstr "No notification"
@@ -1830,6 +1851,9 @@ msgstr "Provider"
 
 msgid "tasks.providerCredentialHint"
 msgstr "This provider needs a personal API key under Settings."
+
+msgid "tasks.providerNotExecutable"
+msgstr "This task uses a provider that the worker cannot execute. Choose an OpenAI-compatible provider."
 
 msgid "tasks.resume"
 msgstr "Resume"

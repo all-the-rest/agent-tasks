@@ -6,7 +6,8 @@
 | --- | --- | --- |
 | `api` | REST, Better Auth, RBAC, audit, task CRUD, run-now; serves the built SPA | Postgres |
 | `worker` | pg-boss queues, scheduler tick, agent execution, leases | Postgres |
-| `opencode` | Version-pinned OpenCode V2 HTTP server for the integration spike; no public port | Private worker-only network + persistent OpenCode data volume |
+| `opencode-provisioner` (profile `opencode-runtime`) | Creates one isolated, version-pinned OpenCode runtime per execution; the only path for provider egress; no public port | Per-execution Docker volumes, swept after `OPENCODE_RUNTIME_TTL_SECONDS` |
+| `opencode-test-provisioner` (root/local Compose only) | Deterministic fake runtime for local/E2E execution tests; no Docker socket, egress or provider calls | in-memory only |
 | `browser-runner` | Chromium sessions, egress policy | in-memory only |
 | `postgres` | all persistence, including the pg-boss schema | volume |
 | `searxng` (profile `search`) | web search backend; not started by default | none |
@@ -22,8 +23,9 @@ worker must be restartable and scalable with more replicas or a higher
 
 `tasks` owns each task definition and schedule. Administrator-managed system settings
 retain the product's per-user concurrency and daily execution quotas. Legacy per-run
-agent bounds are fixed in code; OpenCode's V2 spike currently configures a fixed step
-cap, but is not yet the worker execution backend. `executions` is the durable record
+agent bounds are fixed in code; the provisioned OpenCode runtime configures a fixed
+step cap but has no equivalent hard cap for every legacy budget. `executions` is the
+durable record
 of one occurrence — status, report, usage, duration, cancellation flag, worker lease.
 `execution_steps` holds one row per tool call, `execution_sources` the deduplicated
 sources. `provider_credentials` stores AES-GCM ciphertext with `owner_id NULL` for
@@ -67,19 +69,22 @@ ambiguous local time (fall back) is booked once at the first instant.
 system prompt + user prompt
         │
         ▼
-  provider.chat(tools) ── tool calls ──► validate → execute → observation
-        │                                            │
-        └──────────── final answer ◄─────────────────┘
+  worker ──► provisioner ──► isolated OpenCode runtime (one per execution)
+        ▲                              │
+        │                              ▼
+  worker-hosted MCP bridge ◄──── tool calls (allowlisted, budgeted)
+        │
+        └──► final answer + e-mail blocks, sources and memory proposals
 ```
 
-The legacy loop uses fixed internal bounds for steps, tool calls, page visits, search
-queries, output bytes and wall clock; administrators and task owners cannot tune them.
-The OpenCode V2 container is a separate spike, not wired into task execution. Its
-configured agent has a fixed step cap and deny-by-default permissions; V2 does not
-provide equivalent per-session hard limits for the other budgets. Product quotas are
-reserved atomically per owner when a worker claims an execution. Tool results in the
-legacy loop enter context as untrusted data; there is no generic HTTP, shell or code
-tool in that runtime.
+The worker has no non-OpenCode execution path: it requires the provisioner URL and
+token, checks the provisioner health before registering queues, and fails closed when
+either is missing. The OpenCode agent has a fixed step cap and deny-by-default
+permissions; it can call only the MCP tools the worker registers for that execution.
+V2 does not provide equivalent per-session hard limits for the legacy output, page,
+search and wall-clock budgets. Product quotas are reserved atomically per owner when a
+worker claims an execution. Tool results enter the model as untrusted data, and the
+runtime has no generic shell or code tool.
 
 ## Failure handling
 

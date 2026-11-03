@@ -19,6 +19,24 @@ connection (DNS rebinding), and redirects change the target after the check. The
 removes both: Chromium cannot resolve names at all, and each redirect is a new
 CONNECT that is validated again.
 
+## Operator responsibility: robots.txt and terms of service
+
+The runner enforces the network policy described above, but it does not read or
+honour `robots.txt`, `X-Robots-Tag`, site terms of service, rate limits or
+licensing terms of the pages an agent visits. Those rules are not a security
+boundary and cannot be enforced correctly by a generic crawler: they differ per
+site, per user agent and per intended use.
+
+Whoever operates the deployment is responsible for:
+
+- checking the terms of service of every site the agents are pointed at,
+- honouring `robots.txt` and per-site rate limits where they apply,
+- not using the agents to bypass paywalls, login walls or captchas.
+
+Captcha and paywall bypass is explicitly out of scope for this project. The
+browser runner refuses login, checkout, payment and destructive controls, and
+form submission is disabled by policy.
+
 ## What is not covered
 
 - `BrowserContext` isolation is not an OS boundary. A Chromium exploit could leave the

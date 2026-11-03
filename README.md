@@ -12,9 +12,11 @@ own server, with your own provider key.
 > for the evidence and open gates. The OpenAI-compatible adapter is tested against
 > deterministic local mocks; no OpenCode Go account was available in the
 > verification environment, so real-account behaviour is **NOT VERIFIED**
-> ([details](docs/architecture/providers.md#verification-status)). OpenCode 2.x is
-> additionally packaged as a separate, internal integration spike; the existing
-> worker runtime is still the execution backend.
+> ([details](docs/architecture/providers.md#verification-status)). The worker now
+> has one execution backend: an isolated, provisioned OpenCode 2.x runtime. Local
+> and CI runs use a test-only fake provisioner; production stays disabled until
+> the real-provider, egress, MCP and credential gates pass. The deployment script
+> refuses to activate the production runtime profile.
 
 ## A quick tour
 
@@ -85,16 +87,14 @@ and committed under [`docs/images/`](docs/images/).
  Browser ──► Caddy (TLS, global) ──► api (Fastify + built SPA)
                                       │  Better Auth sessions, RBAC, audit
                                       ▼
-                                 PostgreSQL ◄── worker (pg-boss)
-                                      ▲              │ agent loop
-                                      │              ▼
-                                  executions     browser-runner ──► enforcing proxy ──► Internet
-                                                 OpenCode V2 (isolated spike;
-                                                 not yet in the execution path)
-                                                                     │
-                                                                blocked: loopback,
-                                                                RFC1918, link-local,
-                                                                metadata, ULA, …
+                                  PostgreSQL ◄── worker (pg-boss, leases, quotas)
+                                       ▲             │
+                                       │             ├──► browser-runner ──► enforcing proxy ──► Internet
+                                   executions        │                       blocked: loopback, RFC1918,
+                                                     ▼                       link-local, metadata, ULA, …
+                                      isolated OpenCode provisioner ──► per-execution runtime
+                                                     │                    (no direct egress)
+                                                     └── provider egress ──► model provider
 ```
 
 Details: [`docs/architecture/overview.md`](docs/architecture/overview.md).
@@ -116,18 +116,25 @@ AUTH_SECRET=$(openssl rand -hex 32)
 SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)
 SETUP_TOKEN=$(openssl rand -hex 32)
 RUNNER_TOKEN=$(openssl rand -base64 24)
-OPENCODE_SERVER_PASSWORD=$(openssl rand -hex 32)
+OPENCODE_PROVISIONER_TOKEN=$(openssl rand -hex 32)
 sed -i \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" \
   -e "s|^AUTH_SECRET=.*|AUTH_SECRET=${AUTH_SECRET}|" \
   -e "s|^SECRETS_ENCRYPTION_KEY=.*|SECRETS_ENCRYPTION_KEY=${SECRETS_ENCRYPTION_KEY}|" \
   -e "s|^SETUP_TOKEN=.*|SETUP_TOKEN=${SETUP_TOKEN}|" \
   -e "s|^RUNNER_TOKEN=.*|RUNNER_TOKEN=${RUNNER_TOKEN}|" \
-  -e "s|^OPENCODE_SERVER_PASSWORD=.*|OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}|" \
+  -e "s|^OPENCODE_PROVISIONER_TOKEN=.*|OPENCODE_PROVISIONER_TOKEN=${OPENCODE_PROVISIONER_TOKEN}|" \
   .env
 docker compose --profile search up -d --build
 grep '^SETUP_TOKEN=' .env
 ```
+
+> **This stack simulates execution.** It runs the test-only fake OpenCode
+> provisioner from `services/opencode-test-provisioner`, so tasks complete with a
+> report that starts with “**Simulated execution**” and no model provider is
+> called. Real provider execution is gated and is **not** available through this
+> quick start; see
+> [`docs/architecture/opencode-runtime-isolation.md`](docs/architecture/opencode-runtime-isolation.md).
 
 The public images are published at
 `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner}`. The root
@@ -170,7 +177,10 @@ Then:
 1. **Admin → Providers** → kind `openai-compatible`, base URL
    `https://opencode.ai/inference/go/openai/v1` for OpenCode Go (confirm it with your
    account) or your endpoint's API root, save, store the API key as a credential,
-   refresh models.
+   refresh models. Then mark the models that really support tool calls with
+   **Enable tools**; tasks that use web research or memory are refused on a model
+   without that explicit flag instead of running without them. The completion
+   e-mail does not need model tools — the worker sends it itself.
 2. **Admin → Users** → invite users (single-use link, valid 7 days).
 
 `--profile search` starts SearXNG; omit it for an install without web search. Its
@@ -191,7 +201,20 @@ pnpm dev                        # api :8080, web :5173 (proxy -> api), worker
 The worker expects a browser runner at `RUNNER_URL` (default
 `http://browser-runner:8081`). For local browser tasks, start
 `pnpm --filter @agent-tasks/browser-runner dev` on port 8081 and set
-`RUNNER_URL=http://127.0.0.1:8081`. Chromium runs with its internal sandbox:
+`RUNNER_URL=http://127.0.0.1:8081`.
+
+The worker also requires `OPENCODE_PROVISIONER_URL` and
+`OPENCODE_PROVISIONER_TOKEN` (at least 32 characters) and refuses to register queues
+unless the provisioner health check succeeds. Outside Compose, start the test-only
+fake runtime, which never calls a provider:
+
+```bash
+export OPENCODE_PROVISIONER_TOKEN=$(openssl rand -hex 32)
+PORT=4090 OPENCODE_PROVISIONER_TOKEN="$OPENCODE_PROVISIONER_TOKEN" \
+  node services/opencode-test-provisioner/server.mjs &
+export OPENCODE_PROVISIONER_URL=http://127.0.0.1:4090
+pnpm dev
+``` Chromium runs with its internal sandbox:
 the shipped seccomp profile allows `unshare(CLONE_NEWUSER)` and
 `clone(CLONE_NEWUSER|…)`, and the container keeps `CAP_SYS_CHROOT` for the
 sandbox's chroot. The host kernel must permit unprivileged user namespaces;
@@ -213,12 +236,12 @@ pnpm build
 
 ## Providers
 
-| Kind | Notes |
+| Kind | Task execution |
 | --- | --- |
-| `openai-compatible` | **Primary.** Any endpoint with `/chat/completions`; `/models` is used for discovery, or declare models in `config.models`. Sends an honest `User-Agent`, one stable `x-opencode-session` per execution attempt, streams by default and honours any extra headers you configure. |
-| `openai` | Same adapter, no built-in defaults: set `baseUrl` to `https://api.openai.com/v1`. |
-| `ollama` | Legacy/development adapter, not deployed in production. Models come from `/api/tags`, tool support from `/api/show`; a model without the `tools` capability is refused. |
-| `codex` | Experimental, **disabled by default**. Account-scoped `codex exec` with a per-user `CODEX_HOME` under `CODEX_HOME_ROOT`, no tool calling, no browser cookies. See [`docs/architecture/providers.md`](docs/architecture/providers.md). |
+| `openai-compatible` | **Supported.** OpenCode Go, OpenAI-compatible gateways and other compatible endpoints. `/models` is used for discovery, or declare models in `config.models`; execution is isolated in the provisioned OpenCode runtime. |
+| `openai` | Not supported by the worker executor. Use kind `openai-compatible` with base URL `https://api.openai.com/v1`. |
+| `ollama` | Not supported by the worker executor. The legacy adapter remains development/test code only. |
+| `codex` | Not supported by the worker executor. The legacy adapter remains experimental and disabled; it is not an execution fallback. |
 
 ## Security posture
 

@@ -1,20 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { executions, providerCredentials, providers, tasks } from '@agent-tasks/database';
+import { executionSteps, executions, providerCredentials, providerModels, providers, tasks } from '@agent-tasks/database';
 import {
   AppError,
   AGENT_RUNTIME_LIMITS,
+  catalogModelFor,
   isAfterTaskEndDate,
+  isExecutableProviderKind,
   isTaskEndConditionReached,
+  mergeProviderCatalog,
   monthlyDays,
   nextOccurrence,
+  parseMemorySettings,
   scheduleSchema,
   taskInputSchema,
   taskUpdateSchema,
+  taskRequiresTools,
   describeSchedule,
+  reportToMarkdown,
 } from '@agent-tasks/shared';
-import type { ParsedSchedule } from '@agent-tasks/shared';
+import type { ExecutionReport, ParsedSchedule } from '@agent-tasks/shared';
 import type { AppContext } from '../context.js';
 import { AUDIT_ACTIONS } from '../lib/audit.js';
 import { requireUser, requireUuid } from '../lib/session.js';
@@ -110,24 +116,95 @@ function omitTaskLimits<T extends { limits: unknown }>(task: T | undefined): Omi
   return response;
 }
 
-async function assertProviderUsable(context: AppContext, userId: string, providerId: string): Promise<{ kind: string; name: string }> {
+interface TaskProvider {
+  id: string;
+  kind: string;
+  name: string;
+  config: Record<string, unknown>;
+}
+
+interface TaskToolRequirements {
+  allowWebResearch: boolean;
+  notification: string;
+  memoryMode: string;
+}
+
+async function loadTaskProvider(context: AppContext, providerId: string): Promise<TaskProvider> {
   const rows = await context.db
-    .select({ id: providers.id, kind: providers.kind, name: providers.name, enabled: providers.enabled })
+    .select({ id: providers.id, kind: providers.kind, name: providers.name, enabled: providers.enabled, config: providers.config })
     .from(providers)
     .where(eq(providers.id, providerId))
     .limit(1);
   const provider = rows[0];
   if (!provider) throw AppError.badRequest('unknown provider');
   if (!provider.enabled) throw AppError.badRequest('provider is disabled');
-  if (provider.kind === 'openai' || provider.kind === 'openai-compatible' || provider.kind === 'codex') {
-    const credentials = await context.db
-      .select({ ownerId: providerCredentials.ownerId })
-      .from(providerCredentials)
-      .where(eq(providerCredentials.providerId, providerId));
-    const usable = credentials.some((credential) => credential.ownerId === null || credential.ownerId === userId);
-    if (!usable) throw AppError.badRequest('no usable credential for this provider');
+  if (!isExecutableProviderKind(provider.kind)) {
+    throw AppError.badRequest(
+      `provider kind ${provider.kind} is not supported for task execution; create an openai-compatible provider instead`,
+    );
   }
-  return { kind: provider.kind, name: provider.name };
+  return {
+    id: provider.id,
+    kind: provider.kind,
+    name: provider.name,
+    config: provider.config as Record<string, unknown>,
+  };
+}
+
+async function assertProviderUsable(context: AppContext, userId: string, providerId: string): Promise<TaskProvider> {
+  const provider = await loadTaskProvider(context, providerId);
+  const credentials = await context.db
+    .select({ ownerId: providerCredentials.ownerId })
+    .from(providerCredentials)
+    .where(eq(providerCredentials.providerId, providerId));
+  const usable = credentials.some((credential) => credential.ownerId === null || credential.ownerId === userId);
+  if (!usable) throw AppError.badRequest('no usable credential for this provider');
+  return provider;
+}
+
+/**
+ * Validate everything the worker will rely on: an executable provider kind, a
+ * credential, a catalog entry for the selected model, and an explicit tool
+ * capability when the task asks for research or memory. Refusing here gives the
+ * user an actionable response instead of a failed execution later. A completion
+ * e-mail does not need model tools: the worker sends it itself.
+ */
+async function assertTaskExecutable(
+  context: AppContext,
+  userId: string,
+  providerId: string,
+  model: string,
+  requirements: TaskToolRequirements,
+): Promise<TaskProvider> {
+  const provider = await assertProviderUsable(context, userId, providerId);
+  const discovered = await context.db
+    .select({
+      id: providerModels.modelId,
+      label: providerModels.label,
+      supportsTools: providerModels.supportsTools,
+      contextLength: providerModels.contextLength,
+    })
+    .from(providerModels)
+    .where(eq(providerModels.providerId, providerId));
+  const catalog = mergeProviderCatalog((provider.config as { models?: unknown }).models, discovered.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    supportsTools: entry.supportsTools,
+    ...(entry.contextLength !== null ? { contextLength: entry.contextLength } : {}),
+  })));
+  const selected = catalogModelFor(catalog, model);
+  if (!selected) {
+    throw AppError.badRequest(`model ${model} is not in the provider catalog; refresh models or declare it on the provider`);
+  }
+  if (taskRequiresTools({
+    allowWebResearch: requirements.allowWebResearch,
+    memoryMode: requirements.memoryMode,
+  }) && selected.supportsTools !== true) {
+    throw AppError.badRequest(
+      `model ${model} is not marked tool-capable on provider ${provider.name}; enable tools for it in the admin provider catalog or disable research and memory`,
+    );
+  }
+  return provider;
 }
 
 export async function registerTaskRoutes(app: FastifyInstance, context: AppContext): Promise<void> {
@@ -196,7 +273,11 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const me = await requireUser(context, request);
     const parsed = taskInputSchema.safeParse(request.body);
     if (!parsed.success) throw AppError.badRequest('invalid task', parsed.error.issues);
-    const provider = await assertProviderUsable(context, me.id, parsed.data.providerId);
+    const provider = await assertTaskExecutable(context, me.id, parsed.data.providerId, parsed.data.model, {
+      allowWebResearch: parsed.data.allowWebResearch,
+      notification: parsed.data.notification,
+      memoryMode: parsed.data.memorySettings.mode,
+    });
     const schedule = parsed.data.schedule;
     const now = new Date();
     const endConditionReached = isTaskEndConditionReached(parsed.data.endCondition, {
@@ -264,7 +345,35 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const parsed = taskUpdateSchema.safeParse(request.body);
     if (!parsed.success) throw AppError.badRequest('invalid task', parsed.error.issues);
     const taskId = requireUuid(request.params.id, 'task');
-    if (parsed.data.providerId) await assertProviderUsable(context, me.id, parsed.data.providerId);
+    // A title-only edit must stay possible even when the provider or capability was
+    // later changed. Validate only fields that affect execution, against the effective
+    // provider/model of the resulting task.
+    const executionFieldsChanged =
+      parsed.data.providerId !== undefined ||
+      parsed.data.model !== undefined ||
+      parsed.data.allowWebResearch !== undefined ||
+      parsed.data.notification !== undefined ||
+      parsed.data.memorySettings !== undefined;
+    if (executionFieldsChanged) {
+      const existing = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
+        .limit(1);
+      const current = existing[0];
+      if (!current) throw AppError.notFound('task');
+      await assertTaskExecutable(
+        context,
+        me.id,
+        parsed.data.providerId ?? current.providerId,
+        parsed.data.model ?? current.model,
+        {
+          allowWebResearch: parsed.data.allowWebResearch ?? current.allowWebResearch,
+          notification: parsed.data.notification ?? current.notification,
+          memoryMode: parseMemorySettings(parsed.data.memorySettings ?? current.memorySettings).mode,
+        },
+      );
+    }
     const updated = await db.transaction(async (tx) => {
       const rows = await tx
         .select()
@@ -402,6 +511,14 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       });
       const next = reached ? null : nextOccurrence(schedule, now);
       const completed = reached || next === null;
+      // Enabling a task schedules runs; refuse one the worker could never execute.
+      if (!completed) {
+        await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+          allowWebResearch: task.allowWebResearch,
+          notification: task.notification,
+          memoryMode: parseMemorySettings(task.memorySettings).mode,
+        });
+      }
       const [row] = await tx
         .update(tasks)
         .set({
@@ -427,6 +544,13 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .limit(1);
     const task = rows[0];
     if (!task) throw AppError.notFound('task');
+    // A manual run must not queue an execution the worker will refuse. Validate the
+    // stored provider, model and tool requirements up front.
+    await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+      allowWebResearch: task.allowWebResearch,
+      notification: task.notification,
+      memoryMode: parseMemorySettings(task.memorySettings).mode,
+    });
 
     const active = await db
       .select({ id: executions.id, status: executions.status })
@@ -460,6 +584,12 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .limit(1);
     const task = rows[0];
     if (!task) throw AppError.notFound('task');
+    // Release a deliberate copy only if the worker could actually run it later.
+    await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+      allowWebResearch: task.allowWebResearch,
+      notification: task.notification,
+      memoryMode: parseMemorySettings(task.memorySettings).mode,
+    });
     const id = randomUUID();
     const [copy] = await db
       .insert(tasks)
@@ -574,9 +704,9 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     if (!execution) throw AppError.notFound('execution');
     const steps = await db
       .select()
-      .from(executionStepsTable)
-      .where(eq(executionStepsTable.executionId, execution.id))
-      .orderBy(executionStepsTable.step);
+      .from(executionSteps)
+      .where(eq(executionSteps.executionId, execution.id))
+      .orderBy(executionSteps.step);
     return { ...execution, steps };
   });
 
@@ -637,6 +767,12 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const taskRows = await db.select().from(tasks).where(and(eq(tasks.id, previous.taskId), eq(tasks.ownerId, me.id))).limit(1);
     const task = taskRows[0];
     if (!task) throw AppError.notFound('task');
+    // A retry must not queue an execution the worker will refuse.
+    await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+      allowWebResearch: task.allowWebResearch,
+      notification: task.notification,
+      memoryMode: parseMemorySettings(task.memorySettings).mode,
+    });
     const id = randomUUID();
     await db.insert(executions).values({
       id,
@@ -666,17 +802,46 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     if (!execution) throw AppError.notFound('execution');
     const format = request.query.format === 'json' ? 'json' : 'md';
     const safeName = execution.taskTitle.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 60);
+    const report = execution.report as ExecutionReport | null;
     if (format === 'json') {
+      // The export is the durable record: it must carry the same timeline and
+      // failure detail the detail view shows, not only the final text.
+      const steps = await db
+        .select()
+        .from(executionSteps)
+        .where(eq(executionSteps.executionId, execution.id))
+        .orderBy(executionSteps.step);
       reply.header('content-type', 'application/json');
       reply.header('content-disposition', `attachment; filename="${safeName}.json"`);
-      return { id: execution.id, taskId: execution.taskId, status: execution.status, report: execution.report, usage: execution.usage };
+      return {
+        id: execution.id,
+        taskId: execution.taskId,
+        taskTitle: execution.taskTitle,
+        status: execution.status,
+        trigger: execution.trigger,
+        attempt: execution.attempt,
+        providerName: execution.providerName,
+        model: execution.model,
+        scheduledFor: execution.scheduledFor,
+        startedAt: execution.startedAt,
+        finishedAt: execution.finishedAt,
+        durationMs: execution.durationMs,
+        error: execution.error,
+        report,
+        usage: execution.usage,
+        steps,
+      };
     }
     reply.header('content-type', 'text/markdown; charset=utf-8');
     reply.header('content-disposition', `attachment; filename="${safeName}.md"`);
-    const report = execution.report as { markdown?: string; sources?: Array<{ url: string; title?: string; confidence: string; retrievedAt: string }> } | null;
-    const sourceLines = (report?.sources ?? []).map((source) => `- [${source.title ?? source.url}](${source.url}) — ${source.confidence}, ${source.retrievedAt}`);
-    return [`# ${execution.taskTitle}`, '', report?.markdown ?? '_no report_', '', '## Sources', '', ...sourceLines].join('\n');
+    if (!report) return [`# ${execution.taskTitle}`, '', '_no report_'].join('\n');
+    const rendered = reportToMarkdown(report, { title: execution.taskTitle, finishedAt: execution.finishedAt?.toISOString() ?? null });
+    const summary = report.summary.trim();
+    if (summary.length === 0 || summary === report.markdown.trim()) return rendered;
+    // reportToMarkdown renders the body first; insert the summary directly below
+    // the header block so the export starts with the short answer.
+    const headerEnd = rendered.indexOf('\n\n');
+    if (headerEnd === -1) return `${rendered}\n\n## Summary\n\n${summary}`;
+    return `${rendered.slice(0, headerEnd + 2)}## Summary\n\n${summary}\n\n${rendered.slice(headerEnd + 2)}`;
   });
 }
-
-import { executionSteps as executionStepsTable } from '@agent-tasks/database';

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { DEFAULT_CODEX_HOME_ROOT } from './codex-home.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -13,18 +12,9 @@ const envSchema = z.object({
   SMTP_URL: z.string().optional(),
   SMTP_FROM: z.string().optional(),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
-  /** Root for per-user Codex logins; each owner gets `<root>/<owner-id-hash>`. */
-  CODEX_HOME_ROOT: z.string().startsWith('/', 'CODEX_HOME_ROOT must be an absolute path').default(DEFAULT_CODEX_HOME_ROOT),
-  /**
-   * Codex opt-in. `codex exec` can run shell commands, so the per-user CODEX_HOME alone is
-   * not a security boundary. Executions stay refused unless the operator declares that an
-   * isolated runner (container/VM per user) is wired around this worker.
-   */
-  CODEX_ISOLATED_RUNNER: z.enum(['0', '1']).default('0'),
-  /** Disabled unless an isolated per-execution runtime is explicitly wired. */
-  OPENCODE_RUNTIME_ENABLED: z.enum(['0', '1']).optional(),
-  OPENCODE_PROVISIONER_URL: z.string().url().default('http://opencode-provisioner:4090'),
-  OPENCODE_PROVISIONER_TOKEN: z.preprocess((value) => value === '' ? undefined : value, z.string().min(32).optional()),
+  /** Required isolated execution boundary; the worker fails startup if it is absent. */
+  OPENCODE_PROVISIONER_URL: z.string().url(),
+  OPENCODE_PROVISIONER_TOKEN: z.string().min(32),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   WORKER_ID: z.string().min(1).optional(),
 });

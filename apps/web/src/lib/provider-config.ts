@@ -71,3 +71,45 @@ export function disabledModelIds(config: Record<string, unknown>): string[] {
   const value = config.disabledModels;
   return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
 }
+
+export interface DeclaredProviderModel {
+  id: string;
+  label?: string;
+  supportsTools?: boolean;
+  contextLength?: number;
+}
+
+/** Defensive read of the admin-declared model metadata in `config.models`. */
+export function declaredModels(config: Record<string, unknown>): DeclaredProviderModel[] {
+  const value = config.models;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const model = entry as Record<string, unknown>;
+    if (typeof model.id !== 'string' || model.id.length === 0) return [];
+    return [{
+      id: model.id,
+      ...(typeof model.label === 'string' ? { label: model.label } : {}),
+      ...(typeof model.supportsTools === 'boolean' ? { supportsTools: model.supportsTools } : {}),
+      ...(typeof model.contextLength === 'number' ? { contextLength: model.contextLength } : {}),
+    }];
+  });
+}
+
+/**
+ * Set the explicit tool capability for one catalog model. The API merges declared
+ * metadata over the discovered catalog, so this is how an administrator overrides
+ * a discovery default that cannot know whether a model accepts tools.
+ */
+export function withModelToolSupport(
+  config: Record<string, unknown>,
+  modelId: string,
+  supportsTools: boolean,
+): Record<string, unknown> {
+  const models = declaredModels(config);
+  const index = models.findIndex((model) => model.id === modelId);
+  const current = index >= 0 ? models[index] : undefined;
+  if (current) models[index] = { ...current, supportsTools };
+  else models.push({ id: modelId, supportsTools });
+  return { ...config, models };
+}

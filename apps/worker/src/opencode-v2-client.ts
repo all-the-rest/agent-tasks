@@ -1,6 +1,7 @@
-/** Isolated OpenCode V2 HTTP adapter spike. It does not enforce Agent Tasks'
- * per-run limits; V2 only provides a configured agent step cap, not per-session
- * controls for duration, tool calls, browser visits, search requests, or output.
+/** HTTP client for the isolated OpenCode V2 runtime. It does not enforce Agent
+ * Tasks' per-run limits; V2 only provides a configured agent step cap, not
+ * per-session controls for duration, tool calls, browser visits, search requests,
+ * or output.
  */
 export interface OpenCodeV2ClientOptions {
   baseUrl: string;

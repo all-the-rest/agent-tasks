@@ -187,7 +187,9 @@ jobs:
             echo "AUTH_SECRET=$(openssl rand -hex 32)"
             echo "SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)"
             echo "RUNNER_TOKEN=$(openssl rand -hex 24)"
-            echo "OPENCODE_SERVER_PASSWORD=$(openssl rand -hex 32)"
+            echo "OPENCODE_PROVISIONER_TOKEN=$(openssl rand -hex 32)"
+            # Deterministic memory/recommendation proposals for the E2E learning checks.
+            echo "FAKE_RUNTIME_MEMORY_OPS=1"
             echo "PUBLIC_BASE_URL=http://localhost:8080"
             echo "COOKIE_SECURE=false"
             echo "SETUP_TOKEN=$SETUP_TOKEN"
@@ -244,6 +246,9 @@ jobs:
         run: pnpm test:e2e
       - name: Verify parallel workers and crash recovery
         run: |
+          # Only this check needs slow executions; keep the E2E suite fast by
+          # recreating the fake runtime with the delay just for this step.
+          FAKE_RUNTIME_DELAY_MS=20000 docker compose up -d --no-deps --wait opencode-test-provisioner
           # Keep the images built above instead of re-pulling published :latest.
           docker compose up -d --pull never --scale worker=2
           for attempt in $(seq 1 60); do

@@ -4,6 +4,7 @@ export * from './errors.js';
 export * from './limits.js';
 export * from './memory.js';
 export * from './net.js';
+export * from './provider-catalog.js';
 export * from './schedule.js';
 export * from './schemas.js';
 export * from './status.js';

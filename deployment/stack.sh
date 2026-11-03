@@ -81,7 +81,6 @@ if grep -q '=__GENERATE__$' "$env_file"; then
   fill AUTH_SECRET "$(openssl rand -hex 32)"
   fill SECRETS_ENCRYPTION_KEY "$(openssl rand -base64 32)"
   fill RUNNER_TOKEN "$(openssl rand -hex 24)"
-  fill OPENCODE_SERVER_PASSWORD "$(openssl rand -hex 32)"
   fill OPENCODE_PROVISIONER_TOKEN "$(openssl rand -hex 32)"
 
   setup_token="setup-$(openssl rand -hex 16)"
@@ -98,6 +97,39 @@ if grep -q '=__GENERATE__$' "$env_file"; then
   fi
   chmod 600 "$env_file"
   echo "stack: generated secrets in $env_file" >&2
+fi
+
+# Older local/E2E files predate the mandatory provisioner token. Add one instead
+# of failing the upgrade; the token authenticates only the network-internal fake.
+if ! grep -qE '^OPENCODE_PROVISIONER_TOKEN=.+' "$env_file"; then
+  umask 077
+  provisioner_token=$(openssl rand -hex 32)
+  if grep -qE '^OPENCODE_PROVISIONER_TOKEN=' "$env_file"; then
+    tmp="$env_file.tmp"
+    sed "s|^OPENCODE_PROVISIONER_TOKEN=.*|OPENCODE_PROVISIONER_TOKEN=${provisioner_token}|" "$env_file" > "$tmp"
+    mv "$tmp" "$env_file"
+  else
+    printf 'OPENCODE_PROVISIONER_TOKEN=%s\n' "$provisioner_token" >> "$env_file"
+  fi
+  chmod 600 "$env_file"
+  echo "stack: added OPENCODE_PROVISIONER_TOKEN to $env_file" >&2
+fi
+
+# Settings that no longer exist must not survive an upgrade: the shared OpenCode
+# server and its runtime toggle were removed. Leaving them would trip the
+# placeholder gate below and force a manual edit.
+if grep -qE '^(OPENCODE_SERVER_PASSWORD=|# *OPENCODE_RUNTIME_ENABLED=)' "$env_file"; then
+  umask 077
+  tmp="$env_file.tmp"
+  sed -E '/^(OPENCODE_SERVER_PASSWORD=|# *OPENCODE_RUNTIME_ENABLED=)/d' "$env_file" > "$tmp"
+  mv "$tmp" "$env_file"
+  chmod 600 "$env_file"
+  echo "stack: removed retired OpenCode settings from $env_file" >&2
+fi
+
+# The E2E suite exercises the worker's memory learning through the fake runtime.
+if [ "$stack" = e2e ] && ! grep -q '^FAKE_RUNTIME_MEMORY_OPS=' "$env_file"; then
+  printf 'FAKE_RUNTIME_MEMORY_OPS=1\n' >> "$env_file"
 fi
 
 if grep -qE '^[A-Za-z_][A-Za-z0-9_]*=replace-with' "$env_file"; then

@@ -1,6 +1,8 @@
 import { AgentCancelledError, buildSystemPrompt } from '@agent-tasks/agent-runtime';
 import type { AgentSource, RunAgentOptions } from '@agent-tasks/agent-runtime';
-import type { ProviderContext } from '@agent-tasks/ai-providers';
+import { parseModelVariant, ProviderError } from '@agent-tasks/ai-providers';
+import type { ModelVariant, ProviderContext } from '@agent-tasks/ai-providers';
+import { catalogModelFor, catalogModelSupportsTools } from '@agent-tasks/shared';
 import type { OpenCodeExecutionLease, OpenCodeSessionStore } from './opencode-session-store.js';
 import type { ToolBridgeHub } from './opencode-tool-bridge.js';
 import { createOpenCodeV2Runner } from './opencode-v2-runner.js';
@@ -12,14 +14,21 @@ import type { OpenCodeV2Client, OpenCodeV2Model } from './opencode-v2-client.js'
  * worker restart must reconnect to that state, not create an empty server.
  * A directory or an OpenCode session on a shared server is not isolation.
  *
- * No production provisioner is currently implemented or configured.
+ * The provider model and, for `model#variant` selections, the reasoning effort.
+ * They are separate on the wire: the provisioner and OpenCode know only the base
+ * catalog id, while the variant is applied to the model request.
  */
+export interface OpenCodeModelSelection {
+  id: string;
+  variant?: ModelVariant;
+}
+
 export interface IsolatedOpenCodeProvisioner {
   open(input: {
     lease: OpenCodeExecutionLease;
     providerKind: string;
     providerContext: ProviderContext;
-    model: string;
+    model: OpenCodeModelSelection;
     systemPrompt: string;
     maxAgentSteps: number;
     maxOutputBytes: number;
@@ -42,11 +51,30 @@ export function createIsolatedOpenCodeRunner(
 ) {
   return async (options: RunAgentOptions, lease: OpenCodeExecutionLease) => {
     if (options.signal?.aborted) throw new AgentCancelledError('cancelled');
+    // `model#variant` is an Agent Tasks convention. Split it before provisioning:
+    // the base id must match the provider catalog exactly, and an unknown variant
+    // must fail without creating a runtime or spending a provider call.
+    const { model: modelId, variant } = parseModelVariant(options.model);
     // Validate ownership and the current lease before passing a credential to the provisioner.
     await store.access(lease);
     if (options.signal?.aborted) throw new AgentCancelledError('cancelled');
+    // The executor always supplies the merged persisted catalog. When a catalog is
+    // present the selection must exist in it, and a run that needs tools must be
+    // explicitly declared tool-capable — never inferred.
+    const catalog = (options.providerContext.config as { models?: unknown } | undefined)?.models;
+    if (Array.isArray(catalog) && !catalogModelFor(catalog, modelId)) {
+      throw new ProviderError('unsupported', `model ${modelId} is not configured on its provider`);
+    }
+    if ((options.allowWebResearch || options.memoryEnabled === true)
+      && !catalogModelSupportsTools(catalog, modelId)) {
+      throw new ProviderError('unsupported', `model ${modelId} is not marked tool-capable on its provider`);
+    }
     const tools: string[] = [];
-    if (options.emailNotification) tools.push('compose_email', 'add_email_block');
+    // Completion e-mail is sent by the worker and needs no model tool. Only offer
+    // the structured e-mail blocks when the model may actually call tools.
+    if (options.emailNotification && catalogModelSupportsTools(catalog, modelId)) {
+      tools.push('compose_email', 'add_email_block');
+    }
     if (options.allowWebResearch) {
       tools.push(
         'search_web',
@@ -96,7 +124,7 @@ export function createIsolatedOpenCodeRunner(
         lease,
         providerKind: options.provider.kind,
         providerContext: options.providerContext,
-        model: options.model,
+        model: { id: modelId, ...(variant ? { variant } : {}) },
         systemPrompt,
         maxAgentSteps: options.limits.maxAgentSteps,
         maxOutputBytes: options.limits.maxOutputBytes,

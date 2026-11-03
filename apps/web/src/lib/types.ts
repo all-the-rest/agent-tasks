@@ -25,7 +25,7 @@ export type {
 export type SchedulePreset = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
 export type Locale = 'en' | 'de';
 export type ThemePreference = 'system' | 'light' | 'dark';
-export type Notification = 'none' | 'email';
+export type Notification = 'none' | 'email' | 'email_on_change';
 export type TaskStatus = 'active' | 'paused' | 'completed';
 export type TaskEndCondition = SharedTaskEndCondition;
 
@@ -232,6 +232,8 @@ export interface Provider {
   id: string;
   name: string;
   kind: string;
+  /** Whether the isolated worker can execute tasks on this provider. */
+  executable: boolean;
   isDefault: boolean;
   baseUrl?: string;
   /** Catalog model the admin preselected for new tasks. */
@@ -384,6 +386,7 @@ export interface AdminProvider {
   id: string;
   name: string;
   kind: string;
+  executable: boolean;
   enabled: boolean;
   isDefault: boolean;
   config: Record<string, unknown>;

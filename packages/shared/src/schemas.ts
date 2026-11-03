@@ -114,7 +114,7 @@ export const taskInputSchema = z.object({
   schedule: scheduleSchema,
   endCondition: taskEndConditionSchema.default({ type: 'never' }),
   allowWebResearch: z.boolean().default(true),
-  notification: z.enum(['none', 'email']).default('none'),
+  notification: z.enum(['none', 'email', 'email_on_change']).default('none'),
   memorySettings: memorySettingsSchema.default(DEFAULT_MEMORY_SETTINGS),
 });
 
@@ -137,6 +137,16 @@ export const executionReportSchema = z.object({
   uncertainty: z.array(z.string().max(500)).max(20).default([]),
   /** Blocks composed by the agent for the completion e-mail. */
   email: z.object({ blocks: emailBlocksSchema }).optional(),
+  /**
+   * Whether this report differs from the previous completed run of the same task.
+   * A first run is `first`, a run without a comparable predecessor is `unknown`.
+   */
+  change: z
+    .object({
+      status: z.enum(['first', 'changed', 'unchanged', 'unknown']),
+      previousExecutionId: idSchema.optional(),
+    })
+    .optional(),
 });
 export type ExecutionReport = z.infer<typeof executionReportSchema>;
 

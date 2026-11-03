@@ -1,319 +1,156 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { executions, memories, providerCredentials, providers, recommendations, user } from '@agent-tasks/database';
+import { executions, providerCredentials, providerModels, providers, user } from '@agent-tasks/database';
 import { SecretBox } from '@agent-tasks/ai-providers';
-import type { RunAgentOptions } from '@agent-tasks/agent-runtime';
-import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
+import type { AgentRunResult, RunAgentOptions } from '@agent-tasks/agent-runtime';
 import { Executor } from '../src/executor.js';
 import type { WorkerEnv } from '../src/env.js';
 
-// Keep the real AgentCancelledError (the executor branches on it) but replace runAgent so
-// the test can inspect the adapter context without spawning `codex`.
-const state = vi.hoisted(() => ({ options: null as unknown as RunAgentOptions | null }));
-vi.mock('@agent-tasks/agent-runtime', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@agent-tasks/agent-runtime')>();
-  return {
-    ...actual,
-    runAgent: async (options: RunAgentOptions) => {
-      state.options = options;
-      return { markdown: '# done', summary: 'done', sources: [], uncertainty: [], steps: [], usage: {}, emailBlocks: [], memoryOps: [], recommendationOps: [], stopReason: 'completed' };
-    },
-  };
-});
-
 const box = new SecretBox(Buffer.alloc(32, 1).toString('base64'));
+const ownerId = 'AbCdEfGhIjKlMnOpQrStUvWxYz012345';
 
-interface FakeInput {
-  execution: Record<string, unknown>;
-  task: Record<string, unknown>;
-  provider: Record<string, unknown>;
-  credentials: Array<{ ownerId: string | null; ciphertext: string }>;
-  settings?: Record<string, unknown>;
-  ownerEmail?: string;
-}
-
-function fakeDb(input: FakeInput) {
+function fixture(kind = 'codex', notification: 'none' | 'email' = 'none') {
+  const executionId = randomUUID();
+  const task = {
+    id: randomUUID(),
+    providerId: randomUUID(),
+    ownerId,
+    title: 'Provider task',
+    prompt: 'Say hi',
+    systemInstructions: null,
+    timezone: 'Europe/Vienna',
+    model: 'mock-model',
+    allowWebResearch: false,
+    notification,
+    memorySettings: { mode: 'off' },
+    limits: { maxDurationSec: 30, maxAgentSteps: 3, maxPageVisits: 1, maxOutputBytes: 10_000, maxToolCalls: 1, maxSearchQueries: 1 },
+  };
+  const provider = {
+    id: task.providerId,
+    name: 'Test provider',
+    kind,
+    enabled: true,
+    config: { baseUrl: 'https://provider.invalid/v1', models: [{ id: 'mock-model', supportsTools: true }] },
+  };
+  const execution = { id: executionId, ownerId, attempt: 0 };
   const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
   const dialect = new PgDialect();
-
+  const execute = async (query: unknown) => {
+    const sql = typeof query === 'string' ? query : dialect.sqlToQuery(query as never).sql;
+    if (sql.includes('from system_settings')) return { rows: [{ values: {} }] };
+    if (sql.includes('select owner_id, attempt')) return { rows: [{ owner_id: ownerId, attempt: 0, already_admitted_today: false }] };
+    if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
+    if (sql.includes('prior_executions_today')) return { rows: [{ prior_executions_today: 0, other_running_for_owner: 0 }] };
+    if (sql.includes('set status = \'running\'')) return { rows: [] };
+    if (sql.includes('select cancel_requested')) return { rows: [{ cancel_requested: false }] };
+    if (sql.includes('count(*)::int as count')) return { rows: [{ count: 0 }] };
+    throw new Error(`unexpected SQL: ${sql}`);
+  };
   const chain = (value: unknown) => {
     const builder: Record<string, unknown> = {};
     builder.innerJoin = () => builder;
     builder.where = () => builder;
     builder.orderBy = () => builder;
     builder.limit = async () => value;
-    builder.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => Promise.resolve(value).then(resolve, reject);
+    builder.then = (resolve: (value: unknown) => unknown, reject?: (error: unknown) => unknown) => Promise.resolve(value).then(resolve, reject);
     return builder;
   };
-
-  const select = () => ({
-    from(table: unknown) {
-      if (table === providers) return chain([input.provider]);
-      if (table === executions) return chain([{ execution: input.execution, task: input.task }]);
-      if (table === providerCredentials) return chain(input.credentials);
-      if (table === memories || table === recommendations) return chain([]);
-      if (table === user) return chain([{ email: input.ownerEmail ?? 'owner@example.com' }]);
-      throw new Error('unexpected select table');
-    },
-  });
-
-  const update = (table: unknown) => ({
-    set: (values: Record<string, unknown>) => ({
-      where: async () => {
-        updates.push({ table, values });
+  const db = {
+    execute,
+    transaction: async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) => callback({ execute }),
+    select: () => ({
+      from(table: unknown) {
+        if (table === providers) return chain([provider]);
+        if (table === executions) return chain([{ execution, task }]);
+        if (table === providerCredentials) return chain([{ ownerId: null, ciphertext: box.encrypt('fake-provider-key') }]);
+        if (table === providerModels) return chain([]);
+        if (table === user) return chain([{ email: 'owner@example.com' }]);
+        throw new Error('unexpected select table');
       },
     }),
+    update: (table: unknown) => ({ set: (values: Record<string, unknown>) => ({ where: async () => { updates.push({ table, values }); } }) }),
+    delete: () => ({ where: async () => undefined }),
+    insert: () => ({ values: async () => undefined }),
+  };
+  return { db: db as never, updates, executionId, task, provider };
+}
+
+const env: WorkerEnv = {
+  NODE_ENV: 'test',
+  DATABASE_URL: 'postgres://unused',
+  SECRETS_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
+  RUNNER_URL: 'http://127.0.0.1:1',
+  RUNNER_TOKEN: 'unit-test-runner-token',
+  WORKER_CONCURRENCY: 1,
+  OPENCODE_PROVISIONER_URL: 'http://fake-opencode.invalid:4090',
+  OPENCODE_PROVISIONER_TOKEN: 'unit-test-fake-provisioner-token-0123456789',
+  LOG_LEVEL: 'silent',
+};
+
+const result: AgentRunResult = {
+  markdown: 'All checks passed.',
+  summary: 'All checks passed.',
+  sources: [],
+  uncertainty: [],
+  steps: [],
+  usage: {},
+  emailBlocks: [
+    { type: 'heading', text: 'Weekly report', level: 1 },
+    { type: 'paragraph', text: 'Details.' },
+    { type: 'button', label: 'Open', url: 'https://example.com/executions/1' },
+  ],
+  memoryOps: [],
+  recommendationOps: [],
+  stopReason: 'completed',
+};
+
+describe('isolated OpenCode provider contract', () => {
+  it.each(['codex', 'ollama', 'openai'])('rejects unsupported %s provider kind without invoking the runner', async (kind) => {
+    const fake = fixture(kind);
+    const send = vi.fn();
+    const openCodeRunner = vi.fn(async () => result);
+    const executor = new Executor({ db: fake.db, env, boss: { send } as never, workerId: 'unit-worker', openCodeRunner });
+
+    await executor.handle(fake.executionId);
+
+    expect(openCodeRunner).not.toHaveBeenCalled();
+    const failed = fake.updates.find((entry) => entry.table === executions && entry.values.status === 'failed');
+    expect(failed?.values.error).toMatch(new RegExp(`provider kind ${kind} is not supported`, 'i'));
+    expect(send).not.toHaveBeenCalled();
   });
 
-  const execute = async (query: unknown) => {
-    // `loadSettings` passes a plain string; everything else is a drizzle SQL object.
-    const sql = typeof query === 'string' ? query : dialect.sqlToQuery(query as never).sql;
-    if (sql.includes('select owner_id, attempt')) return { rows: [{ owner_id: input.execution.ownerId, attempt: 0, already_admitted_today: false }] };
-    if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
-    if (sql.includes('prior_executions_today')) return { rows: [{ prior_executions_today: 0, other_running_for_owner: 0 }] };
-    if (sql.includes('update executions') && sql.includes("set status = 'running'")) return { rows: [] };
-    if (sql.includes('from system_settings')) return { rows: [{ values: input.settings ?? {} }] };
-    if (sql.includes('select cancel_requested')) return { rows: [{ cancel_requested: false }] };
-    if (sql.includes('count(*)::int as count')) return { rows: [{ count: 0 }] };
-    throw new Error(`unexpected SQL: ${sql}`);
-  };
+  it('persists OpenCode report blocks and delivers the same content in completion mail', async () => {
+    const fake = fixture('openai-compatible', 'email');
+    const openCodeRunner = vi.fn(async (options: RunAgentOptions) => {
+      expect(options.provider.kind).toBe('openai-compatible');
+      return result;
+    });
+    const mailer = { send: vi.fn(async () => undefined) };
+    const executor = new Executor({
+      db: fake.db,
+      env: { ...env, PUBLIC_BASE_URL: 'https://tasks.example.com' },
+      boss: {} as never,
+      workerId: 'unit-worker',
+      openCodeRunner,
+      mailer,
+    });
 
-  const transaction = async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) => callback({ execute });
-  return { db: { select, update, execute, transaction } as never, updates };
-}
+    await executor.handle(fake.executionId);
 
-function workerEnv(codexHomeRoot: string, isolatedRunner = true): WorkerEnv {
-  return {
-    NODE_ENV: 'test',
-    DATABASE_URL: 'postgres://unused',
-    SECRETS_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
-    RUNNER_URL: 'http://127.0.0.1:1',
-    RUNNER_TOKEN: 'unit-test-runner-token',
-    WORKER_CONCURRENCY: 1,
-    CODEX_HOME_ROOT: codexHomeRoot,
-    CODEX_ISOLATED_RUNNER: isolatedRunner ? '1' : '0',
-    LOG_LEVEL: 'silent',
-  };
-}
-
-/** Better Auth ids are 32-character opaque strings, not UUIDs. */
-const OWNER = 'AbCdEfGhIjKlMnOpQrStUvWxYz012345';
-const homeSegment = (ownerId: string): string => createHash('sha256').update(ownerId, 'utf8').digest('hex');
-
-function codexFixture(ownerId: string) {
-  const executionId = randomUUID();
-  return {
-    executionId,
-    input: {
-      execution: { id: executionId, ownerId, attempt: 0 },
-      task: {
-        id: randomUUID(),
-        providerId: randomUUID(),
-        ownerId,
-        title: 'Codex task',
-        prompt: 'Say hi',
-        systemInstructions: null,
-        timezone: 'Europe/Vienna',
-        model: 'gpt-5-codex',
-        allowWebResearch: false,
-        limits: { maxDurationSec: 30, maxAgentSteps: 3, maxPageVisits: 1, maxOutputBytes: 10_000, maxToolCalls: 1, maxSearchQueries: 1 },
-      },
-      provider: {
-        id: randomUUID(),
-        name: 'Codex',
-        kind: 'codex',
-        enabled: true,
-        config: { enabled: true, codexHome: '/shared/global-codex', models: [{ id: 'gpt-5-codex' }] },
-      },
-      credentials: [{ ownerId: null, ciphertext: box.encrypt('shared-codex-key') }],
-    } satisfies FakeInput,
-  };
-}
-
-describe('executor Codex home', () => {
-  it('uses an explicitly injected agent runner and persists its result', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
-    try {
-      const { executionId, input } = codexFixture(OWNER);
-      const fake = fakeDb(input);
-      const agentRunner = vi.fn(async () => ({
-        markdown: 'injected answer', summary: 'injected answer', sources: [], uncertainty: [],
-        steps: [], usage: {}, emailBlocks: [
-          { type: 'heading' as const, text: 'Injected report', level: 1 as const },
-          { type: 'paragraph' as const, text: 'Details.' },
-        ], memoryOps: [], recommendationOps: [],
-        stopReason: 'completed' as const,
-      }));
-      const executor = new Executor({ db: fake.db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker', agentRunner });
-      await executor.handle(executionId);
-      expect(agentRunner).toHaveBeenCalledOnce();
-      // The report page and the report e-mail both read the durable report, so the
-      // composed blocks must be part of it, not only of the mail payload.
-      expect(fake.updates.find((update) => update.table === executions && update.values.status === 'completed')?.values.report)
-        .toMatchObject({
-          markdown: 'injected answer',
-          summary: 'injected answer',
-          email: { blocks: [
-            { type: 'heading', text: 'Injected report', level: 1 },
-            { type: 'paragraph', text: 'Details.' },
-          ] },
-        });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('delivers the completion e-mail with the same report content the page shows', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
-    try {
-      const { executionId, input } = codexFixture(OWNER);
-      const fake = fakeDb({ ...input, task: { ...input.task, notification: 'email' } });
-      const agentRunner = vi.fn(async () => ({
-        markdown: '# Findings\n\nAll checks passed.', summary: 'All checks passed.', sources: [], uncertainty: [],
-        steps: [], usage: {}, emailBlocks: [
-          { type: 'heading' as const, text: 'Weekly report', level: 1 as const },
-          { type: 'paragraph' as const, text: 'Details.' },
-          { type: 'button' as const, label: 'Open', url: 'https://example.com/executions/1' },
-        ], memoryOps: [], recommendationOps: [], stopReason: 'completed' as const,
-      }));
-      const mailer = { send: vi.fn(async () => undefined) };
-      const executor = new Executor({
-        db: fake.db,
-        env: { ...workerEnv(root), PUBLIC_BASE_URL: 'https://tasks.example.com' },
-        boss: {} as never,
-        workerId: 'unit-worker',
-        agentRunner,
-        mailer,
+    expect(openCodeRunner).toHaveBeenCalledOnce();
+    expect(fake.updates.find((entry) => entry.table === executions && entry.values.status === 'completed')?.values.report)
+      .toMatchObject({
+        markdown: 'All checks passed.',
+        summary: 'All checks passed.',
+        email: { blocks: result.emailBlocks },
       });
-      await executor.handle(executionId);
-
-      const mail = mailer.send.mock.calls[0]?.[0] as { to: string; subject: string; html: string; text: string };
-      expect(mail.to).toBe('owner@example.com');
-      expect(mail.subject).toBe('Task completed: Codex task');
-      expect(mail.html).toContain('Weekly report');
-      expect(mail.html).toContain('All checks passed.');
-      expect(mail.html).toContain('href="https://example.com/executions/1"');
-      expect(mail.html).toContain('rel="noopener noreferrer nofollow"');
-      expect(mail.text).toContain('Details.');
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('passes the owner-scoped Codex home to the adapter and creates it owner-only when isolation is opted in', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
-    try {
-      const { executionId, input } = codexFixture(OWNER);
-      const executor = new Executor({ db: fakeDb(input).db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker' });
-      await executor.handle(executionId);
-
-      expect(state.options?.provider.kind).toBe('codex');
-      expect(state.options?.limits).toEqual(AGENT_RUNTIME_LIMITS);
-      expect(state.options?.providerContext.config.codexHome).toBe(join(root, homeSegment(OWNER)));
-      const info = await stat(join(root, homeSegment(OWNER)));
-      expect(info.isDirectory()).toBe(true);
-      expect(info.mode & 0o777).toBe(0o700);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('uses fixed execution budgets instead of obsolete administrator or task values', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
-    try {
-      state.options = null;
-      const { executionId, input } = codexFixture(OWNER);
-      const agentLimits = {
-        maxDurationSec: 600,
-        maxAgentSteps: 25,
-        maxPageVisits: 18,
-        maxOutputBytes: 750_000,
-        maxToolCalls: 80,
-        maxSearchQueries: 12,
-      };
-      const fake = fakeDb({ ...input, settings: { agentLimits } });
-      const executor = new Executor({ db: fake.db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker' });
-      await executor.handle(executionId);
-
-      expect(state.options?.limits).toEqual(AGENT_RUNTIME_LIMITS);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('disables memory tools for a model declared as non-tool-capable', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
-    try {
-      state.options = null;
-      const { executionId, input } = codexFixture(OWNER);
-      const provider = {
-        ...input.provider,
-        name: 'Non-tool OpenAI',
-        kind: 'openai-compatible',
-        config: {
-          baseUrl: 'http://127.0.0.1:1/v1',
-          models: [{ id: 'gpt-5-codex', supportsTools: false }],
-        },
-      };
-      const executor = new Executor({
-        db: fakeDb({ ...input, provider }).db,
-        env: workerEnv(root),
-        boss: {} as never,
-        workerId: 'unit-worker',
-      });
-      await executor.handle(executionId);
-
-      expect(state.options?.memoryEnabled).toBe(false);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('refuses Codex without CODEX_ISOLATED_RUNNER=1 and fails terminally (no retry)', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
-    try {
-      state.options = null;
-      const { executionId, input } = codexFixture(OWNER);
-      const fake = fakeDb(input);
-      const send = vi.fn();
-      const executor = new Executor({ db: fake.db, env: workerEnv(root, false), boss: { send } as never, workerId: 'unit-worker' });
-      await executor.handle(executionId);
-
-      // Never reaches the adapter, never creates a home directory.
-      expect(state.options).toBeNull();
-      await expect(stat(join(root, homeSegment(OWNER)))).rejects.toThrow();
-      const failed = fake.updates.find((entry) => entry.table === executions && entry.values.status === 'failed');
-      expect(failed?.values.error).toMatch(/isolated runner/i);
-      expect(failed?.values.error).toMatch(/CODEX_ISOLATED_RUNNER/);
-      // `unsupported` is terminal: no queued/retry update and no pg-boss send.
-      expect(fake.updates.some((entry) => entry.table === executions && entry.values.status === 'queued')).toBe(false);
-      expect(send).not.toHaveBeenCalled();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('safely encodes a traversal-shaped owner id instead of using it as a path segment', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
-    try {
-      state.options = null;
-      const ownerId = '../escape';
-      const { executionId, input } = codexFixture(ownerId);
-      const executor = new Executor({ db: fakeDb(input).db, env: workerEnv(root), boss: {} as never, workerId: 'unit-worker' });
-      await executor.handle(executionId);
-
-      const expected = join(root, homeSegment(ownerId));
-      expect(state.options?.providerContext.config.codexHome).toBe(expected);
-      const info = await stat(expected);
-      expect(info.isDirectory()).toBe(true);
-      // Nothing was created outside the root.
-      await expect(stat(join(root, '..', 'escape'))).rejects.toThrow();
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
+    const mail = mailer.send.mock.calls[0]?.[0] as { to: string; subject: string; html: string; text: string };
+    expect(mail.to).toBe('owner@example.com');
+    expect(mail.subject).toBe('Task completed: Provider task');
+    expect(mail.html).toContain('Weekly report');
+    expect(mail.html).toContain('All checks passed.');
+    expect(mail.html).toContain('href="https://example.com/executions/1"');
+    expect(mail.text).toContain('Details.');
   });
 });

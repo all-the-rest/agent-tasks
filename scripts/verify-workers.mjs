@@ -3,14 +3,14 @@
  * Practical multi-worker verification against a running Compose stack.
  *
  * 1. scales the worker service to two containers (the CI step does the scaling),
- * 2. starts a slow OpenAI-compatible mock inside the compose network,
+ * 2. uses the network-internal fake provisioned runtime (no provider egress),
  * 3. runs six concurrent executions and asserts distinct workers, one row per
  *    execution and a 409 when a task is triggered twice,
  * 4. kills the worker that owns a running execution and waits for lease-based
  *    recovery on the surviving worker.
  *
  * Env: API_BASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD, POSTGRES_USER/POSTGRES_DB
- * (defaults agent/agent_tasks), MOCK_IMAGE (defaults to the compose api image).
+ * (defaults agent/agent_tasks).
  */
 import { execFileSync } from 'node:child_process';
 
@@ -19,7 +19,6 @@ const adminEmail = process.env.ADMIN_EMAIL;
 const adminPassword = process.env.ADMIN_PASSWORD;
 const dbUser = process.env.POSTGRES_USER ?? 'agent';
 const dbName = process.env.POSTGRES_DB ?? 'agent_tasks';
-const DELAY_MS = 20_000;
 const PARALLEL_RUNS = 6;
 
 if (!adminEmail || !adminPassword) {
@@ -88,9 +87,9 @@ const taskPayload = (title, providerId) => ({
   schedule: { preset: 'once', timezone: 'Europe/Vienna', runAt: new Date(Date.now() + 3_600_000).toISOString() },
   allowWebResearch: false,
   notification: 'none',
+  // The worker check uses a deliberately tool-less fake model; memory needs tools.
+  memorySettings: { mode: 'off' },
 });
-
-let mockContainer = null;
 
 try {
   // Scaling may recreate the api container (config change), so wait for it.
@@ -118,35 +117,13 @@ try {
   });
   check(settings.status === 200, 'per-user concurrency limit raised for the check');
 
-  // --- slow mock inside the compose network --------------------------------
-  const network = docker('network', 'ls', '--format', '{{.Name}}')
-    .split('\n')
-    .find((name) => name.endsWith('_backend'));
-  check(Boolean(network), 'compose backend network found', network);
-
-  const image = process.env.MOCK_IMAGE ?? compose('images', '-q', 'api').split('\n')[0];
-  check(Boolean(image), 'api image available for the mock', image);
-
-  docker('rm', '-f', 'worker-check-mock').toString();
-  docker(
-    'run', '-d', '--rm', '--name', 'worker-check-mock',
-    '--network', network,
-    '-v', `${process.cwd()}/scripts/slow-mock.mjs:/mock.mjs:ro`,
-    '-e', `DELAY_MS=${DELAY_MS}`,
-    '-e', 'PORT=18099',
-    '--entrypoint', 'node',
-    image, '/mock.mjs',
-  );
-  mockContainer = 'worker-check-mock';
-  await waitFor('mock readiness', () => docker('logs', mockContainer).includes('MOCK_READY'), 30_000);
-  console.log('PASS slow mock is reachable inside the compose network');
-
   // --- provider ------------------------------------------------------------
   const provider = await call('POST', '/api/admin/providers', {
     name: `Worker Check ${Date.now()}`,
     kind: 'openai-compatible',
     config: {
-      baseUrl: 'http://worker-check-mock:18099/v1',
+      // The test-only provisioner ignores this inert URL and has no egress.
+      baseUrl: 'https://provider.invalid/v1',
       models: [{ id: 'mock-slow', supportsTools: false }],
       stream: false,
     },
@@ -257,11 +234,5 @@ try {
 
   console.log('WORKERS_OK');
 } finally {
-  if (mockContainer) {
-    try {
-      docker('rm', '-f', mockContainer);
-    } catch {
-      /* ignore */
-    }
-  }
+  // The Compose-managed fake runtime has no persistent volume or public port.
 }

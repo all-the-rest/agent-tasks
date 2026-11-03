@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AgentCancelledError } from '@agent-tasks/agent-runtime';
+import { parseModelVariant, ProviderError } from '@agent-tasks/ai-providers';
 import type { AgentRunResult, RunAgentOptions } from '@agent-tasks/agent-runtime';
 import { OpenCodeV2Client, OpenCodeV2Error } from './opencode-v2-client.js';
 import type { OpenCodeV2Model } from './opencode-v2-client.js';
@@ -20,7 +21,13 @@ const MESSAGE_POLL_MS = 100;
  */
 export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; directory: string; model: OpenCodeV2Model; store?: OpenCodeSessionStore; requiresMcp?: boolean }) {
   return async (options: RunAgentOptions, lease?: OpenCodeExecutionLease): Promise<AgentRunResult> => {
-    if (options.model !== config.model.id) throw new Error('OpenCode spike model does not match the task model');
+    // `options.model` may carry the `#variant` suffix; the runtime knows only the
+    // base catalog id and receives the variant separately. Re-check both here so a
+    // provisioner that drops or rewrites either value can never run silently.
+    const requested = parseModelVariant(options.model);
+    if (requested.model !== config.model.id || requested.variant !== config.model.variant) {
+      throw new Error('OpenCode model does not match the task model');
+    }
     const timeoutSignal = AbortSignal.timeout(options.limits.maxDurationSec * 1_000);
     const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
     const cancellation = (): AgentCancelledError => new AgentCancelledError(timeoutSignal.aborted ? 'timeout' : 'cancelled');
@@ -70,7 +77,7 @@ export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; direc
       const failed = assistants.find(
         (message) => message.error || (typeof message.finish === 'string' && !['stop', 'tool-calls', 'tool_calls'].includes(message.finish)),
       );
-      if (failed) throw new Error('OpenCode execution did not complete successfully');
+      if (failed) throw classifyFailure(failed.error ?? failed.finish);
       const terminal = assistants.find((message) => message.finish === 'stop');
       if (!terminal) return undefined;
       if (!Array.isArray(terminal.content)) throw new Error('OpenCode execution did not complete successfully');
@@ -180,4 +187,26 @@ async function resultFromMessage(
 
 function tokenCount(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/**
+ * Map a runtime-reported failure to the retry classes the Executor understands.
+ * The provider response is produced inside the isolated runtime, so only its
+ * terminal error payload is available here. Anything not clearly transient stays
+ * a plain error (terminal), which is the safe default.
+ */
+function classifyFailure(error: unknown): Error {
+  let text = '';
+  try {
+    text = typeof error === 'string' ? error : JSON.stringify(error) ?? '';
+  } catch {
+    text = '';
+  }
+  if (/\b429\b|rate[ _-]?limit/i.test(text)) {
+    return new ProviderError('rate_limited', 'the model provider rate-limited the request');
+  }
+  if (/\b(502|503|504)\b|timed? ?out|timeout|overloaded|temporarily unavailable/i.test(text)) {
+    return new ProviderError('unavailable', 'the model provider was temporarily unavailable');
+  }
+  return new Error('OpenCode execution did not complete successfully');
 }

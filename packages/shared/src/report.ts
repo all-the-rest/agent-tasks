@@ -38,3 +38,22 @@ export function reportToMarkdown(report: ExecutionReport, meta: { title: string;
   }
   return lines.join('\n');
 }
+
+export type ReportChangeStatus = 'first' | 'changed' | 'unchanged' | 'unknown';
+
+/**
+ * Compare a report with the previous completed run of the same task.
+ *
+ * The comparison is deliberately content-based: a run "changes" when its report
+ * text differs from the previous one. `first` means the task has no earlier
+ * completed run, `unknown` means the earlier run stored no comparable text.
+ */
+export function reportChangeStatus(
+  previousMarkdown: string | null | undefined,
+  nextMarkdown: string,
+): ReportChangeStatus {
+  if (previousMarkdown === null || previousMarkdown === undefined) return 'first';
+  const previous = previousMarkdown.trim();
+  if (previous.length === 0) return 'unknown';
+  return previous === nextMarkdown.trim() ? 'unchanged' : 'changed';
+}

@@ -75,31 +75,31 @@ are not listed here.
 | Doc | Criterion (checked `[x]`) | Audit |
 | --- | --- | --- |
 | 01 | Shared versions through a pnpm catalog | PARTIAL — `drizzle-orm@^0.45.4` and `pg-boss@^12.38.0` are still duplicated outside the catalog. |
-| 01 | Apache-2.0 license | PARTIAL — no `LICENSE` file exists; only `package.json` says `Apache-2.0`. README links a missing `LICENSE`. |
+| 01 | Apache-2.0 license | IMPLEMENTED — `LICENSE` holds the Apache-2.0 text, `package.json` declares `Apache-2.0`, and README links the file. |
 | 02 | Public registration disabled; single-use invitations (7 days) | PARTIAL — not atomic, and the sign-up bridge never marks the invitation accepted. |
 | 02 | TOTP MFA with backup codes, verified before activation | PARTIAL — server-side flow is tested; backup codes are untested and the web UI has no TOTP step. |
 | 02 | Password reset **and email verification** through SMTP | PARTIAL — verification mail can never be triggered. |
-| 03 | Malformed ids return 404 instead of a database error | PARTIAL — only task/execution ids are validated; provider/invitation uuid params still reach PostgreSQL. |
+| 03 | Malformed ids return 404 instead of a database error | IMPLEMENTED — task/execution/provider/credential/invitation uuid params go through `requireUuid`; user ids are Better Auth text ids and are not parsed as uuid. |
 | 05 | Execution timeouts | PARTIAL — a timeout is retried as a transient provider error; `timed_out` is effectively unreachable. |
 | 05 | Per-user concurrency and daily quota | PARTIAL — enforced only after claim, off-by-one, and untested. |
-| 06 | A model without the `tools` capability is refused | PARTIAL — refusal requires a non-empty capability list; a failed probe silently proceeds. |
-| 06 | Model tool support is declared, never assumed | PARTIAL — the runtime never consults the declared capability before sending tools. |
-| 07 | Adapter exists but is disabled by default | PARTIAL — the admin API strips `enabled`/`codexHome`, so it can never be enabled through the product. |
+| 06 | A model without the `tools` capability is refused | IMPLEMENTED — capability is explicit only (`supportsTools === true`); refusal happens in the API, the executor, the runner and the provisioner before provisioning. |
+| 06 | Model tool support is declared, never assumed | IMPLEMENTED — discovery never yields `true`; the admin catalog declares it and the runtime model config forwards `tool_call: supportsTools === true`. |
+| 07 | Adapter exists but is disabled by default | IMPLEMENTED BY REFUSAL — the worker rejects the `codex` provider kind on every execution path, so the adapter cannot execute a task even when enabled; it stays a library for health checks. |
 | 07 | Account-scoped: per-user `CODEX_HOME`, no shared accounts | **MISSING** — one global provider row is read; there is no user → directory mapping. |
 | 08 | Tools include `fill_form` | PARTIAL — the tool exists but is never offered (`allowForms: false`), so the model sees nine tools, not ten. |
 | 08 | Limits enforced per step, tool call, page visit, search query, output size, duration | PARTIAL — the tool-call budget throws a cancelled error, and output/duration limits are only partially applied. |
 | 10 | Chromium sandbox enabled in the supported deployment | **RESOLVED** — probe run 41226712667 launched and rendered a page with the shipped posture; CI asserts `sandbox: true`. |
 | 11 | Clicks on login/checkout/payment/destructive controls refused | PARTIAL — substring match on the target label only. |
-| 11 | Secret redaction in logs, errors and provider messages | PARTIAL — only the active API key is treated as a secret. |
-| 11 | Credentials never returned by any API response | PARTIAL — `/api/admin/providers` returns the raw provider `config` (including `headers`). |
+| 11 | Secret redaction in logs, errors and provider messages | IMPLEMENTED — the executor collects the active key plus every other credential of that provider (`collectKnownSecrets`) and redacts all of them. |
+| 11 | Credentials never returned by any API response | IMPLEMENTED — `/api/providers` whitelists fields and `/api/admin/providers` returns `redactProviderConfig` (safe keys only, every header value replaced by `***`). |
 | 12 | Markdown + JSON export | PARTIAL — JSON omits the tool timeline/errors; Markdown omits summary and uncertainty; no test. |
 | 12 | No invented links | PARTIAL — the sources list is tool-derived, but the report Markdown can contain unvalidated model links. |
 | 12 | Historical comparison through the execution list per task | PARTIAL — a per-task list exists; no comparison exists. |
-| 14 | Watchtower labels for api/worker/web only | PARTIAL — SearXNG also carries `watchtower.enable: "true"`. |
+| 14 | Watchtower labels for api/worker/web only | IMPLEMENTED — only api and worker opt in; browser-runner, provisioners, mail and SearXNG do not carry the label. |
 | 02 | Audit log for every sensitive administrative operation | UNPROVEN — writes exist, no test asserts them (and Better Auth admin endpoints write none). |
 | 05 | Graceful shutdown aborts running executions | UNPROVEN — `abortAll()` exists; no test covers the signal path. |
-| 09 | SearXNG JSON adapter | UNPROVEN — no test drives `SearxngSearchProvider`. |
-| 09 | Fixture and no-op providers for deterministic tests | UNPROVEN — providers exist, no test uses them. |
+| 09 | SearXNG JSON adapter | IMPLEMENTED — `packages/browser-tools/test/search.test.ts` drives `SearxngSearchProvider` against a local HTTP server (mapping, limit, non-http filtering, error status, abort). |
+| 09 | Fixture and no-op providers for deterministic tests | IMPLEMENTED — same file covers `FixtureSearchProvider` and `NoopSearchProvider`. |
 | 10 | Every redirect hop re-validated | UNPROVEN — true by proxy design, no redirect test. |
 | 13 | Accessible controls, labels, loading/error/empty states | UNPROVEN — no a11y assertion anywhere. |
 
@@ -111,7 +111,7 @@ are not listed here.
 | ---: | --- | --- | --- | --- |
 | 1 | pnpm workspace with the claimed layout | IMPLEMENTED | `pnpm-workspace.yaml:1-4`; `apps/{web,api,worker}`, `services/browser-runner`, six packages | structural |
 | 2 | Shared versions through a pnpm catalog | PARTIAL | `pnpm-workspace.yaml:11-18` (fastify/pg/zod/tsx/tsup/typescript/vitest); `drizzle-orm` `^0.45.4` still in `apps/api`, `apps/worker`, `packages/database`; `pg-boss` `^12.38.0` in api and worker | none |
-| 3 | Apache-2.0 license, README, CHANGELOG, CONTRIBUTING | PARTIAL | `package.json:7` says `Apache-2.0`; **no `LICENSE` file** (`ls LICENSE*` fails); `README.md` "See LICENSE" | none |
+| 3 | Apache-2.0 license, README, CHANGELOG, CONTRIBUTING | IMPLEMENTED | `LICENSE` (Apache-2.0 full text), `package.json` `license: Apache-2.0`, README links it | n/a (file) |
 | 4 | Strict TypeScript, typecheck every project | IMPLEMENTED | `tsconfig.base.json:5-13` (`strict`, `noUncheckedIndexedAccess`); 10 projects have `typecheck`; `pnpm -r typecheck` exit 0 | command |
 | 5 | ESLint flat config | IMPLEMENTED | `eslint.config.js`; `pnpm lint` exit 0 | command |
 | 6 | CI: lint, typecheck, unit, integration (Postgres), E2E, image build, Trivy, gitleaks | IMPLEMENTED | `.github/workflows/ci.yml` jobs `lint-typecheck`, `unit`, `integration` (postgres service), `e2e`, `docker`, `security` | CI never ran here |
@@ -144,7 +144,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | ---: | --- | --- | --- | --- |
 | 1 | Every query scoped with `owner_id = session.user.id` | IMPLEMENTED | list above; `scheduling.ts` uses `owner_id` from the task row; provider/admin queries are global by design | `isolation.test.ts:264-319` |
 | 2 | Client `ownerId`/`id` ignored on create | IMPLEMENTED | zod strips unknown keys; explicit insert `tasks.ts:73-92` | `isolation.test.ts:357-370` |
-| 3 | Malformed ids → 404, not a DB error | PARTIAL | `lib/session.ts:39-45` used in tasks.ts only; `providers.ts:44-46`, `providers.ts:115-117`, `admin.ts:166-168` pass raw uuid params → PG `22P02` → `app.ts:60-70` answers 500 | only task ids tested |
+| 3 | Malformed ids → 404, not a DB error | IMPLEMENTED | `requireUuid` is applied to task, execution, provider, credential and invitation uuid params; `admin.test.ts` covers a malformed invitation id | `admin.test.ts`, task/execution tests |
 | 4 | Admin role grants no access to user tasks/executions/credentials | IMPLEMENTED in the app routes — **but see Critical C1 (impersonation)** | `admin.ts:63-233` is admin-only; user reads check `ownerId` | `isolation.test.ts:314-319` |
 | 5 | Personal credentials per-owner; shared explicit | IMPLEMENTED | `ai-providers/src/registry.ts:37-48`; `schema.ts:196-218`; routes `providers.ts:44-68` | `isolation.test.ts:321-344`; shared upsert bug M2 |
 | 6 | Background execution re-derives ownership from the task row | IMPLEMENTED | `executor.ts:51-59` join; `:107-108` resolves credentials for `task.ownerId` | `execution.test.ts` |
@@ -159,7 +159,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 4 | UTC storage, schedule in IANA zone | IMPLEMENTED | `timestamptz` columns; `nextOccurrence` `schedule.ts:94-104` | `schedule.test.ts:34-39` |
 | 5 | Spring-forward gap runs at 03:30 | IMPLEMENTED | `schedule.ts:94-104` | `schedule.test.ts:41-46` (passes) |
 | 6 | Fall-back runs once at the first instant | IMPLEMENTED | same | `schedule.test.ts:48-53` (passes) |
-| 7 | Per-run budgets | SUPERSEDED BY OPENCODE SPIKE | Legacy runtime bounds are fixed in `shared/src/limits.ts`; six admin controls and `systemSettingsSchema.agentLimits` were removed. The isolated OpenCode V2 server configures a fixed 60-step cap, but is not yet used for task execution and V2 does not expose equivalent per-run hard caps for the other budgets. | shared schema test verifies settings omit legacy budgets; integration tests verify task overrides are ignored |
+| 7 | Per-run budgets | PARTIAL | Task execution now uses only the isolated OpenCode V2 runner, with a fixed agent-step cap; V2 does not expose equivalent hard caps for every legacy budget. The production provisioner remains disabled pending the documented verification gates. | OpenCode runner/recovery tests; `docs/architecture/opencode-runtime-isolation.md` lists the remaining gates |
 
 ## 05 — Durable scheduling
 
@@ -172,7 +172,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 5 | Retries with backoff, max 3 | IMPLEMENTED | `executor.ts:23,223-233` (`startAfter: 30 * attempt`) | `execution.test.ts:283-295` (allows failed or queued) |
 | 6 | Execution timeouts and cancellation polling | PARTIAL | poll `executor.ts:89-94`; deadline `:97`; **but** an abort during a provider call surfaces as `ProviderError('timeout')` (`openai-compatible.ts:158-160`) → retried, not `timed_out` | none for timeout |
 | 7 | Per-user concurrency and daily quota | IMPLEMENTED AT ADMISSION | `scheduling.ts:67-147` serializes owner admission with a transaction-scoped advisory lock, checks limits before changing the queued row to running, and reserves the slot atomically | `scheduler.test.ts` covers concurrent claim, concurrency and daily-quota admission |
-| 8 | Graceful shutdown aborts running executions | UNPROVEN | `worker/src/index.ts:58-64`; `executor.ts:39-41` | no signal test |
+| 8 | Graceful shutdown aborts running executions | IMPLEMENTED (mechanism) | `executor.abortAll()` aborts every controller and `settleWithin` waits a bounded grace; `index.ts` wires SIGTERM/SIGINT to it. The signal wiring itself is a three-line handler and has no unit test | `executor.test.ts` (settled, aborts, grace expiry), `lifecycle.test.ts` |
 | 9 | Documented at-least-once semantics | IMPLEMENTED | `docs/architecture/overview.md:47,79`; `ARCHITECTURE.md:67` | doc |
 
 ## 06 — AI providers
@@ -184,7 +184,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 3 | OpenAI-compatible with base URL, headers, timeouts | IMPLEMENTED | `openai-compatible.ts:46-56,154-166` | `openai-compatible.test.ts` |
 | 4 | Honest User-Agent + stable `x-opencode-session` | IMPLEMENTED | `openai-compatible.ts:46-56`; `runtime.ts:156-161` passes one id per run | `openai-compatible.test.ts:202-231`; mock-openai rejects generic UA/session |
 | 5 | Records `opencode.allowance` | IMPLEMENTED | `openai-compatible.ts:197-208` | `openai-compatible.test.ts:214-231` |
-| 6 | Tool support declared, never assumed | PARTIAL | discovery defaults false (`:155-158`), but `chat` only refuses if the model is in `config.models`; the executor never checks `providerModels.supportsTools` | none |
+| 6 | Tool support declared, never assumed | IMPLEMENTED | `packages/shared/src/provider-catalog.ts` merges the persisted discovery rows with declared overrides and treats only `supportsTools === true` as capability; the executor (`executor.ts`), API (`tasks.ts`), runner and provisioner all refuse a tool-requiring task on a non-capable model before provisioning | `packages/shared/test/provider-catalog.test.ts`, `apps/worker/test/executor.test.ts`, `test/integration/provider-catalog.test.ts`, `test/integration/execution.test.ts` |
 | 7 | `packages/mock-openai` real HTTP server enforcing the contract | IMPLEMENTED | `mock-openai/src/index.ts:82-140` | `openai-compatible.test.ts:265-281` |
 | 8 | Credentials per-user/shared, never sent to the runner | IMPLEMENTED | `registry.ts:37-48`; `browser-tools/src/client.ts` sends only actions | no explicit assertion |
 
@@ -193,7 +193,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | # | Criterion | Status | Evidence | Test coverage |
 | ---: | --- | --- | --- | --- |
 | 1 | Adapter exists, disabled by default | PARTIAL | guard `codex.ts:23-35`; but the admin API parses every non-Ollama kind with `compatibleConfigSchema` (`providers.ts:104`) which **strips** `enabled` and `codexHome`, so the guard can never be satisfied through the product | none |
-| 2 | Per-user `CODEX_HOME`, no shared accounts | **MISSING** | `codexHome` comes from one global provider row (`codex.ts:30-34`); there is no user → codexHome mapping | none |
+| 2 | Per-user `CODEX_HOME`, no shared accounts | IMPLEMENTED BY REFUSAL | the worker rejects the `codex` provider kind for every execution path (create, update, run, retry, resume, duplicate), so no task can share an account; the adapter is library-only for admin health checks | `provider-catalog.test.ts` kind refusals |
 | 3 | No browser cookies, undocumented endpoints, token extraction | IMPLEMENTED | `codex.ts:53-95` only spawns `codex exec` | none |
 | 4 | Text-only: refuses tool calling | IMPLEMENTED | `codex.ts:55-57` | none |
 | 5 | Documented limitation (Go ≠ API credit) | IMPLEMENTED | `docs/architecture/providers.md` Codex section | doc |
@@ -205,10 +205,10 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 1 | Ten named tools | PARTIAL | all ten in `tools.ts:240-251`; `allowForms` is hardcoded `false` in `executor.ts:129`, and `runtime.ts:117-119` excludes `fill_form` from the offered tools | `runtime.test.ts:146-161` asserts the inventory, not usability |
 | 2 | No shell, JS, filesystem | IMPLEMENTED | only the ten tools exist; `runtime.test.ts:90-99` (`run_shell` refused) | `runtime.test.ts:90-99` |
 | 3 | Every call validated + allowlist, unknown refused | IMPLEMENTED | zod per tool; allowlist `runtime.ts:189-190` | `runtime.test.ts:90-99` |
-| 4 | Global administrator-configured limits per step/tool/page/search/output/duration | SUPERSEDED BY OPENCODE SPIKE | Legacy bounds remain fixed in `shared/src/limits.ts` and are not administrator settings. The separate OpenCode V2 config sets `steps: 60` and denies all permissions; the adapter is not wired into task execution, and V2 has no equivalent per-session controls for the remaining budgets. | schema and integration tests verify the removed settings are ignored; legacy runtime tests remain applicable |
+| 4 | Global administrator-configured limits per step/tool/page/search/output/duration | PARTIAL | OpenCode V2 is now the sole task-execution backend and has a fixed agent-step cap with an explicit MCP tool allowlist. It has no equivalent hard control for every legacy per-run budget; production activation remains gated. | OpenCode runner/recovery tests; production gates in `docs/architecture/opencode-runtime-isolation.md` |
 | 5 | Retrieved content wrapped as untrusted | IMPLEMENTED | `prompt.ts:3-9,46-53` | `runtime.test.ts:101-111` |
 | 6 | Sources collected, deduped, persisted with confidence | IMPLEMENTED | `runtime.ts:77-84`; `executor.ts:159-165,172-187`; `execution_sources` unique index | `execution.test.ts:275-277` |
-| 7 | Final answer stored as Markdown + summary/sources/uncertainty | IMPLEMENTED | `executor.ts:159-165` (`report` jsonb) | `execution.test.ts:260-267` |
+| 7 | Final answer stored as Markdown + summary/sources/uncertainty | PARTIAL | `executor.ts:159-165` (`report` jsonb) stores summary, sources and `uncertainty`; the isolated OpenCode path currently returns `uncertainty: []` because the runtime emits plain final text, so uncertainty is never surfaced | `execution.test.ts` |
 
 ## 09 — Web research
 
@@ -219,7 +219,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 3 | Visited URLs, timestamps, titles, excerpts per execution | IMPLEMENTED | `tools.ts:97-113`; `executor.ts:172-187` | `execution.test.ts:275-277` |
 | 4 | Inaccessible pages reported as errors, not invented | IMPLEMENTED | `tools.ts:100-103`; blocked test | `execution.test.ts:297-315` |
 | 5 | Domain/redirect validation in the browser layer | IMPLEMENTED | `browser.ts:150-153`; proxy `proxy.ts:63-70` | `net.test.ts`, `egress.test.ts`; redirect hop untested |
-| 6 | robots.txt/TOS documented as operator responsibility | **MISSING** | the only mention is `docs/requirements/09-web-research.md:16`; grep of README/docs/SECURITY/DEPLOYMENT finds no operator note | none (and the box is honestly unchecked) |
+| 6 | robots.txt/TOS documented as operator responsibility | **IMPLEMENTED** | `docs/security/browser-isolation.md` ("Operator responsibility: robots.txt and terms of service") states that robots.txt, ToS, rate limits and licensing are operator duties, not runner-enforced, and that captcha/paywall bypass is out of scope | n/a (documentation) |
 | 7 | Captcha/paywall out of scope | IMPLEMENTED | recorded decision, no code needed | n/a |
 
 ## 10 — Browser isolation and egress
@@ -232,7 +232,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 4 | Fresh context, downloads off, non-http(s) aborted | IMPLEMENTED | `browser.ts:82-107` (`acceptDownloads:false`, route abort) | integration/E2E exercises sessions |
 | 5 | Enforcing proxy resolves, checks all answers, pins | IMPLEMENTED | `proxy.ts:63-70,72-102`; `net.ts:210-226` | `egress.test.ts:330-355` |
 | 6 | Blocks loopback/RFC1918/link-local/metadata/CGNAT/multicast/reserved/IPv6/mapped/NAT64 | IMPLEMENTED | `net.ts:50-129`; proxy calls it | `net.test.ts` (18 classifications), `egress.test.ts:330-355` |
-| 7 | Every redirect hop re-validated | UNPROVEN | every Chromium request goes through the proxy (`browser.ts:46-47`), so it holds by design | no redirect fixture |
+| 7 | Every redirect hop re-validated | IMPLEMENTED | every Chromium request — first hop and each redirect follow-up — is a new absolute-form request through the proxy (`browser.ts:46-47`, `proxy.ts:85-114`), so the policy runs per hop; there is no per-session allowlist | `egress.test.ts` (redirect hop into a private network is refused and recorded twice) |
 | 8 | Session closed after execution | IMPLEMENTED | `executor.ts:196-201`; `client.ts:57-66` (DELETE without JSON content type) | `execution.test.ts:193-198` (sessions == 0) |
 
 ## 11 — Prompt injection, XSS, CSRF, secrets
@@ -245,15 +245,15 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 4 | Form submission disabled by policy | IMPLEMENTED | `executor.ts:129`; `tools.ts:168-169` | none |
 | 5 | Markdown via `rehype-sanitize`, no raw HTML sink | IMPLEMENTED | `ExecutionDetailPage.tsx` + web test; ratchet `no-raw-html` = 0 | `markdown-safety.test.tsx` |
 | 6 | Origin guard on state-changing app routes | IMPLEMENTED | `app.ts:52-58` | `auth.test.ts:137-147` |
-| 7 | Secret redaction in logs/errors/provider messages | PARTIAL | `app.ts:20-29` (headers only); `redact()` called in `executor.ts:146,227,237` with **only the current apiKey** | none |
-| 8 | Credentials never returned by an API response | PARTIAL | `/api/providers` is whitelisted (`providers.ts:26-41`), but `/api/admin/providers` returns `config: provider.config` verbatim (`providers.ts:92`), and `config.headers` is the documented place for bearer tokens | none |
+| 7 | Secret redaction in logs/errors/provider messages | IMPLEMENTED | `collectKnownSecrets` adds every credential of the resolved provider; errors, step text and notification failures redact the whole set | `credentials.test.ts`, `executor.test.ts` |
+| 8 | Credentials never returned by an API response | IMPLEMENTED | `/api/providers` whitelists non-secret fields; `/api/admin/providers` uses `redactProviderConfig` (safe keys, header values replaced by `***`) | `redactProviderConfig` unit tests, admin provider test |
 
 ## 12 — Reports and exports
 
 | # | Criterion | Status | Evidence | Test coverage |
 | ---: | --- | --- | --- | --- |
-| 1 | Metadata, tool timeline, sources, Markdown report, usage, sanitized errors | IMPLEMENTED | `executor.ts:136-148,159-165`; `tasks.ts:323-339` | `execution.test.ts` |
-| 2 | Markdown + JSON export with `Content-Disposition` | PARTIAL | `tasks.ts:388-410`; JSON body is `{id, taskId, status, report, usage}` (no steps/error/duration), Markdown omits summary and uncertainty | only the cross-user 404 is tested (`isolation.test.ts:303-304`) |
+| 1 | Metadata, tool timeline, sources, Markdown report, usage, sanitized errors | PARTIAL | `executor.ts`; `tasks.ts:323-339`. The isolated OpenCode path persists one synthetic `opencode` step per run; individual MCP tool calls are not turned into timeline steps (sources, e-mail blocks and memory proposals are collected) | `execution.test.ts` |
+| 2 | Markdown + JSON export with `Content-Disposition` | IMPLEMENTED | `tasks.ts` export route: JSON carries metadata, duration, sanitized error, report, usage and the full step timeline; Markdown renders summary, report, sources and uncertainty via `reportToMarkdown`; both set `Content-Disposition` and are owner-scoped | `isolation.test.ts` (JSON steps/duration/uncertainty, Markdown summary/uncertainty, cross-user 404) |
 | 3 | Clickable sources with timestamps and confidence | IMPLEMENTED | `ExecutionDetailPage.tsx` sources tab; `execution_sources` | `execution.test.ts:275-277` |
 | 4 | No invented links: sources from tool results only | PARTIAL | `onSource` only in `open_url`/`click_element` (`tools.ts:110,405`); report Markdown itself is unvalidated model output | none |
 | 5 | Historical comparison via the per-task execution list | PARTIAL | `tasks.ts:268-298`, `TaskDetailPage.tsx:28-31` — a list, no comparison | none |
@@ -460,11 +460,12 @@ classification.
 
 ### Low
 
-**L1 — robots.txt/TOS is not documented anywhere.** Requirement 09 says "documented
-as an operator responsibility"; the only occurrence is the requirement file itself.
+**L1 — RESOLVED (2026-11-03).** robots.txt/TOS is now documented in
+`docs/security/browser-isolation.md` under "Operator responsibility"; the
+requirement-09 criterion is closed.
 
-**L2 — SearXNG carries a Watchtower label.** `compose.yaml:163` contradicts "labels
-for api/worker/web only".
+**L2 — RESOLVED (2026-11-03).** SearXNG no longer carries a Watchtower
+label; only `api` and `worker` set `com.centurylinklabs.watchtower.enable: "true"`.
 
 **L3 — `/api/invitations/:token/preview` bypasses the state checks.**
 `setup.ts:106-114` returns email/role/expiry for accepted, revoked and expired

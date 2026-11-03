@@ -73,9 +73,12 @@ number of operations and never address a database table directly. The worker
 persists them **after** the execution is marked `completed`, in one transaction.
 A learning failure never turns a successful execution into a failure.
 
-Models declared as non-tool-capable (including Codex) still receive read-only
-memory context, but the memory tools and automatic learning are disabled for
-them. This avoids sending tool definitions to a provider that rejects them.
+A model must be explicitly marked tool-capable to use memory beyond `off`.
+`off` has no memory context and no memory tools; `suggest` and `auto` register the
+memory tools, and the worker refuses the execution before provisioning when the
+model's catalog entry lacks `supportsTools: true` instead of running without
+them. Codex and other non-executable provider kinds cannot run tasks at all (see
+`docs/architecture/providers.md`), so no memory capability is silently lost.
 
 Global memory changes always require an explicit user action (`/learn`, the
 Memory page, or an API call with the user's session). Web content, task memory or

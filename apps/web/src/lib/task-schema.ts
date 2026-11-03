@@ -40,7 +40,7 @@ export const taskFormSchema = z
       runs: z.number().int().optional(),
     }),
     allowWebResearch: z.boolean(),
-    notification: z.enum(['none', 'email']),
+    notification: z.enum(['none', 'email', 'email_on_change']),
     memorySettings: z.object({
       mode: z.enum(['off', 'suggest', 'auto']),
       contextBytes: z.number().int().min(1_000, 'validation.range').max(100_000, 'validation.range'),

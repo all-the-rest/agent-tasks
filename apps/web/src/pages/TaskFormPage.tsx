@@ -167,6 +167,7 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
     schedule?.timePreset ??
     timeOfDayPreset(schedule?.hour ?? 9, schedule?.minute ?? 0, config.data?.scheduleTimePresets);
   const selectedProvider = providers.data?.find((provider) => provider.id === providerId);
+  const executableProviders = (providers.data ?? []).filter((provider) => provider.executable !== false);
 
   useEffect(() => {
     // New tasks start on a preset; align the stored clock with the configured time.
@@ -180,12 +181,12 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
   }, [editing, config.data, schedule, timePreset, setValue]);
 
   useEffect(() => {
-    if (providerId || !providers.data?.length) return;
-    const preferred = providers.data.find((provider) => provider.isDefault) ?? providers.data[0];
+    if (providerId || executableProviders.length === 0) return;
+    const preferred = executableProviders.find((provider) => provider.isDefault) ?? executableProviders[0];
     if (!preferred) return;
     setValue('providerId', preferred.id, { shouldValidate: true });
     setValue('model', preferredModelId(preferred), { shouldValidate: true });
-  }, [providerId, providers.data, setValue]);
+  }, [providerId, executableProviders, setValue]);
 
   const save = useMutation({
     mutationFn: (values: TaskFormValues) => {
@@ -624,7 +625,7 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
                   }}
                 >
                   <option value="">{t('tasks.selectProvider')}</option>
-                  {(providers.data ?? []).map((provider) => (
+                  {executableProviders.map((provider) => (
                     <option key={provider.id} value={provider.id}>
                       {provider.name}
                     </option>
@@ -654,12 +655,22 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
                 <span className="text-sm">{t('tasks.noProviders')}</span>
               </div>
             ) : null}
+            {providers.data && providers.data.length > 0 && executableProviders.length === 0 ? (
+              <div className="alert alert-warning py-2" role="status">
+                <span className="text-sm">{t('tasks.noExecutableProviders')}</span>
+              </div>
+            ) : null}
+            {selectedProvider && selectedProvider.executable === false ? (
+              <div className="alert alert-warning py-2" role="status">
+                <span className="text-sm">{t('tasks.providerNotExecutable')}</span>
+              </div>
+            ) : null}
             {selectedProvider && selectedProvider.models.length === 0 ? (
               <div className="alert alert-warning py-2" role="status">
                 <span className="text-sm">{t('tasks.noModels')}</span>
               </div>
             ) : null}
-            {selectedProvider && selectedProvider.kind !== 'ollama' && !selectedProvider.hasCredential ? (
+            {selectedProvider && selectedProvider.executable !== false && !selectedProvider.hasCredential ? (
               <div className="alert alert-warning py-2" role="status">
                 <span className="text-sm">{t('tasks.providerCredentialHint')}</span>
               </div>
@@ -688,6 +699,7 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
                 <select id="task-notification" className="select w-full" {...register('notification')}>
                   <option value="none">{t('tasks.notificationNone')}</option>
                   <option value="email">{t('tasks.notificationEmail')}</option>
+                  <option value="email_on_change">{t('tasks.notificationEmailOnChange')}</option>
                 </select>
               </Field>
               <div className="flex flex-col gap-2 pt-2">

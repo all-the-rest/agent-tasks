@@ -2,9 +2,12 @@
 
 ## OpenCode Go migration — 2026-11-03
 
-**Decision: GO for the isolated runtime foundation; production cutover stays
-gated.** Keep `OPENCODE_RUNTIME_ENABLED` unset or `0` until a real OpenCode Go
-credential proves the remaining gates.
+**Decision: the isolated OpenCode runtime is the worker's only execution backend;
+production activation stays gated.** There is no `OPENCODE_RUNTIME_ENABLED` flag and
+no legacy fallback. Local/E2E and CI use a test-only fake provisioner; the production
+example leaves `OPENCODE_PROVISIONER_TOKEN` empty, and `deployment/deploy.sh` rejects
+the `opencode-runtime` profile until a real OpenCode Go credential proves the
+remaining gates.
 
 What is now implemented and tested:
 
@@ -13,11 +16,12 @@ What is now implemented and tested:
   removed; a fresh deployment starts with zero providers until an admin configures
   one. The admin provider card shows the discovered catalog and offers the official
   endpoint preset.
-- **Isolation and egress.** `opencode` and `opencode-runtime` are internal
-  networks; only the provisioner joins `opencode-egress`. The runtime is never
-  published. The provisioner lifecycle smoke passes with fake credentials: private
-  per-execution network/volumes, non-root runtime, owner-only secrets, session
-  reuse after container recreation, cross-execution denial.
+- **Isolation and egress.** `opencode-runtime` is an internal network; only the
+  provisioner joins provider egress (`opencode-egress`). The runtime is never
+  published, and the local/E2E fake provisioner has no Docker socket, egress or
+  provider credentials. The provisioner lifecycle smoke passes with fake
+  credentials: private per-execution network/volumes, non-root runtime, owner-only
+  secrets, session reuse after container recreation, cross-execution denial.
 - **Recovery.** The durable message ID is persisted before dispatch. Recovery
   reads the finished assistant message first; otherwise it replays the same prompt
   ID and treats HTTP 409 as already accepted. A first dispatch rejected without a
@@ -58,15 +62,91 @@ Current verification for this change:
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm -r typecheck` | passed (10 workspace projects) |
-| `pnpm test:unit` | **260 passed, 3 skipped**, 36 files passed / 1 skipped |
-| `pnpm test:integration` | **89 passed**, 13 files |
-| `pnpm --filter @agent-tasks/web test` | **45 passed**, 10 files (includes e-mail block preview and sanitizer) |
-| `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
-| `services/opencode-provisioner` unit tests | **8 passed** |
+| `pnpm test:unit` | **274 passed, 4 skipped**, 36 files passed / 1 skipped |
+| `pnpm test:integration` | **112 passed**, 14 files |
+| `pnpm --filter @agent-tasks/web test` | **64 passed**, 12 files (includes e-mail block preview and sanitizer) |
+| `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **4 passed**: final answer, `emailBlocks = [heading, paragraph]`, a retrieved source persisted through the Executor, and all six model variants mapped to `reasoning_effort` |
+| `services/opencode-provisioner` unit tests | **11 passed** |
 | `pnpm test:screenshots:acceptance` (admin provider page) | **2 passed**: empty, filled, error and rotated states in en + de; the 8 PNGs are committed under `docs/verification/admin-providers/` (`tests/acceptance/admin-providers.spec.ts`) |
 | `scripts/verify-opencode-provisioner.mjs` against the rebuilt provisioner and OpenCode 2.2.5 container | lifecycle/isolation checks passed, including authenticated MCP status, rejected MCP mutation, and rotated/removed test-key delivery to recreated runtimes (fake credentials; no model inference or provider-side revocation) |
 | `docker compose config -q` + `scripts/check-compose-parity.mjs` | passed |
 | `ratchet check` | **11/11 gates passed** |
+
+### Single execution path: fallback and runtime flag removed (2026-11-03)
+
+The worker no longer has a `runAgent` fallback and no longer reads
+`OPENCODE_RUNTIME_ENABLED`:
+
+- `Executor` requires an OpenCode runner and rejects any provider kind other than
+  `openai-compatible` instead of aliasing it.
+- Worker startup requires `OPENCODE_PROVISIONER_URL` and a 32-character
+  `OPENCODE_PROVISIONER_TOKEN`, then health-checks the provisioner **before**
+  creating the database/queue clients. A missing token fails environment
+  validation; an unreachable provisioner throws before queue registration.
+- Root/local Compose replaces the shared OpenCode server with a test-only fake
+  provisioner on the internal runtime network. It has no Docker socket, egress,
+  published port or persistent volume.
+- Production keeps the real provisioner behind `opencode-runtime`, and
+  `deployment/deploy.sh` refuses every real deploy before contacting the host
+  while the source-controlled marker `deployment/OPENCODE_RUNTIME_APPROVED` is
+  absent. The preflight separately rejects the active profile and an empty worker
+  provisioner token, so no `.env` value or token can leave a restart loop while
+  execution is intentionally disabled.
+
+Executed for this change:
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | 0 errors, 0 warnings |
+| `pnpm -r typecheck` | 10 workspace projects |
+| `pnpm test:unit` | **274 passed, 4 skipped**, 36 files passed / 1 skipped |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:55433/agent_tasks pnpm test:integration` | **112 passed**, 14 files (real PostgreSQL 15) |
+| fake-provisioner smoke against `services/opencode-test-provisioner/server.mjs` | 7 checks: health, open, runtime Basic + raw token, wrong token 401, release with `x-runtime-password`, wrong password 401 |
+| fake-provisioner memory smoke (`FAKE_RUNTIME_MEMORY_OPS=1` + a recording MCP bridge) | 7 checks: two bridge calls with the per-execution token, `record_task_memory` then `track_recommendation`, and both memory-aware answer markers |
+| `docker build -f docker/Dockerfile.opencode-test-provisioner …` | image built |
+| worker against the running fake provisioner and the migrated test database | `worker_started`, queues `execution-run`, `scheduler-tick`, `scheduler-recovery` |
+| worker with an unreachable provisioner | exit 1, `OpenCode provisioner unavailable`, before queue registration |
+| worker without `OPENCODE_PROVISIONER_TOKEN` | exit 1, `invalid environment` |
+| `sh scripts/test-deploy-dry-run.sh` and `DEPLOY_TEST_RENDER_COMPOSE=1 …` | OK, including the new provisioner-token and profile-rejection cases |
+| `node scripts/check-compose-parity.mjs` | OK, 8 services |
+| `node scripts/test-compose-parity.mjs`, `node scripts/check-deploy-compose-contract.mjs` | OK |
+| `deployment/stack.sh production config -q`; local/E2E example `docker compose config -q` | exit 0 |
+| `ratchet check` | 11 of 11 gates |
+| local Compose stack (`postgres`, `api`, `worker`, `browser-runner`, `opencode-test-provisioner`) | all healthy; worker logged `worker_started` with three queues |
+| `pnpm exec playwright test` against that stack | **11 passed** (51.5 s), including the memory/recommendation and correction/tombstone flows |
+| `git diff --check` | exit 0 |
+
+The Playwright suite was adapted to the fake runtime: provider discovery still uses
+the host mock, task execution asserts the fake's deterministic report, and the
+memory scenarios assert the runtime's memory-aware answer instead of inspecting
+provider prompts. `FAKE_RUNTIME_MEMORY_OPS=1` drives the learning path.
+
+The local E2E run surfaced and fixed two wiring bugs that config rendering cannot
+catch: `tmpfs: [/tmp:size=…,mode=…]` was flow style, so Compose passed `mode=1777`
+as a mount path and Docker refused the container (block form now, in both files);
+and the fake reported `api/mcp` as `data: []`, so the worker's mandatory
+`connected` wait failed with "OpenCode MCP bridge did not connect". The fake now
+reports the registered bridge as connected, matching the real runtime.
+
+Known differences from the removed legacy loop (tracked in
+`docs/audit/requirements-coverage.md`, not silently claimed as parity):
+
+- The execution timeline records one synthetic `opencode` step per run. MCP tool
+  calls are validated and their sources, e-mail blocks and memory proposals are
+  persisted, but they are not yet individual timeline steps.
+- The runtime returns plain final text, so `report.uncertainty` stays empty; the
+  model's uncertainty is not extracted into a structured field.
+- Completion e-mail no longer requires a tool-capable model: the worker renders
+  and sends it itself. A tool-capable model additionally gets `compose_email` for
+  structured e-mail blocks.
+- Per-run hard limits for duration, page visits, search queries, tool calls and
+  output bytes are not all enforced by the OpenCode runtime; the runtime has a
+  configured agent-step cap. This is the main open production gate.
+
+Not run in this environment: any production deploy and a live OpenCode Go
+credential run. Production deploys stay intentionally blocked by the preflight
+gates described above; the CI browser job remains the gate for the E2E suite on
+the real image build.
 
 The opt-in live test starts a real OpenCode 2.2.5 process against a fake
 OpenAI-compatible provider and the real worker MCP bridge. The research case
@@ -80,6 +160,94 @@ persists the returned source row (`execution_sources`) and the report. A third
 case exercises a PostgreSQL-backed Executor run. That is adapter evidence, not a
 Go-account test. Never point the optional database test at production data; it
 creates test records and pg-boss infrastructure.
+
+### Model variants through the isolated runtime (2026-11-03)
+
+Review finding: a documented `model#variant` selection (for example
+`kimi-k3#high`) failed the real provisioner, because the unsplit id never matched
+the provider catalog. The isolated path now splits the suffix with the same
+`parseModelVariant` used by the direct adapter, validates the base id against the
+provider's declared models, and forwards `{ id, variant }` as separate fields from
+the worker through the provisioner request, the runtime config, the client and the
+session model. The provisioner matches the base id exactly, declares all six
+variants on the runtime model (`[{ id, body: { reasoning_effort: id } }]`) and
+echoes the accepted variant; the client rejects a response that drops, rewrites or
+returns an unknown variant, and the runner refuses to start when the runtime model
+selection differs from the task. Invalid variants fail before provisioning, so no
+runtime is created and no provider call is spent.
+
+Executed for this fix:
+
+| Command | Result |
+| --- | --- |
+| `pnpm exec vitest run --project unit apps/worker/test/opencode-isolated-runtime.test.ts apps/worker/test/http-opencode-provisioner.test.ts apps/worker/test/opencode-v2-client.test.ts apps/worker/test/opencode-v2-recovery.test.ts services/opencode-provisioner/test/server.test.ts` | **40 passed**, 5 files |
+| `OPENCODE_LIVE_TEST=1 pnpm exec vitest run --project unit apps/worker/test/opencode-v2-live.test.ts` | **4 passed**, including real OpenCode 2.2.5 mapping all six variants to `reasoning_effort` |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:55432/agent_tasks pnpm exec vitest run --project integration test/integration/execution.test.ts` | **8 passed** (variant run forwards `{ id, variant }`; `#extreme` fails before provisioning) |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:55432/agent_tasks pnpm test:integration` | **108 passed**, 13 files (real PostgreSQL 15) |
+| `pnpm -r typecheck` | 10 workspace projects, clean |
+| `pnpm lint` | 0 errors, 0 warnings |
+| `pnpm test:unit` | **270 passed, 4 skipped**, 36 files passed / 1 skipped |
+| `git diff --check` | exit 0 |
+
+Probe against the real OpenCode 2.2.5 binary: without variant declarations the
+generic `openai-compatible` provider exposes only `low`, `medium` and `high`;
+`none`, `minimal` and `xhigh` fail with "Variant unavailable". Declaring variants
+in object form makes the model unavailable, and declaring ids without a `body`
+selects the variant but sends no reasoning effort. The array form with
+`body.reasoning_effort` is the shape that works for all six variants, which is why
+it is covered by the opt-in live test.
+
+Not run for this fix: a live OpenCode Go credential run. Production deployment
+remains intentionally blocked by the preflight gates above.
+
+### Persisted catalog, explicit tool capability and executable kinds (2026-11-03)
+
+Independent review findings P1/P1/P2:
+
+1. The worker and the provisioner read only the admin-declared `config.models`,
+   while the task editor showed the discovered `provider_models`. A provider
+   created through the UI, refreshed through the normal models route and then
+   used in a task failed provisioning with "Task model is not configured on its
+   provider".
+2. Tool support was inferred or silently assumed; a task asking for research or
+   memory could run without its tools.
+3. Provider kinds other than `openai-compatible` were accepted at task creation
+   and only failed later.
+
+The fix introduces `packages/shared/src/provider-catalog.ts`: a merge of the
+persisted discovered rows (order and ids) with the declared `config.models`
+metadata overrides (declared value wins, declared-only ids are usable),
+`supportsTools === true` as the only capability source, and
+`openai-compatible` as the only executable kind. The executor loads
+`provider_models` per execution and repeats the tool preflight before
+provisioning; the API validates task create, execution-relevant updates and
+manual runs and returns 400 with a clear message; the admin catalog toggles the
+capability through `config.models`; the task editor filters non-executable
+providers while admin/settings keep them visible with `executable: false`.
+
+| Command | Result |
+| --- | --- |
+| `pnpm exec vitest run --project unit packages/shared/test/provider-catalog.test.ts apps/worker/test/executor.test.ts apps/worker/test/opencode-isolated-runtime.test.ts apps/worker/test/codex-executor.test.ts services/opencode-provisioner/test/server.test.ts` | **38 passed**, 5 files |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:55432/agent_tasks pnpm exec vitest run --project integration test/integration/provider-catalog.test.ts` | **2 passed**: create → refresh → run on the discovered catalog; admin capability toggle wins for API/worker/provisioner; unsupported `ollama` refused on create/update/run with rows and task preserved |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:55432/agent_tasks pnpm exec vitest run --project integration test/integration/execution.test.ts` | **10 passed**, including the preflight refusal (no runtime created, no provider call) and the tool-less run that forwards the persisted catalog |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:55432/agent_tasks pnpm test:integration` | **112 passed**, 14 files (real PostgreSQL 15) |
+| `pnpm test:unit` | **274 passed, 4 skipped**, 36 files passed / 1 skipped |
+| `pnpm --filter @agent-tasks/web test` | **64 passed**, 12 files (incl. the executable-provider filter and tool-capability config) |
+| `pnpm --filter @agent-tasks/web build` | production bundle built (699 catalogue messages) |
+| `OPENCODE_LIVE_TEST=1 pnpm exec vitest run --project unit apps/worker/test/opencode-v2-live.test.ts` | **4 passed** against real OpenCode 2.2.5 (tool-capable catalog config, MCP bridge, variants) |
+| `pnpm lint` | 0 errors, 0 warnings |
+| `pnpm -r --workspace-concurrency=1 typecheck` | 10 workspace projects, clean |
+| `node scripts/check-compose-parity.mjs` | parity OK (8 services; tokens only on worker/browser-runner; production labels, volume and `webnet` contracts intact) |
+| `bash scripts/test-deploy-dry-run.sh` | OK (offline dry run: preflight, profile rejection, token requirements, promotion) |
+| `docker compose config -q` (dummy secrets in the environment) | renders cleanly |
+| `git diff --check` | exit 0 |
+
+Not verified in this run: local full-stack/Playwright re-run after the last web
+i18n/type changes, CI (shellcheck, compose E2E, image builds), a live OpenCode Go
+credential run, and the production deploy (deliberately gated). The provisioner's
+tool-bridge refusal and the capability flag were exercised with unit and
+integration fakes; the real container path for tools was proven earlier in this
+session (live OpenCode 2.2.5, opt-in live test) and is unchanged here.
 
 Scope: the implementation in this repository against the original brief
 ("Agent Tasks — self-hosted AI task scheduler"). Every row names the code that
@@ -401,7 +569,7 @@ HTTPS); and the API image contains unserved source maps.
 | 5 | Parallel workers, duplicate prevention, crash recovery | `executionWorkOptions`, `claimExecution`, `recoverStaleExecutions`, the run guard in `routes/tasks.ts` | `queues.test.ts`, `scheduler.test.ts`; **CI run 41230606215**: two worker containers, six concurrent executions → ≥2 distinct `worker_id`s, exactly one row each, duplicate trigger `409`; SIGKILL of the owning worker → lease recovery completed the same execution on the survivor, one row | PASS |
 | 6 | Ollama adapter, real model | `packages/ai-providers/src/ollama.ts` | **real Ollama 0.40.13 + llama3.2:1b**: `/api/show` reports `tools`, `chat()` returned `get_weather {"city":"Vienna"}` with usage 202 tokens (`scripts/verify-ollama-local.ts`, exit 0) | PASS |
 | 6 | OpenAI-compatible / OpenCode Go contract | `openai-compatible.ts`, `packages/mock-openai`, `test/fixtures/opencode-go-server.ts` | Go-conformance tests incl. the two official headers: **tool User-Agent (non-generic) and stable `x-opencode-session` on chat, `/models` and health**; spoofed extra headers cannot replace them; empty session refused; schema rejects generic agents. Plus SSE streaming, tool deltas, allowance, error mapping | PASS against the contract-enforcing fake API (operator-accepted); real account NOT VERIFIED |
-| 6 | Codex, account-scoped only | `codex.ts`, per-user `CODEX_HOME` in `executor.ts`/`codex-home.ts` | unit tests (different owners → different 0700 homes, non-UUID refused, config not mutated); disabled unless `AGENT_TASKS_ENABLE_CODEX=1`; no real Codex account | PARTIAL / NOT VERIFIED (account) |
+| 6 | Codex, account-scoped only | `packages/ai-providers/src/codex.ts` (library only) | adapter unit tests; disabled unless `AGENT_TASKS_ENABLE_CODEX=1`; the worker rejects the `codex` provider kind, so no task can execute through it; no real Codex account | PARTIAL / NOT VERIFIED (account) |
 | 7 | Agent loop, validated tools | `packages/agent-runtime` | `runtime.test.ts` (tool execution, forbidden tool, untrusted wrapping, page/step limits, abort) | PASS |
 | 7 | Real research, ≥3 pages, sources, report | `executor.ts`, `browser-runner` | `execution.test.ts`: deterministic fake SearXNG returned 3 URLs; real Chromium opened example.com/.org/.net; ≥3 distinct sources persisted, report markdown + usage recorded | PASS |
 | 8 | Search backends | `packages/browser-tools/src/search.ts` | `search.test.ts` (6): SearXNG JSON mapping, non-http filtering, limit, HTTP 503, abort, fixture/noop | PASS |
@@ -515,7 +683,7 @@ An independent reviewer read the whole unpushed range and returned CHANGES REQUI
 
 - **Partial PATCH reset create defaults.** `taskUpdateSchema`/`userPreferencesUpdateSchema` stripped Zod defaults from omitted keys; a title-only PATCH no longer resumes a paused task, re-enables research or resets limits, and `nextRunAt` is recomputed only when `schedule`/`enabled` change.
 - **Queued executions could be orphaned.** A failed `boss.send` left a `queued` row with no job. A paginated sweep in the recovery job (and at boot) re-sends stale queued rows; sends bump `updated_at` so a failed send is retried on the next sweep.
-- **Codex is not an isolation boundary.** Because `codex exec` can run commands in the worker namespace and per-user homes are only a path convention, the worker refuses Codex unless `CODEX_ISOLATED_RUNNER=1` (operator-provided isolation). Per-user directories are derived by hashing any Better Auth id, not by requiring a UUID.
+- **Codex is not an isolation boundary.** Because `codex exec` can run commands in the worker namespace, the worker originally refused Codex unless `CODEX_ISOLATED_RUNNER=1` (operator-provided isolation). Superseded: the worker now rejects the `codex` provider kind entirely, and the Codex-only worker settings, per-user home resolver and mount were removed; the adapter remains a library for admin health checks.
 - **Context truncation could drop the system prompt** and split tool-call/result pairs; the runtime now trims whole turns and keeps the system message. Page visits count repeated URLs and clicks/back navigation; output caps apply to all text-returning tools.
 - **Egress bypass.** Chromium now uses `--proxy-bypass-list=<-loopback>`, resolver pinning and `disable_non_proxied_udp`; the in-container test still refuses loopback and RFC1918.
 - **Admin invite deletion with a malformed id** returned 500; now `requireUuid` → 404.
@@ -724,7 +892,9 @@ spam score 0 and 85.6 % HTML support with the same builder.
 Remaining limits are non-mandatory or environment-scoped for the original
 Agent Tasks scope, except for the separate OpenCode migration decision above:
 
-1. **OpenCode Go cutover — gated** — no real Go account/API key was used. The
+1. **OpenCode Go cutover — gated** — the worker now has only the isolated runtime
+   path, so production execution (and the production deploy that would start it) is
+   blocked until the gates pass. No real Go account/API key was used. The
    OpenAI-compatible fake provider validates adapter behavior only; real Go auth,
    model/allowance behavior, the live egress/SSRF boundary and the
    production-image MCP run remain unverified. The admin-only configuration,
