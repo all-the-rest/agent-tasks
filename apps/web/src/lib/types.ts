@@ -1,4 +1,5 @@
 import type {
+  EmailBlock,
   ExecutionStatus,
   MemoryCategory,
   MemoryLearningMode,
@@ -270,6 +271,8 @@ export interface ExecutionReport {
   markdown: string;
   sources: ExecutionSource[];
   uncertainty: string[];
+  /** Blocks the agent composed for the completion e-mail. */
+  email?: { blocks: EmailBlock[] };
 }
 
 export interface ExecutionStep {

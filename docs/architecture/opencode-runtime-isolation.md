@@ -37,6 +37,10 @@ the existing runtime.
   `record_task_memory` and `track_recommendation`. It receives the execution's
   browser and search capability, collects verified sources and validated memory
   proposals, and the runner merges them into the result the Executor persists.
+- **One report shape for page and mail.** The execution page renders the
+  sanitized markdown, sources and a safe React preview of the notification e-mail
+  blocks; the same blocks feed `renderEmailDocument`. Blocks are never injected as
+  raw HTML, and only http(s) URLs reach links or images.
 - **MCP visibility, proven live.** OpenCode namespaces MCP tools as
   `agent_tasks_tools_<tool>`, lists them only when the model declares
   `tool_call: true`, and drops them if the session request carries a deny-all

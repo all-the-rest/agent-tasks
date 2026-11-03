@@ -16,6 +16,7 @@ import {
   useToast,
 } from '../components/ui';
 import type { ExecutionSource, ExecutionStep } from '../lib/types';
+import { EmailBlocksPreview } from '../components/EmailBlocksPreview';
 
 type Tab = 'report' | 'timeline' | 'sources' | 'memory';
 
@@ -283,6 +284,13 @@ export function ExecutionDetailPage() {
                         <li key={item}>{item}</li>
                       ))}
                     </ul>
+                  </div>
+                ) : null}
+                {data.report.email?.blocks.length ? (
+                  <div className="mt-5 rounded-lg border border-base-300 bg-base-200/40 p-4">
+                    <h3 className="text-sm font-semibold">{t('executions.emailPreview')}</h3>
+                    <p className="mb-3 text-xs opacity-60">{t('executions.emailPreviewHint')}</p>
+                    <EmailBlocksPreview blocks={data.report.email.blocks} />
                   </div>
                 ) : null}
               </>

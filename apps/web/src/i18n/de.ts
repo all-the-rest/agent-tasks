@@ -471,6 +471,8 @@ export const de = {
       report: 'Bericht',
       noReport: 'Noch kein Bericht. Er erscheint, wenn der Lauf abgeschlossen ist.',
       uncertainty: 'Unsicherheiten',
+      emailPreview: 'Benachrichtigungs-E-Mail',
+      emailPreviewHint: 'Blöcke, die der Agent für die Abschluss-E-Mail erstellt hat; sie werden als bereinigte HTML-E-Mail versendet.',
       exportMarkdown: 'Markdown exportieren',
       exportJson: 'JSON exportieren',
       retrievedAt: 'Abgerufen',
