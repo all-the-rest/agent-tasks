@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { executions, memories, providerCredentials, providers, recommendations } from '@agent-tasks/database';
+import { executions, memories, providerCredentials, providers, recommendations, user } from '@agent-tasks/database';
 import { SecretBox } from '@agent-tasks/ai-providers';
 import type { RunAgentOptions } from '@agent-tasks/agent-runtime';
 import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
@@ -33,6 +33,7 @@ interface FakeInput {
   provider: Record<string, unknown>;
   credentials: Array<{ ownerId: string | null; ciphertext: string }>;
   settings?: Record<string, unknown>;
+  ownerEmail?: string;
 }
 
 function fakeDb(input: FakeInput) {
@@ -55,6 +56,7 @@ function fakeDb(input: FakeInput) {
       if (table === executions) return chain([{ execution: input.execution, task: input.task }]);
       if (table === providerCredentials) return chain(input.credentials);
       if (table === memories || table === recommendations) return chain([]);
+      if (table === user) return chain([{ email: input.ownerEmail ?? 'owner@example.com' }]);
       throw new Error('unexpected select table');
     },
   });
@@ -160,6 +162,43 @@ describe('executor Codex home', () => {
             { type: 'paragraph', text: 'Details.' },
           ] },
         });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('delivers the completion e-mail with the same report content the page shows', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-tasks-codex-'));
+    try {
+      const { executionId, input } = codexFixture(OWNER);
+      const fake = fakeDb({ ...input, task: { ...input.task, notification: 'email' } });
+      const agentRunner = vi.fn(async () => ({
+        markdown: '# Findings\n\nAll checks passed.', summary: 'All checks passed.', sources: [], uncertainty: [],
+        steps: [], usage: {}, emailBlocks: [
+          { type: 'heading' as const, text: 'Weekly report', level: 1 as const },
+          { type: 'paragraph' as const, text: 'Details.' },
+          { type: 'button' as const, label: 'Open', url: 'https://example.com/executions/1' },
+        ], memoryOps: [], recommendationOps: [], stopReason: 'completed' as const,
+      }));
+      const mailer = { send: vi.fn(async () => undefined) };
+      const executor = new Executor({
+        db: fake.db,
+        env: { ...workerEnv(root), PUBLIC_BASE_URL: 'https://tasks.example.com' },
+        boss: {} as never,
+        workerId: 'unit-worker',
+        agentRunner,
+        mailer,
+      });
+      await executor.handle(executionId);
+
+      const mail = mailer.send.mock.calls[0]?.[0] as { to: string; subject: string; html: string; text: string };
+      expect(mail.to).toBe('owner@example.com');
+      expect(mail.subject).toBe('Task completed: Codex task');
+      expect(mail.html).toContain('Weekly report');
+      expect(mail.html).toContain('All checks passed.');
+      expect(mail.html).toContain('href="https://example.com/executions/1"');
+      expect(mail.html).toContain('rel="noopener noreferrer nofollow"');
+      expect(mail.text).toContain('Details.');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
