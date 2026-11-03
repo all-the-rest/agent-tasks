@@ -1,13 +1,18 @@
 import { createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runtimeConfig, createProvisionerServer } from './server.mjs';
+import { runtimeConfig, providerRequestHeaders, createProvisionerServer } from '../server.mjs';
 
 const token = 'unit-test-provisioner-token-0123456789abcdef';
 const lease = { executionId: '123e4567-e89b-42d3-a456-426614174000', ownerId: '123e4567-e89b-42d3-a456-426614174001', workerId: 'unit-worker' };
 const input = {
   lease,
   providerKind: 'openai-compatible',
-  provider: { baseUrl: 'https://llm.example/v1', models: [{ id: 'model-a', label: 'Model A', supportsTools: true, contextLength: 32_000 }], sessionHeader: 'x-opencode-session', timeoutMs: 60_000 },
+  provider: {
+    baseUrl: 'https://llm.example/v1',
+    models: [{ id: 'model-a', label: 'Model A', supportsTools: true, contextLength: 32_000 }],
+    headers: { 'x-tenant-token': 'must-not-persist-header' },
+    sessionHeader: 'x-opencode-session', timeoutMs: 60_000,
+  },
   model: { providerID: 'existing-provider', id: 'model-a' },
   apiKey: 'must-not-be-persisted',
   systemPrompt: 'Prompt policy goes here', maxAgentSteps: 9, maxOutputBytes: 8_192,
@@ -27,7 +32,7 @@ afterEach(async () => {
 
 describe('isolated OpenCode provisioner service', () => {
   it('builds a tool-denying provider config without storing credentials', () => {
-    const config = runtimeConfig(input, 'egress-token', 'http://opencode-provisioner:4090/provider');
+    const config = runtimeConfig(input, 'http://opencode-provisioner:4090/provider');
     expect(config.model).toBe('agent_tasks/model-a');
     expect(config.agents['agent-tasks']).toMatchObject({ steps: 9, system: 'Prompt policy goes here' });
     expect(config.providers.agent_tasks.models['model-a'].limit).toEqual({ context: 32_000, output: 2_048 });
@@ -35,12 +40,38 @@ describe('isolated OpenCode provisioner service', () => {
       env: ['AGENT_TASKS_API_KEY'],
       package: '@opencode/ai/providers/openai-compatible',
       settings: { baseURL: 'http://opencode-provisioner:4090/provider', timeout: 60_000 },
-      headers: { 'x-opencode-session': lease.executionId, 'x-agent-tasks-egress': 'egress-token' },
+      headers: {
+        'x-tenant-token': '{env:AGENT_TASKS_PROVIDER_HEADER_0}',
+        'x-opencode-session': lease.executionId,
+        'x-agent-tasks-egress': '{env:AGENT_TASKS_EGRESS_TOKEN}',
+      },
     });
     expect(config.agents['agent-tasks'].permissions).toEqual([{ action: '*', resource: '*', effect: 'deny' }]);
     expect(config.plugins).toEqual([]);
     expect(config.mcp.servers).toEqual({});
     expect(JSON.stringify(config)).not.toContain(input.apiKey);
+    expect(JSON.stringify(config)).not.toContain('must-not-persist-header');
+    expect(JSON.stringify(config)).not.toContain('egress-token');
+  });
+
+  it('forwards only configured provider headers and never leaks the runtime egress capability', () => {
+    const headers = providerRequestHeaders({
+      authorization: 'Bearer provider-key',
+      'content-type': 'application/json',
+      'user-agent': 'Agent Tasks Runtime',
+      'x-tenant-token': 'tenant-header-secret',
+      'x-opencode-session': lease.executionId,
+      'x-agent-tasks-egress': 'runtime-egress-secret',
+      'x-provisioner-token': 'provisioner-secret',
+      cookie: 'not-forwarded',
+    }, new Set(['x-tenant-token', 'x-opencode-session', 'x-agent-tasks-egress']));
+    expect(headers).toEqual({
+      authorization: 'Bearer provider-key',
+      'content-type': 'application/json',
+      'user-agent': 'Agent Tasks Runtime',
+      'x-tenant-token': 'tenant-header-secret',
+      'x-opencode-session': lease.executionId,
+    });
   });
 
   it('requires authentication and rejects invalid requests before provisioning', async () => {
