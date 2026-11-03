@@ -55,6 +55,20 @@ describe('e-mail blocks', () => {
     expect(content.html).toContain('Summary line');
     expect(content.html).toContain('Body');
     expect(content.html).toContain('href="https://example.com/executions/1"');
+    expect(content.html).toContain('rel="noopener noreferrer nofollow"');
     expect(content.text).toContain('Open execution: https://example.com/executions/1');
+  });
+
+  it('hardens every link in the document and in composed blocks', () => {
+    const content = renderEmailDocument({
+      heading: 'Report ready',
+      blocks: [{ type: 'button', label: 'Open', url: 'https://example.com/executions/2' }],
+      action: { label: 'Open execution', url: 'https://example.com/executions/2' },
+      fallbackUrl: true,
+    });
+    const anchors = content.html.match(/<a [^>]*>/g) ?? [];
+    // button block, action button, copyable fallback link
+    expect(anchors).toHaveLength(3);
+    for (const anchor of anchors) expect(anchor).toContain('rel="noopener noreferrer nofollow"');
   });
 });

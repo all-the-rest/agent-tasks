@@ -99,7 +99,7 @@ function renderBlock(block: EmailBlock): { html: string; text: string } {
     }
     case 'button':
       return {
-        html: `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td bgcolor="#2563eb" style="background-color:#2563eb;border-radius:6px"><a href="${escapeHtml(block.url)}" style="display:inline-block;padding:12px 20px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table>`,
+        html: `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td bgcolor="#2563eb" style="background-color:#2563eb;border-radius:6px"><a href="${escapeHtml(block.url)}" rel="noopener noreferrer nofollow" style="display:inline-block;padding:12px 20px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${escapeHtml(block.label)}</a></td></tr></table>`,
         text: `${block.label}: ${block.url}`,
       };
     case 'divider':
@@ -138,11 +138,11 @@ export function renderEmailDocument(options: EmailDocumentOptions): { text: stri
   const blocks = renderEmailBlocks(options.blocks);
   const introHtml = options.intro ? `<p style="${TEXT_STYLE}">${escapeMultiline(options.intro)}</p>` : '';
   const actionHtml = options.action
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td bgcolor="#2563eb" style="background-color:#2563eb;border-radius:6px"><a href="${escapeHtml(options.action.url)}" style="display:inline-block;padding:12px 20px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${escapeHtml(options.action.label)}</a></td></tr></table>`
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td bgcolor="#2563eb" style="background-color:#2563eb;border-radius:6px"><a href="${escapeHtml(options.action.url)}" rel="noopener noreferrer nofollow" style="display:inline-block;padding:12px 20px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${escapeHtml(options.action.label)}</a></td></tr></table>`
     : '';
   const fallbackHtml =
     options.fallbackUrl && options.action
-      ? `<p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#6b7280">If the button does not work, copy this link into your browser:</p><p style="margin:0 0 20px;font-size:13px;line-height:1.5;word-wrap:break-word"><a href="${escapeHtml(options.action.url)}" style="color:#2563eb">${escapeHtml(options.action.url)}</a></p>`
+      ? `<p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#6b7280">If the button does not work, copy this link into your browser:</p><p style="margin:0 0 20px;font-size:13px;line-height:1.5;word-wrap:break-word"><a href="${escapeHtml(options.action.url)}" rel="noopener noreferrer nofollow" style="color:#2563eb">${escapeHtml(options.action.url)}</a></p>`
       : '';
   const footerHtml = options.footer
     ? `<p style="margin:20px 0 0;font-size:12px;line-height:1.5;color:#9ca3af">${escapeHtml(options.footer)}</p>`
