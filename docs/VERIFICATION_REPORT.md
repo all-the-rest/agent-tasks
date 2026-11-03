@@ -635,9 +635,9 @@ in the same file still produced a finding.
   administrator on start when no admin exists; `SETUP_TOKEN` remains the fallback.
   The seed runs under an advisory lock, is idempotent and compensates a failed
   transaction.
-- `OPENCODE_GO_API_KEY` (+ `OPENCODE_GO_MODEL`/`OPENCODE_GO_MODELS`) seeds the
-  `OpenCode Go` provider once, with the key encrypted at rest via
-  `SECRETS_ENCRYPTION_KEY`; it never updates an existing provider.
+- No provider is seeded from the environment. The shared `OpenCode Go` connection
+  is created through the admin API/UI and its key is encrypted at rest via
+  `SECRETS_ENCRYPTION_KEY`; a deployment `.env` never contains an inference key.
 - `.env.production` is a committed **local/single-host** template (no real
   secrets) with `ALLOW_REGISTRATION=false`, the admin bootstrap and OpenCode Go
   configuration; it is not the production host environment. The host uses

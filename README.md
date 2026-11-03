@@ -154,9 +154,10 @@ The preflight validates the effective Compose-interpolated values (never raw
 Caddy/proxy-owned `webnet` to be exactly `172.18.0.0/16` gateway `172.18.0.1`,
 and backs up `.env`/the database before reconciling the stack. SSH uses strict
 host-key checking against your existing `~/.ssh/known_hosts`. The root `.env.production` is only a local/single-host template, not
-the production host environment. The host env sets `ALLOW_REGISTRATION=false` and
-seeds an **OpenCode Go** provider from `OPENCODE_GO_*` on first start; the API key
-is encrypted at rest. The registration value is only the initial database
+the production host environment. The host env sets `ALLOW_REGISTRATION=false`;
+inference providers and their keys are configured exclusively in
+**Admin → Providers** and stored encrypted at rest — no deployment variable
+carries an inference secret. The registration value is only the initial database
 setting — an administrator can change it later in **Admin → Settings**.
 
 Then:

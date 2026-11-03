@@ -68,11 +68,6 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `ADMIN_PASSWORD` | api | — | no; at least 12 characters; see `ADMIN_EMAIL` |
 | `ADMIN_NAME` | api | `Administrator` | no; display name of the env bootstrap admin |
 | `ALLOW_REGISTRATION` | api | `false` | no; initial value of the database setting. `true` opens `/register` and direct sign-up as `USER`; the admin UI can change it later |
-| `OPENCODE_GO_API_KEY` | api | — | no; when set (with a model) the API creates an `OpenCode Go` provider and stores the key encrypted on first start |
-| `OPENCODE_GO_BASE_URL` | api | `https://opencode.ai/inference/go/openai/v1` | no |
-| `OPENCODE_GO_MODEL` | api | — | required when `OPENCODE_GO_API_KEY` is set unless `OPENCODE_GO_MODELS` is given; may carry a variant suffix (`model-id#high`) |
-| `OPENCODE_GO_MODELS` | api | — | no; comma-separated list, overrides `OPENCODE_GO_MODEL` |
-| `OPENCODE_GO_NAME` | api | `OpenCode Go` | no; provider name used for idempotency |
 | `SMTP_URL` | api | — | no; when set, reset/verification/invitation mails are sent as multipart plain-text + HTML |
 | `SMTP_FROM` | api | `agent-tasks@localhost` | no; only used with `SMTP_URL` |
 | `SEARXNG_URL` | worker (the api schema also parses it) | —; worker falls back to the `searchBaseUrl` system setting, default `http://searxng:8080` | no; compose default `http://searxng:8080` |
@@ -708,8 +703,9 @@ read by `deployment/deploy.sh`. Do not copy it to the host as
 `docker compose --env-file .env.production`: the host uses
 `/opt/stacks/agent-tasks/.env`, created from
 `deployment/env/production.env.example` as described above. The template sets
-`NODE_ENV=production`, `COOKIE_SECURE=true`, `ALLOW_REGISTRATION=false` and the
-OpenCode Go provider variables for a local production-like run.
+`NODE_ENV=production`, `COOKIE_SECURE=true` and `ALLOW_REGISTRATION=false`. The
+inference provider (OpenCode Go) is configured in the admin UI, never in this
+file.
 
 ## Backup and restore
 

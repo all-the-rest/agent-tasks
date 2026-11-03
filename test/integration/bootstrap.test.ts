@@ -12,18 +12,16 @@ afterEach(async () => {
 });
 
 describe('first-start bootstrap', () => {
-  it('creates the first admin, settings and OpenCode Go provider from env, idempotently', async () => {
+  it('creates the first admin and settings from env, idempotently, without seeding providers', async () => {
     harness = await createHarness({
       ADMIN_EMAIL: 'env-admin@example.com',
       ADMIN_PASSWORD: 'env-admin-password-123',
       ADMIN_NAME: 'Env Admin',
       ALLOW_REGISTRATION: 'true',
-      OPENCODE_GO_API_KEY: 'sk-opencode-go-test',
-      OPENCODE_GO_MODEL: 'opencode-go-heavy',
     });
 
     const first = await ensureBootstrap(harness.context);
-    expect(first).toEqual({ settings: 'created', admin: 'created', provider: 'created' });
+    expect(first).toEqual({ settings: 'created', admin: 'created' });
 
     const config = await harness.app.inject({ method: 'GET', url: '/api/config' });
     expect(config.json().allowRegistration).toBe(true);
@@ -50,27 +48,14 @@ describe('first-start bootstrap', () => {
     });
     expect(me.json().user.role).toBe('ADMIN');
 
-    const providerRows = await harness.context.db.select().from(providers);
-    expect(providerRows).toHaveLength(1);
-    expect(providerRows[0]).toMatchObject({
-      name: 'OpenCode Go',
-      kind: 'openai-compatible',
-      enabled: true,
-      isDefault: true,
-    });
-    expect((providerRows[0]?.config as { baseUrl?: string }).baseUrl).toBe(
-      'https://opencode.ai/inference/go/openai/v1',
-    );
-
-    const credentials = await harness.context.db.select().from(providerCredentials);
-    expect(credentials).toHaveLength(1);
-    expect(credentials[0]?.ownerId).toBeNull();
-    expect(credentials[0]?.ciphertext).not.toContain('sk-opencode-go-test');
+    // Deployment environment must never seed an inference provider; the admin
+    // UI/API is the only write path for the shared connection.
+    expect(await harness.context.db.select().from(providers)).toHaveLength(0);
+    expect(await harness.context.db.select().from(providerCredentials)).toHaveLength(0);
 
     // A restart must not duplicate anything.
     const second = await ensureBootstrap(harness.context);
-    expect(second).toEqual({ settings: 'exists', admin: 'exists', provider: 'exists' });
-    expect(await harness.context.db.select().from(providers)).toHaveLength(1);
+    expect(second).toEqual({ settings: 'exists', admin: 'exists' });
   });
 
   it('allows open sign-up only when the setting is enabled', async () => {

@@ -201,16 +201,15 @@ not accept `reasoning_effort` may reject the request.
 Completion mails are composed with the `compose_email` tool and the compact
 [e-mail DSL](../email-dsl.md); rendering lives in `packages/shared/src/email-blocks.ts`.
 
-### Environment-seeded provider
+### No environment-seeded provider
 
-For unattended deployments the API creates the primary provider on first start
-from `OPENCODE_GO_API_KEY` (plus `OPENCODE_GO_MODEL` or `OPENCODE_GO_MODELS`),
-`OPENCODE_GO_BASE_URL` (default
-`https://opencode.ai/inference/go/openai/v1`) and `OPENCODE_GO_NAME` (default
-`OpenCode Go`). The seed is idempotent by provider name, stores the key with
-`SECRETS_ENCRYPTION_KEY`, and never updates an existing provider — admin edits
-survive restarts. The production host `.env` (and the local `.env.production`
-template) wires this up.
+Inference providers are **not** seeded from the environment. The admin UI/API is
+the only write path: an administrator creates the shared OpenCode Go connection,
+stores the key through `POST /api/admin/providers/<id>/credentials` (encrypted
+with `SECRETS_ENCRYPTION_KEY`) and refreshes the model catalog. Nothing in a
+deployment `.env` carries an inference secret, and every create/rotate/delete is
+auditable. A fresh deployment therefore starts with zero providers until an
+administrator configures one.
 
 ## Ollama (optional, legacy)
 
