@@ -77,7 +77,7 @@ export function EmailBlocksPreview({ blocks }: { blocks: EmailBlock[] }): ReactE
                 key={key}
                 href={href}
                 target="_blank"
-                rel="noreferrer noopener"
+                rel="noopener noreferrer nofollow"
                 className="btn btn-primary btn-sm w-fit"
               >
                 {block.label}
