@@ -52,8 +52,10 @@ the existing runtime.
    provider. The shared connection must be validated against a real OpenCode Go
    account, including model ids, context limits and allowance accounting.
 2. **MCP visibility in the deployed image.** Proven locally against OpenCode
-   2.2.5 (tool offered, called, result persisted as validated blocks). Still to
-   confirm inside the production runtime image during the live-credential run.
+   2.2.5 using the provisioner's exact `runtimeConfig` output (policies,
+   `tool_call`, namespaced permission allows); only the MCP URL points at the
+   in-process hub. Still to confirm inside the production runtime image during the
+   live-credential run.
 3. **Research, sources and memory parity.** The bridge now offers the same
    research and memory tools as `packages/agent-runtime` (`search_web`, `open_url`,
    page inspection, `record_task_memory`, `track_recommendation`) and collects

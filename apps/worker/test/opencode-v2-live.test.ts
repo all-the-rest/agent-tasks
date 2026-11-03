@@ -16,6 +16,7 @@ import { createIsolatedOpenCodeRunner } from '../src/opencode-isolated-runtime.j
 import { createToolBridgeHub } from '../src/opencode-tool-bridge.js';
 import type { OpenCodeSessionStore } from '../src/opencode-session-store.js';
 import { Executor } from '../src/executor.js';
+import { runtimeConfig } from '../../../services/opencode-provisioner/server.mjs';
 import type { WorkerEnv } from '../src/env.js';
 import { createBoss, executionWorkOptions, QUEUE_EXECUTION } from '../src/queues.js';
 import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
@@ -395,51 +396,41 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
     });
     let proc: ChildProcess | undefined;
     try {
-      await writeFile(join(config, 'opencode.json'), JSON.stringify({
-        update: 'disable',
-        model: 'agent_tasks/mock-model',
-        plugins: [],
-        mcp: {
-          servers: {
-            agent_tasks_tools: {
-              type: 'remote',
-              url: hub.url,
-              headers: { authorization: `Bearer ${session.token}` },
-              codemode: false,
-              timeout: { startup: 10_000, catalog: 10_000, execution: 30_000 },
-            },
-          },
+      // Use the provisioner's real runtime config so the live test proves the
+      // production shape (policies, namespaced permission allows, tool_call and
+      // the env-referenced API key), not a hand-written approximation.
+      const openCodeConfig = runtimeConfig({
+        lease: { executionId: randomUUID(), ownerId: randomUUID(), workerId: 'live-research-worker' },
+        providerKind: 'openai-compatible',
+        provider: {
+          baseUrl: `http://127.0.0.1:${chatAddress.port}/v1`,
+          models: [{ id: 'mock-model', label: 'Mock Model', supportsTools: true, contextLength: 32_000 }],
+          headers: {},
+          sessionHeader: 'x-opencode-session',
+          timeoutMs: 30_000,
         },
-        default_agent: 'agent-tasks',
-        policies: [
-          { action: 'mcp.use', resource: 'agent_tasks_tools', effect: 'allow' },
-          { action: 'provider.use', resource: 'agent_tasks', effect: 'allow' },
-        ],
-        agents: {
-          'agent-tasks': {
-            description: 'Live research test',
-            mode: 'primary',
-            steps: 10,
-            system: 'Open the page once, then answer.',
-            permissions: [
-              { action: '*', resource: '*', effect: 'deny' },
-              { action: 'agent_tasks_tools_open_url', resource: '*', effect: 'allow' },
-            ],
-          },
-        },
-        providers: {
-          agent_tasks: {
-            name: 'Mock',
-            package: '@opencode/ai/providers/openai-compatible',
-            settings: { baseURL: `http://127.0.0.1:${chatAddress.port}/v1`, apiKey: 'fake-key' },
-            models: { 'mock-model': { name: 'Mock Model', tool_call: true, limit: { context: 32_000, output: 1_024 } } },
-          },
-        },
-      }));
+        model: { providerID: 'agent_tasks', id: 'mock-model' },
+        apiKey: 'fake-key',
+        systemPrompt: 'Open the page once, then answer.',
+        maxAgentSteps: 10,
+        maxOutputBytes: 8_192,
+        toolBridge: { token: session.token, tools: ['open_url'] },
+      }, `http://127.0.0.1:${chatAddress.port}/v1`);
+      // The provisioner normally proxies /mcp; point the server entry at the hub
+      // directly, which is the only change from the production config.
+      openCodeConfig.mcp.servers.agent_tasks_tools.url = hub.url;
+      openCodeConfig.mcp.servers.agent_tasks_tools.timeout.execution = 30_000;
+      await writeFile(join(config, 'opencode.json'), JSON.stringify(openCodeConfig));
       const password = 'local-test-only';
       proc = spawn('opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(serverAddress.port)], {
         cwd: workspace,
-        env: { PATH: process.env.PATH, HOME: workspace, XDG_CONFIG_HOME: join(workspace, 'config'), XDG_DATA_HOME: join(workspace, 'data'), XDG_CACHE_HOME: join(workspace, 'cache'), OPENCODE_SERVER_PASSWORD: password },
+        env: {
+          PATH: process.env.PATH, HOME: workspace, XDG_CONFIG_HOME: join(workspace, 'config'),
+          XDG_DATA_HOME: join(workspace, 'data'), XDG_CACHE_HOME: join(workspace, 'cache'),
+          OPENCODE_SERVER_PASSWORD: password,
+          AGENT_TASKS_API_KEY: 'fake-key',
+          AGENT_TASKS_EGRESS_TOKEN: 'test-egress-token',
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let logs = '';

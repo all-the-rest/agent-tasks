@@ -55,7 +55,10 @@ Current verification for this change:
 | `ratchet check` | **11/11 gates passed** |
 
 The opt-in live test starts a real OpenCode 2.2.5 process against a fake
-OpenAI-compatible provider and the real worker MCP bridge. OpenCode offers
+OpenAI-compatible provider and the real worker MCP bridge. The research case
+builds its `opencode.json` with the provisioner's `runtimeConfig` (provider and
+MCP policies, `tool_call`, namespaced permission allows) and only rewrites the
+MCP URL to the in-process hub. OpenCode offers
 `agent_tasks_tools_compose_email` to the model, the model calls it, and the
 execution result contains the validated heading and paragraph blocks. A second
 live case opens a page through `agent_tasks_tools_open_url`; the Executor
