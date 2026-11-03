@@ -12,7 +12,7 @@ within 72 hours and to publish a fix and advisory within 30 days for confirmed i
 2. Per-user provider credentials (API keys).
 3. Research results and the prompts that produced them (potentially sensitive).
 4. The browser container's network position (must not become a pivot into the host).
-5. The admin's ability to configure providers, limits and users.
+5. The admin's ability to configure providers, user quotas/concurrency and users.
 
 ## Trust boundaries
 
@@ -21,8 +21,9 @@ within 72 hours and to publish a fix and advisory within 30 days for confirmed i
 | Browser → reverse proxy → API | HTTPS at the reverse proxy, `SameSite=Lax` cookies, origin checks; the API port binds to loopback by default |
 | API → Postgres | Private compose network only, no published port, single application role |
 | Worker → browser runner | Shared token (`RUNNER_TOKEN`), private compose network, no published port |
+| Worker → OpenCode V2 | Service Basic Auth (`OPENCODE_SERVER_PASSWORD`), private worker-only network, no published port; spike only |
 | Runner → Internet | Enforcing HTTP proxy: scheme/port allowlist, DNS resolved in the proxy, all answers must be public, connection pinned to a checked IP |
-| Model → tools | Allowlist of the defined tools (nine exposed; form filling off), Zod-validated arguments, globally configured administrator limits |
+| Legacy model → tools | Allowlist of defined tools, Zod-validated arguments, fixed internal per-run bounds; form filling off |
 | Webpage → model | Retrieved text is wrapped in `UNTRUSTED EXTERNAL CONTENT` and never treated as instructions |
 
 ## Authentication and sessions
@@ -94,8 +95,11 @@ the real boundary. A per-execution container launcher is the documented next ste
 
 - System instructions, user prompt and retrieved content are separated; retrieved
   content is wrapped and labelled as data.
-- The model can only call allowlisted tools; every call is validated and counted
-  against global administrator-configured limits. Task owners cannot override them.
+- The legacy model can only call allowlisted tools; every call is validated and
+  counted against fixed internal per-run bounds. Neither admins nor task owners can
+  override them. OpenCode V2 is not yet wired into execution; its spike config denies
+  all permissions by default and caps agent steps, but V2 does not expose equivalent
+  per-run controls for the other legacy budgets.
 - The worker does not expose `fill_form` (`allowForms: false`); the runner also
   refuses clicks on login/checkout/payment/destructive controls and form submits on
   authentication or payment pages.

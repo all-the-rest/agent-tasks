@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { HARD_LIMITS } from '@agent-tasks/shared';
+import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
 import { bootstrapAdmin, createHarness, inviteAndAccept } from '../helpers/harness';
 import type { TestHarness } from '../helpers/harness';
 
@@ -86,21 +86,19 @@ describe('partial task updates', () => {
     expect(stored.rows[0]).toMatchObject({ enabled: false, allow_web_research: false, notification: 'none', next_run_at: null });
   });
 
-  it('uses global agent limits and ignores per-task overrides from regular users', async () => {
+  it('does not expose configurable agent limits and ignores per-task overrides', async () => {
     harness = await createHarness();
     const admin = await bootstrapAdmin(harness);
     const alice = await inviteAndAccept(harness, admin.cookie, 'alice@example.com');
     const providerId = await providerFor(harness, admin.cookie);
-    const configuredLimits = { ...HARD_LIMITS, maxDurationSec: 900, maxAgentSteps: 45 };
-
     const settings = await harness.app.inject({
       method: 'PUT',
       url: '/api/admin/settings',
       headers: { cookie: admin.cookie },
-      payload: { agentLimits: configuredLimits },
+      payload: { agentLimits: { maxDurationSec: 900, maxAgentSteps: 45 } },
     });
     expect(settings.statusCode, settings.body).toBe(200);
-    expect(settings.json().agentLimits).toEqual(configuredLimits);
+    expect(settings.json()).not.toHaveProperty('agentLimits');
 
     const created = await harness.app.inject({
       method: 'POST',
@@ -113,10 +111,11 @@ describe('partial task updates', () => {
     });
     expect(created.statusCode, created.body).toBe(201);
     expect(created.json()).not.toHaveProperty('limits');
+    expect(created.json()).not.toHaveProperty('agentLimits');
     const taskId = created.json().id as string;
 
-    const stored = await harness.db.pool.query<{ limits: typeof configuredLimits }>('select limits from tasks where id = $1', [taskId]);
-    expect(stored.rows[0]?.limits).toEqual(configuredLimits);
+    const stored = await harness.db.pool.query<{ limits: typeof AGENT_RUNTIME_LIMITS }>('select limits from tasks where id = $1', [taskId]);
+    expect(stored.rows[0]?.limits).toEqual(AGENT_RUNTIME_LIMITS);
 
     const listed = await harness.app.inject({ method: 'GET', url: '/api/tasks', headers: { cookie: alice.cookie } });
     expect(listed.statusCode, listed.body).toBe(200);
@@ -155,16 +154,6 @@ describe('partial task updates', () => {
     expect(resumed.statusCode, resumed.body).toBe(200);
     expect(resumed.json()).not.toHaveProperty('limits');
 
-    const updatedLimits = { ...configuredLimits, maxDurationSec: 600, maxAgentSteps: 30 };
-    const updatedSettings = await harness.app.inject({
-      method: 'PUT',
-      url: '/api/admin/settings',
-      headers: { cookie: admin.cookie },
-      payload: { agentLimits: updatedLimits },
-    });
-    expect(updatedSettings.statusCode, updatedSettings.body).toBe(200);
-    expect(updatedSettings.json().agentLimits).toEqual(updatedLimits);
-
     const copy = await harness.app.inject({
       method: 'POST',
       url: `/api/tasks/${taskId}/duplicate`,
@@ -174,17 +163,17 @@ describe('partial task updates', () => {
     expect(copy.json()).not.toHaveProperty('limits');
 
     const duplicateId = copy.json().id as string;
-    const duplicateSnapshot = await harness.db.pool.query<{ limits: typeof configuredLimits }>(
+    const duplicateSnapshot = await harness.db.pool.query<{ limits: typeof AGENT_RUNTIME_LIMITS }>(
       'select limits from tasks where id = $1',
       [duplicateId],
     );
-    expect(duplicateSnapshot.rows[0]?.limits).toEqual(updatedLimits);
+    expect(duplicateSnapshot.rows[0]?.limits).toEqual(AGENT_RUNTIME_LIMITS);
 
-    const originalSnapshot = await harness.db.pool.query<{ limits: typeof configuredLimits }>(
+    const originalSnapshot = await harness.db.pool.query<{ limits: typeof AGENT_RUNTIME_LIMITS }>(
       'select limits from tasks where id = $1',
       [taskId],
     );
-    expect(originalSnapshot.rows[0]?.limits).toEqual(configuredLimits);
+    expect(originalSnapshot.rows[0]?.limits).toEqual(AGENT_RUNTIME_LIMITS);
   });
 
   it('keeps timezone and locale when only the theme is patched', async () => {

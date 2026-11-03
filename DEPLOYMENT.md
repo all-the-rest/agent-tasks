@@ -34,7 +34,7 @@ lists exactly what a profile starts.
 
 | Profile | Services | Purpose |
 | --- | --- | --- |
-| (default) | postgres, api, worker, browser-runner | API + SPA, scheduler and execution; no web search |
+| (default) | postgres, api, worker, browser-runner, opencode | API + SPA, scheduler and execution; isolated OpenCode spike; no web search |
 | `search` | searxng | SearXNG backend used by tasks with web research |
 
 ```bash
@@ -118,6 +118,10 @@ These are read by `compose.yaml`, not by the application:
 | `IMAGE_TAG` | `latest` | Release selector |
 | `BROWSER_MEMORY_LIMIT` | `1g` | Container limit for browser-runner |
 | `BROWSER_CPUS` | `1.0` | CPU limit for browser-runner |
+| `OPENCODE_SERVER_PASSWORD` | — | Required Basic Auth password for the private OpenCode V2 server; generate with `openssl rand -hex 32` |
+| `OPENCODE_MEMORY_LIMIT` | `1g` | Container memory ceiling for OpenCode |
+| `OPENCODE_CPUS` | `1.0` | Container CPU ceiling for OpenCode |
+| `OPENCODE_VERSION` | `2.2.5` | Version used when building the root Compose image; production pulls the release image |
 | `MAILPIT_SMTP_PORT` | `1025` | Published SMTP port of the optional `mail` profile |
 | `MAILPIT_HTTP_PORT` | `8025` | Published Mailpit UI/API port |
 

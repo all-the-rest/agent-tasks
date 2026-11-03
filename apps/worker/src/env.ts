@@ -21,6 +21,10 @@ const envSchema = z.object({
    * isolated runner (container/VM per user) is wired around this worker.
    */
   CODEX_ISOLATED_RUNNER: z.enum(['0', '1']).default('0'),
+  /** Disabled unless an isolated per-execution runtime is explicitly wired. */
+  OPENCODE_RUNTIME_ENABLED: z.enum(['0', '1']).optional(),
+  OPENCODE_PROVISIONER_URL: z.string().url().default('http://opencode-provisioner:4090'),
+  OPENCODE_PROVISIONER_TOKEN: z.preprocess((value) => value === '' ? undefined : value, z.string().min(32).optional()),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   WORKER_ID: z.string().min(1).optional(),
 });

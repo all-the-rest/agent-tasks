@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DEFAULT_LIMITS, HARD_LIMITS } from '@agent-tasks/shared';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
 import { DEFAULT_TIME_OF_DAY, parseClock, timezonesWith } from '../lib/schedule';
@@ -21,26 +20,12 @@ const FALLBACK: SystemSettings = {
   defaultTimezone: 'UTC',
   maxConcurrentExecutionsPerUser: 2,
   maxTaskExecutionsPerDay: 50,
-  agentLimits: { ...DEFAULT_LIMITS },
   browserAllowHttp: true,
   browserAllowedPorts: [80, 443],
   searchProvider: 'searxng',
   searchBaseUrl: 'http://searxng:8080',
   scheduleTimePresets: DEFAULT_TIME_OF_DAY,
 };
-
-const AGENT_LIMIT_FIELDS = [
-  { key: 'maxDurationSec', label: 'admin.maxAgentDuration', min: 30 },
-  { key: 'maxAgentSteps', label: 'admin.maxAgentSteps', min: 1 },
-  { key: 'maxPageVisits', label: 'admin.maxAgentPageVisits', min: 0 },
-  { key: 'maxOutputBytes', label: 'admin.maxAgentOutputBytes', min: 1_000 },
-  { key: 'maxToolCalls', label: 'admin.maxAgentToolCalls', min: 1 },
-  { key: 'maxSearchQueries', label: 'admin.maxAgentSearchQueries', min: 0 },
-] as const satisfies readonly {
-  key: keyof SystemSettings['agentLimits'];
-  label: string;
-  min: number;
-}[];
 
 export function AdminPage() {
   const { t, i18n } = useTranslation();
@@ -81,13 +66,6 @@ export function AdminPage() {
 
   const update = <K extends keyof SystemSettings>(key: K, value: SystemSettings[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
-  };
-
-  const updateAgentLimit = (key: keyof SystemSettings['agentLimits'], value: number) => {
-    setDraft((current) => ({
-      ...current,
-      agentLimits: { ...current.agentLimits, [key]: value },
-    }));
   };
 
   const submit = () => {
@@ -284,26 +262,6 @@ export function AdminPage() {
                             [key]: event.target.value,
                           })
                         }
-                      />
-                    </Field>
-                  ))}
-                </div>
-              </fieldset>
-
-              <fieldset className="rounded-box border border-base-300 p-4">
-                <legend className="px-1 text-sm font-semibold">{t('admin.agentLimitsTitle')}</legend>
-                <p className="mb-3 text-xs opacity-60">{t('admin.agentLimitsHint')}</p>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {AGENT_LIMIT_FIELDS.map((field) => (
-                    <Field key={field.key} label={t(field.label)} htmlFor={`admin-${field.key}`}>
-                      <input
-                        id={`admin-${field.key}`}
-                        type="number"
-                        min={field.min}
-                        max={HARD_LIMITS[field.key]}
-                        className="input w-full"
-                        value={draft.agentLimits[field.key]}
-                        onChange={(event) => updateAgentLimit(field.key, Number(event.target.value))}
                       />
                     </Field>
                   ))}

@@ -12,12 +12,12 @@ let taskId: string;
 const schedule = { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 };
 const limits = { maxDurationSec: 60, maxAgentSteps: 3, maxPageVisits: 2, maxOutputBytes: 10000, maxToolCalls: 5, maxSearchQueries: 1 };
 
-async function insertTask(nextRunAt: Date, enabled = true): Promise<string> {
+async function insertTask(nextRunAt: Date, enabled = true, taskOwnerId = ownerId): Promise<string> {
   const id = randomUUID();
   await harness.db.pool.query(
     `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, next_run_at)
      values ($1,$2,'Scheduled task','Research something with sources.',$3,'mock-researcher',$4,$5,'Europe/Vienna',$6,true,'none',$7)`,
-    [id, ownerId, providerId, enabled, JSON.stringify(schedule), JSON.stringify(limits), nextRunAt.toISOString()],
+    [id, taskOwnerId, providerId, enabled, JSON.stringify(schedule), JSON.stringify(limits), nextRunAt.toISOString()],
   );
   return id;
 }
@@ -78,20 +78,81 @@ describe('scheduler', () => {
     await expect(harness.db.pool.query(insert, [randomUUID(), id, ownerId, occurrence.toISOString(), providerId])).rejects.toThrow(/duplicate key|unique/i);
   });
 
-  it('lets exactly one worker claim an execution', async () => {
+  it('lets exactly one worker claim the same execution', async () => {
     const executionId = randomUUID();
     const id = await insertTask(new Date(Date.now() - 5_000));
     await harness.db.pool.query(
       `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'t','queued','manual','mock-researcher',$4)`,
       [executionId, id, ownerId, providerId],
     );
+    const executionLimits = { maxTaskExecutionsPerDay: 100, maxConcurrentExecutionsPerUser: 1 };
     const claims = await Promise.all([
-      claimExecution(harness.db.db, executionId, 'worker-a', 60),
-      claimExecution(harness.db.db, executionId, 'worker-b', 60),
+      claimExecution(harness.db.db, executionId, 'worker-a', 60, executionLimits, 3),
+      claimExecution(harness.db.db, executionId, 'worker-b', 60, executionLimits, 3),
     ]);
-    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(claims.map((claim) => claim.status).sort()).toEqual(['claimed', 'not_claimed']);
     const row = await harness.db.pool.query('select status, worker_id from executions where id = $1', [executionId]);
     expect(row.rows[0].status).toBe('running');
+    await harness.db.pool.query("update executions set status = 'completed', finished_at = now() where id = $1", [executionId]);
+  });
+
+  it('reserves one per-user execution slot across concurrent workers', async () => {
+    const id = await insertTask(new Date(Date.now() - 5_000));
+    const executionIds = [randomUUID(), randomUUID()];
+    await harness.db.pool.query(
+      `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id)
+       values ($1,$3,$4,'first','queued','manual','mock-researcher',$5),
+              ($2,$3,$4,'second','queued','manual','mock-researcher',$5)`,
+      [...executionIds, id, ownerId, providerId],
+    );
+    const executionLimits = { maxTaskExecutionsPerDay: 100, maxConcurrentExecutionsPerUser: 1 };
+    const claims = await Promise.all(
+      executionIds.map((executionId, index) =>
+        claimExecution(harness.db.db, executionId, `worker-${index}`, 60, executionLimits, 3),
+      ),
+    );
+
+    expect(claims.filter((claim) => claim.status === 'claimed')).toHaveLength(1);
+    expect(claims.filter((claim) => claim.status === 'refused' && claim.reason === 'concurrency' && claim.retryAttempt === 2)).toHaveLength(1);
+    const rows = await harness.db.pool.query(
+      'select status, attempt from executions where id = any($1::uuid[])',
+      [executionIds],
+    );
+    expect(rows.rows.map((row) => row.status).sort()).toEqual(['queued', 'running']);
+    expect(rows.rows.find((row) => row.status === 'queued')?.attempt).toBe(2);
+    await harness.db.pool.query("update executions set status = 'completed', finished_at = now() where id = any($1::uuid[])", [executionIds]);
+  });
+
+  it('admits only the daily quota across concurrent workers', async () => {
+    const user = await harness.db.pool.query(
+      `insert into "user" (id, name, email, email_verified, role) values ($1,'Quota Owner',$2,true,'USER') returning id`,
+      [randomUUID(), `quota-${randomUUID()}@example.com`],
+    );
+    const quotaOwnerId = user.rows[0].id as string;
+    const id = await insertTask(new Date(Date.now() - 5_000), true, quotaOwnerId);
+    const executionIds = [randomUUID(), randomUUID()];
+    await harness.db.pool.query(
+      `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id)
+       values ($1,$3,$4,'first','queued','manual','mock-researcher',$5),
+              ($2,$3,$4,'second','queued','manual','mock-researcher',$5)`,
+      [...executionIds, id, quotaOwnerId, providerId],
+    );
+    const executionLimits = { maxTaskExecutionsPerDay: 1, maxConcurrentExecutionsPerUser: 10 };
+    const claims = await Promise.all(
+      executionIds.map((executionId, index) =>
+        claimExecution(harness.db.db, executionId, `worker-${index}`, 60, executionLimits, 3),
+      ),
+    );
+
+    expect(claims.filter((claim) => claim.status === 'claimed')).toHaveLength(1);
+    expect(claims.filter((claim) => claim.status === 'refused' && claim.reason === 'quota' && claim.retryAttempt === 2)).toHaveLength(1);
+    const rows = await harness.db.pool.query(
+      'select status, attempt from executions where id = any($1::uuid[])',
+      [executionIds],
+    );
+    expect(rows.rows.map((row) => row.status).sort()).toEqual(['queued', 'running']);
+    expect(rows.rows.find((row) => row.status === 'queued')?.attempt).toBe(2);
+    await harness.db.pool.query("update executions set status = 'completed', finished_at = now() where id = any($1::uuid[])", [executionIds]);
   });
 
   it('requeues an execution whose worker died and cancels one that was cancelled meanwhile', async () => {

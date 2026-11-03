@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `api` | REST, Better Auth, RBAC, audit, task CRUD, run-now; serves the built SPA | Postgres |
 | `worker` | pg-boss queues, scheduler tick, agent execution, leases | Postgres |
+| `opencode` | Version-pinned OpenCode V2 HTTP server for the integration spike; no public port | Private worker-only network + persistent OpenCode data volume |
 | `browser-runner` | Chromium sessions, egress policy | in-memory only |
 | `postgres` | all persistence, including the pg-boss schema | volume |
 | `searxng` (profile `search`) | web search backend; not started by default | none |
@@ -19,9 +20,11 @@ worker must be restartable and scalable with more replicas or a higher
 
 ## Data model
 
-`tasks` owns each task definition and schedule. Global agent execution limits live
-in administrator-managed system settings. `executions` is the durable record of one
-occurrence — status, report, usage, duration, cancellation flag, worker lease.
+`tasks` owns each task definition and schedule. Administrator-managed system settings
+retain the product's per-user concurrency and daily execution quotas. Legacy per-run
+agent bounds are fixed in code; OpenCode's V2 spike currently configures a fixed step
+cap, but is not yet the worker execution backend. `executions` is the durable record
+of one occurrence — status, report, usage, duration, cancellation flag, worker lease.
 `execution_steps` holds one row per tool call, `execution_sources` the deduplicated
 sources. `provider_credentials` stores AES-GCM ciphertext with `owner_id NULL` for
 administrator-managed credentials.
@@ -69,10 +72,14 @@ system prompt + user prompt
         └──────────── final answer ◄─────────────────┘
 ```
 
-Each iteration is bounded by the global administrator-configured limits: steps, tool
-calls, page visits, search queries, output bytes and wall clock. Defaults use the
-finite hard caps. Tool results enter the context wrapped as untrusted data. Only ten
-tools exist; there is no generic HTTP, shell or code tool.
+The legacy loop uses fixed internal bounds for steps, tool calls, page visits, search
+queries, output bytes and wall clock; administrators and task owners cannot tune them.
+The OpenCode V2 container is a separate spike, not wired into task execution. Its
+configured agent has a fixed step cap and deny-by-default permissions; V2 does not
+provide equivalent per-session hard limits for the other budgets. Product quotas are
+reserved atomically per owner when a worker claims an execution. Tool results in the
+legacy loop enter context as untrusted data; there is no generic HTTP, shell or code
+tool in that runtime.
 
 ## Failure handling
 
@@ -84,4 +91,4 @@ tools exist; there is no generic HTTP, shell or code tool.
 | Worker crash | lease expires, recovery requeues (at-least-once) |
 | Cancellation | API sets `cancel_requested`, worker polls every 2 s and aborts |
 | Timeout | abort at `maxDurationSec`, status `timed_out` |
-| Per-user concurrency / daily quota | job delayed, then failed when attempts are exhausted |
+| Per-user concurrency / daily quota | atomically checked at worker admission; job delayed, then failed when attempts are exhausted |

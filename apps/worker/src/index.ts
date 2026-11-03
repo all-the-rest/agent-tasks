@@ -4,12 +4,24 @@ import { Executor, SHUTDOWN_GRACE_MS } from './executor.js';
 import { loadWorkerEnv } from './env.js';
 import { QUEUE_EXECUTION, QUEUE_RECOVERY, QUEUE_TICK, createBoss, executionWorkOptions } from './queues.js';
 import { recoverStaleExecutions, resendQueuedExecutions, scheduleDueExecutions } from './scheduling.js';
+import { OpenCodeSessionStore } from './opencode-session-store.js';
+import { createIsolatedOpenCodeRunner } from './opencode-isolated-runtime.js';
+import { HttpOpenCodeProvisioner } from './http-opencode-provisioner.js';
 
 const env = loadWorkerEnv();
 const workerId = env.WORKER_ID ?? `worker-${randomUUID().slice(0, 8)}`;
+if (env.OPENCODE_RUNTIME_ENABLED === '1' && !env.OPENCODE_PROVISIONER_TOKEN) {
+  throw new Error('OPENCODE_PROVISIONER_TOKEN is required when OPENCODE_RUNTIME_ENABLED=1');
+}
 const database = createDatabase(env.DATABASE_URL, { max: 4 });
 const boss = await createBoss(env.DATABASE_URL);
-const executor = new Executor({ db: database.db, env, boss, workerId });
+const openCodeRunner = env.OPENCODE_RUNTIME_ENABLED === '1'
+  ? createIsolatedOpenCodeRunner(
+      new HttpOpenCodeProvisioner(env.OPENCODE_PROVISIONER_URL, env.OPENCODE_PROVISIONER_TOKEN!),
+      new OpenCodeSessionStore(database.db),
+    )
+  : undefined;
+const executor = new Executor({ db: database.db, env, boss, workerId, openCodeRunner });
 
 const log = (event: string, extra: Record<string, unknown> = {}): void => {
   console.info(JSON.stringify({ level: 'info', event, workerId, ...extra }));

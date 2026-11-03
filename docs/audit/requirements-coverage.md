@@ -159,7 +159,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 4 | UTC storage, schedule in IANA zone | IMPLEMENTED | `timestamptz` columns; `nextOccurrence` `schedule.ts:94-104` | `schedule.test.ts:34-39` |
 | 5 | Spring-forward gap runs at 03:30 | IMPLEMENTED | `schedule.ts:94-104` | `schedule.test.ts:41-46` (passes) |
 | 6 | Fall-back runs once at the first instant | IMPLEMENTED | same | `schedule.test.ts:48-53` (passes) |
-| 7 | Administrator-configured limits capped by hard maxima and enforced | IMPLEMENTED | `shared/src/limits.ts`; `systemSettingsSchema.agentLimits`; worker passes global settings to the runtime | schema defaults/caps and worker global-setting selection tested |
+| 7 | Per-run budgets | SUPERSEDED BY OPENCODE SPIKE | Legacy runtime bounds are fixed in `shared/src/limits.ts`; six admin controls and `systemSettingsSchema.agentLimits` were removed. The isolated OpenCode V2 server configures a fixed 60-step cap, but is not yet used for task execution and V2 does not expose equivalent per-run hard caps for the other budgets. | shared schema test verifies settings omit legacy budgets; integration tests verify task overrides are ignored |
 
 ## 05 — Durable scheduling
 
@@ -171,7 +171,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 4 | Leases and crash recovery (requeue/cancel) | IMPLEMENTED | `scheduling.ts:78-80,106-123`; sweep every 2 min `worker/src/index.ts:21` | `scheduler.test.ts:97-113` |
 | 5 | Retries with backoff, max 3 | IMPLEMENTED | `executor.ts:23,223-233` (`startAfter: 30 * attempt`) | `execution.test.ts:283-295` (allows failed or queued) |
 | 6 | Execution timeouts and cancellation polling | PARTIAL | poll `executor.ts:89-94`; deadline `:97`; **but** an abort during a provider call surfaces as `ProviderError('timeout')` (`openai-compatible.ts:158-160`) → retried, not `timed_out` | none for timeout |
-| 7 | Per-user concurrency and daily quota | PARTIAL | `executor.ts:68-84`; only after claim; `>` allows max+1; `countRunningForOwner` counts the current row; nothing at enqueue time | **none** |
+| 7 | Per-user concurrency and daily quota | IMPLEMENTED AT ADMISSION | `scheduling.ts:67-147` serializes owner admission with a transaction-scoped advisory lock, checks limits before changing the queued row to running, and reserves the slot atomically | `scheduler.test.ts` covers concurrent claim, concurrency and daily-quota admission |
 | 8 | Graceful shutdown aborts running executions | UNPROVEN | `worker/src/index.ts:58-64`; `executor.ts:39-41` | no signal test |
 | 9 | Documented at-least-once semantics | IMPLEMENTED | `docs/architecture/overview.md:47,79`; `ARCHITECTURE.md:67` | doc |
 
@@ -205,7 +205,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 1 | Ten named tools | PARTIAL | all ten in `tools.ts:240-251`; `allowForms` is hardcoded `false` in `executor.ts:129`, and `runtime.ts:117-119` excludes `fill_form` from the offered tools | `runtime.test.ts:146-161` asserts the inventory, not usability |
 | 2 | No shell, JS, filesystem | IMPLEMENTED | only the ten tools exist; `runtime.test.ts:90-99` (`run_shell` refused) | `runtime.test.ts:90-99` |
 | 3 | Every call validated + allowlist, unknown refused | IMPLEMENTED | zod per tool; allowlist `runtime.ts:189-190` | `runtime.test.ts:90-99` |
-| 4 | Global administrator-configured limits per step/tool/page/search/output/duration | PARTIAL | `runtime.ts:154,184,230`; `tools.ts:56-61,89-95`; worker reads `systemSettings.agentLimits`; tool-call overflow throws `AgentCancelledError('step_limit')` which the executor records as **cancelled** (`executor.ts:213-218`) | default/admin budgets and worker selection tested; runtime enforcement coverage remains partial |
+| 4 | Global administrator-configured limits per step/tool/page/search/output/duration | SUPERSEDED BY OPENCODE SPIKE | Legacy bounds remain fixed in `shared/src/limits.ts` and are not administrator settings. The separate OpenCode V2 config sets `steps: 60` and denies all permissions; the adapter is not wired into task execution, and V2 has no equivalent per-session controls for the remaining budgets. | schema and integration tests verify the removed settings are ignored; legacy runtime tests remain applicable |
 | 5 | Retrieved content wrapped as untrusted | IMPLEMENTED | `prompt.ts:3-9,46-53` | `runtime.test.ts:101-111` |
 | 6 | Sources collected, deduped, persisted with confidence | IMPLEMENTED | `runtime.ts:77-84`; `executor.ts:159-165,172-187`; `execution_sources` unique index | `execution.test.ts:275-277` |
 | 7 | Final answer stored as Markdown + summary/sources/uncertainty | IMPLEMENTED | `executor.ts:159-165` (`report` jsonb) | `execution.test.ts:260-267` |
@@ -339,17 +339,12 @@ There is no TOTP input, no backup-code screen, and no enable-MFA screen anywhere
 *Minimal fix:* handle `twoFactorRedirect` with a second step, add enable/backup-code
 UI, and test the backup-code path.
 
-**H4 — Per-user quota and concurrency are enforced late, off by one, and untested.**
-`apps/worker/src/executor.ts:68-84` checks limits only after `claimExecution` has
-already flipped the row to `running` and already inserted the execution; comparisons
-use `>` (`max + 1` executions/day are allowed), and `countRunningForOwner` includes
-the current execution. Nothing at enqueue time (`tasks.ts:208-239`) rejects a user
-who is over quota, so a user can queue unbounded jobs. `WORKER_CONCURRENCY` is parsed
-(`worker/src/env.ts:11`) and logged but **never applied** to `boss.work` (fixed
-`batchSize: 1`, `worker/src/index.ts:23`).
-*Minimal fix:* check the quota before the insert in the run route and in the tick,
-use `>=`, and pass `WORKER_CONCURRENCY` as the pg-boss `teamSize`/batch size. Add a
-scheduler/executor test that exercises the limit.
+**H4 — Per-user admission was racy/off-by-one; worker concurrency setting is separate.**
+The admission path now serializes checks per owner and reserves a running slot in the
+same transaction (`apps/worker/src/scheduling.ts:67-147`); concurrent integration
+tests cover daily quota and concurrency. Queued jobs are still allowed to wait when
+the owner is at capacity. `WORKER_CONCURRENCY` is applied to pg-boss separately
+(`apps/worker/src/index.ts`); it is not part of the per-owner admission guarantee.
 
 **H5 — A timed-out execution is retried as a transient provider error.**
 `executor.ts:97` aborts at `maxDurationSec`, but an abort during `provider.chat`

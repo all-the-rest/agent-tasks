@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { executions, providerCredentials, providers, tasks } from '@agent-tasks/database';
 import {
   AppError,
+  AGENT_RUNTIME_LIMITS,
   nextOccurrence,
   scheduleSchema,
   taskInputSchema,
@@ -77,8 +78,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const schedule = parsed.data.schedule;
     const nextRunAt = nextOccurrence(schedule);
     if (parsed.data.enabled && !nextRunAt) throw AppError.badRequest('the schedule has no future occurrence');
-    const settings = await context.settings();
-
     const id = randomUUID();
     const [created] = await db
       .insert(tasks)
@@ -94,9 +93,9 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         enabled: parsed.data.enabled,
         schedule,
         timezone: schedule.timezone,
-        // Keep the legacy per-task column as a snapshot for older clients. The
-        // worker always uses the current global administrator settings instead.
-        limits: settings.agentLimits,
+        // Keep fixed limits in the legacy column for compatibility. The worker now
+        // passes these fixed bounds directly instead of administrator-configurable values.
+        limits: AGENT_RUNTIME_LIMITS,
         allowWebResearch: parsed.data.allowWebResearch,
         notification: parsed.data.notification,
         memorySettings: parsed.data.memorySettings,
@@ -262,14 +261,13 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       .limit(1);
     const task = rows[0];
     if (!task) throw AppError.notFound('task');
-    const settings = await context.settings();
     const id = randomUUID();
     const [copy] = await db
       .insert(tasks)
       .values({
         ...task,
         id,
-        limits: settings.agentLimits,
+        limits: AGENT_RUNTIME_LIMITS,
         title: `${task.title} (copy)`,
         enabled: false,
         nextRunAt: null,

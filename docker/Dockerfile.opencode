@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1.7
+# OpenCode's official V2 installer fetches the version-pinned Linux CLI binary.
+FROM debian:bookworm-slim AS install
+ARG OPENCODE_VERSION=2.2.5
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends bash ca-certificates curl tar \
+ && rm -rf /var/lib/apt/lists/*
+RUN bash -o pipefail -c 'curl -fsSL https://opencode.ai/v2/install \
+    | bash -s -- --version "${OPENCODE_VERSION}" --no-modify-path' \
+ && /root/.opencode/bin/opencode --version
+
+FROM debian:bookworm-slim AS runtime
+ENV HOME=/home/opencode OPENCODE_SERVER_USERNAME=opencode
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10001 opencode \
+ && useradd --system --uid 10001 --gid opencode --create-home --home-dir /home/opencode opencode \
+ && mkdir -p /etc/opencode /home/opencode/.local/share/opencode /workspace \
+ && chown -R opencode:opencode /home/opencode /workspace
+COPY --from=install --chown=root:root /root/.opencode/bin/opencode /usr/local/bin/opencode
+COPY --chown=root:root docker/opencode.json /etc/opencode/opencode.json
+RUN chmod 0555 /usr/local/bin/opencode && chmod 0444 /etc/opencode/opencode.json
+WORKDIR /workspace
+USER 10001:10001
+EXPOSE 4096
+ENTRYPOINT ["sh", "-ec", "test -n \"$OPENCODE_SERVER_PASSWORD\" || { echo 'OPENCODE_SERVER_PASSWORD is required' >&2; exit 1; }; exec opencode serve --hostname 0.0.0.0 --port 4096"]

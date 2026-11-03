@@ -16,10 +16,12 @@ import {
   userPreferences,
 } from '@agent-tasks/database';
 import { AgentCancelledError, runAgent } from '@agent-tasks/agent-runtime';
+import type { RunAgentOptions, AgentRunResult } from '@agent-tasks/agent-runtime';
 import { BrowserRunnerClient, NoopSearchProvider, SearxngSearchProvider } from '@agent-tasks/browser-tools';
 import type { SearchProvider } from '@agent-tasks/browser-tools';
 import { ProviderError, SecretBox, contextFor, createProvider, redact, resolveCredential } from '@agent-tasks/ai-providers';
 import {
+  AGENT_RUNTIME_LIMITS,
   buildMemoryContext,
   parseMemorySettings,
   renderEmailDocument,
@@ -28,16 +30,16 @@ import {
   systemSettingsSchema,
 } from '@agent-tasks/shared';
 import type { MemoryCategory, MemoryContextRecord, MemoryScope, RecommendationContextRecord } from '@agent-tasks/shared';
-import { claimExecution, countExecutionsToday, countRunningForOwner, heartbeat, isCancelRequested } from './scheduling.js';
+import { claimExecution, heartbeat, isCancelRequested } from './scheduling.js';
 import { settleWithin } from './lifecycle.js';
 import type { SettleResult } from './lifecycle.js';
-import { exceededExecutionLimit } from './quota.js';
 import { resolveProviderConfig } from './codex-home.js';
 import { collectKnownSecrets } from './credentials.js';
 import { createMailer } from './mailer.js';
 import type { Mailer } from './mailer.js';
 import { QUEUE_EXECUTION } from './queues.js';
 import type { WorkerEnv } from './env.js';
+import type { OpenCodeExecutionLease } from './opencode-session-store.js';
 
 export interface ExecutorDeps {
   db: Database;
@@ -46,6 +48,10 @@ export interface ExecutorDeps {
   workerId: string;
   /** Injectable for tests; defaults to SMTP/log based on the environment. */
   mailer?: Mailer;
+  /** Explicit injection seam for experimental runtimes; production defaults to runAgent. */
+  agentRunner?: (options: RunAgentOptions, lease: OpenCodeExecutionLease) => Promise<AgentRunResult>;
+  /** Provisioned OpenCode runner; never fall back silently when the feature is enabled. */
+  openCodeRunner?: (options: RunAgentOptions, lease: OpenCodeExecutionLease) => Promise<AgentRunResult>;
 }
 
 const LEASE_SECONDS = 120;
@@ -61,6 +67,9 @@ export class Executor {
   private inFlight = new Set<Promise<void>>();
 
   constructor(private readonly deps: ExecutorDeps) {
+    if (deps.env.OPENCODE_RUNTIME_ENABLED === '1' && !deps.openCodeRunner) {
+      throw new Error('OpenCode runtime enabled without an isolated execution provisioner');
+    }
     this.secrets = new SecretBox(deps.env.SECRETS_ENCRYPTION_KEY, deps.env.SECRETS_ENCRYPTION_KEY_PREVIOUS);
     this.browser = new BrowserRunnerClient({ baseUrl: deps.env.RUNNER_URL, token: deps.env.RUNNER_TOKEN, timeoutMs: 60_000 });
     this.mailer =
@@ -93,9 +102,20 @@ export class Executor {
 
   private async execute(executionId: string): Promise<void> {
     const { db } = this.deps;
-    const claimed = await claimExecution(db, executionId, this.deps.workerId, LEASE_SECONDS);
-    if (!claimed) {
+    const settings = await this.loadSettings();
+    const claim = await claimExecution(db, executionId, this.deps.workerId, LEASE_SECONDS, settings, MAX_ATTEMPTS);
+    if (claim.status === 'not_claimed') {
       // Another worker already owns it, or the execution is no longer queued.
+      return;
+    }
+    if (claim.status === 'refused') {
+      if (claim.retryAttempt !== null) {
+        await this.deps.boss.send(QUEUE_EXECUTION, { executionId }, {
+          startAfter: 30,
+          singletonKey: `${executionId}:${claim.retryAttempt}`,
+          retryLimit: 0,
+        });
+      }
       return;
     }
 
@@ -109,33 +129,8 @@ export class Executor {
     if (!row) return;
     const { execution, task } = row;
 
-    const settings = await this.loadSettings();
-
     if (await isCancelRequested(db, executionId)) {
       await db.update(executions).set({ status: 'cancelled', finishedAt: new Date(), error: 'cancel requested before start' }).where(eq(executions.id, executionId));
-      return;
-    }
-
-    // `execution` itself is already `running` and its row already exists, so both counts
-    // exclude it; the helper refuses this execution when the limits are already reached.
-    const budget = {
-      priorExecutionsToday: await countExecutionsToday(db, execution.ownerId, executionId),
-      otherRunningForOwner: await countRunningForOwner(db, execution.ownerId, executionId),
-    };
-    const refusal = exceededExecutionLimit(budget, settings);
-    if (refusal) {
-      if (execution.attempt >= MAX_ATTEMPTS) {
-        await db
-          .update(executions)
-          .set({ status: 'failed', finishedAt: new Date(), error: refusal === 'quota' ? 'daily execution quota exceeded' : 'per-user concurrency limit exceeded' })
-          .where(eq(executions.id, executionId));
-        return;
-      }
-      await db
-        .update(executions)
-        .set({ status: 'queued', workerId: null, leaseExpiresAt: null, attempt: execution.attempt + 1, updatedAt: new Date() })
-        .where(eq(executions.id, executionId));
-      await this.deps.boss.send(QUEUE_EXECUTION, { executionId }, { startAfter: 30, singletonKey: `${executionId}:${execution.attempt + 1}`, retryLimit: 0 });
       return;
     }
 
@@ -149,7 +144,7 @@ export class Executor {
       void heartbeat(db, executionId, LEASE_SECONDS);
     }, 2_000);
 
-    const limits = settings.agentLimits;
+    const limits = AGENT_RUNTIME_LIMITS;
     let deadlineReached = false;
     const deadline = setTimeout(() => {
       deadlineReached = true;
@@ -159,6 +154,7 @@ export class Executor {
     let browserSessionId: string | null = null;
     const knownSecrets: string[] = [];
     try {
+      if (task.ownerId !== execution.ownerId) throw new Error('execution owner does not match task owner');
       const providerRows = await db.select().from(providers).where(eq(providers.id, task.providerId)).limit(1);
       const provider = providerRows[0];
       if (!provider) throw new Error('provider record no longer exists');
@@ -243,7 +239,10 @@ export class Executor {
         memoryContext = built.text;
       }
 
-      const result = await runAgent({
+      const runner = this.deps.env.OPENCODE_RUNTIME_ENABLED === '1'
+        ? this.deps.openCodeRunner!
+        : (this.deps.agentRunner ?? runAgent);
+      const result = await runner({
         provider: adapter,
         providerContext,
         model: task.model,
@@ -276,7 +275,7 @@ export class Executor {
             resultPreview: step.resultPreview ?? null,
           });
         },
-      });
+      }, { executionId, ownerId: execution.ownerId, workerId: this.deps.workerId });
 
       const finishedAt = new Date();
       await db

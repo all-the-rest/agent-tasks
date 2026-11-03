@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "update": "disable",
+  "default_agent": "agent-tasks",
+  "agents": {
+    "agent-tasks": {
+      "description": "Runs application tasks using only explicitly registered Agent Tasks tools.",
+      "mode": "primary",
+      "steps": 60,
+      "permissions": [
+        { "action": "*", "resource": "*", "effect": "deny" }
+      ]
+    }
+  }
+}

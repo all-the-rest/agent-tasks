@@ -21,7 +21,7 @@ same database that stores tasks, so a backup restores both.
                  └──────────────┬───────────────┘
                                 │ jobs
                  ┌──────────────▼───────────────┐
-                 │ worker (agent loop)          │
+                  │ worker (legacy agent loop)   │
                  └──────────────┬───────────────┘
                                 │ token-authenticated HTTP
                  ┌──────────────▼───────────────┐
@@ -54,6 +54,14 @@ The Ollama adapter remains in `packages/ai-providers` for local development and 
 not part of the production deployment. See
 [`docs/architecture/providers.md`](docs/architecture/providers.md).
 
+OpenCode 2.x is also built as a separate, version-pinned `opencode` service on a
+private network shared only with the worker. It has its own persistent data volume,
+no public port, database access, or browser-runner access. The V2 HTTP adapter and
+container are an integration spike only: task execution still uses the legacy worker
+loop, and no production cutover has occurred. The OpenCode agent has a fixed 60-step
+cap and deny-by-default permissions; the V2 API does not expose equivalent per-run
+hard controls for the legacy duration, tool, page-visit, search, or output budgets.
+
 ## Request path of a scheduled task
 
 1. `scheduler-tick` (pg-boss cron, every minute) selects due tasks with
@@ -61,8 +69,9 @@ not part of the production deployment. See
    inserts an `executions` row (`on conflict (task_id, scheduled_for) do nothing`)
    and moves `next_run_at` — all in one transaction.
 2. The tick enqueues `execution-run` for each new execution.
-3. A worker claims the execution (`queued → running`, lease), checks quotas, opens a
-   browser session when the task allows web research and runs the agent loop.
+3. A worker atomically reserves the owner's concurrency/daily quota while claiming
+   the execution (`queued → running`, lease), opens a browser session when the task
+   allows web research and runs the legacy agent loop.
 4. Each tool call is validated, executed and stored in `execution_steps`; pages that
    are opened contribute sources.
 5. The final Markdown, sources, uncertainty notes and usage are written to
