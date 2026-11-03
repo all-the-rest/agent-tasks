@@ -160,6 +160,16 @@ describe('OpenCode tool bridge', () => {
     expect(response.status).toBe(401);
   });
 
+  it('rejects an expired token even when the session was never closed', async () => {
+    bridge = await startToolBridge({ token: 'secret-token', port: 0, ttlMs: 0 });
+    const response = await fetch(bridge.url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${bridge.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'tools/list' }),
+    });
+    expect(response.status).toBe(401);
+  });
+
   it('refuses to register a research tool without an execution context', async () => {
     hub = await createToolBridgeHub({ port: 0 });
     expect(() => hub.open({ tools: ['search_web'] })).toThrow('requires a tool context');
