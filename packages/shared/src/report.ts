@@ -57,3 +57,46 @@ export function reportChangeStatus(
   if (previous.length === 0) return 'unknown';
   return previous === nextMarkdown.trim() ? 'unchanged' : 'changed';
 }
+
+/** URL form used for source matching: no fragment, no trailing slash, lower-case host. */
+function normalizedUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+export interface ReportLinkCheck {
+  /** Markdown with every link not backed by a collected source reduced to its text. */
+  markdown: string;
+  /** Link targets that were removed because no tool result produced them. */
+  removed: string[];
+}
+
+/**
+ * Keep the report's citations honest: a link may only stay clickable when a tool
+ * result actually visited that URL. Unbacked links are reduced to plain text and
+ * reported, so a hallucinated source can neither be clicked nor pass as evidence.
+ */
+export function checkReportLinks(
+  markdown: string,
+  sources: ReadonlyArray<{ url: string }>,
+): ReportLinkCheck {
+  const allowed = new Set<string>();
+  for (const source of sources) {
+    const normalized = normalizedUrl(source.url);
+    if (normalized) allowed.add(normalized);
+  }
+  const removed: string[] = [];
+  const sanitized = markdown.replace(/\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (whole, text: string, target: string) => {
+    const normalized = normalizedUrl(target);
+    if (normalized && allowed.has(normalized)) return whole;
+    removed.push(target);
+    return text.length > 0 ? text : 'source';
+  });
+  return { markdown: sanitized, removed };
+}

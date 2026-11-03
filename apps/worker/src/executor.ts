@@ -29,6 +29,7 @@ import {
   renderEmailDocument,
   reportToMarkdown,
   reportChangeStatus,
+  checkReportLinks,
   scheduleSchema,
   systemSettingsSchema,
   taskRequiresTools,
@@ -312,9 +313,16 @@ export class Executor {
         .orderBy(desc(executions.finishedAt))
         .limit(1);
       const previous = previousRows[0];
+      // Only links a tool actually visited stay clickable; anything else is reduced
+      // to plain text and surfaced as an uncertainty note instead of becoming a
+      // plausible-looking hallucinated citation.
+      const links = checkReportLinks(result.markdown, result.sources);
+      const uncertainty = links.removed.length > 0
+        ? [...result.uncertainty, `${links.removed.length} link(s) in the report were not backed by a visited source and were reduced to plain text.`]
+        : result.uncertainty;
       const change = reportChangeStatus(
         (previous?.report as { markdown?: string } | null | undefined)?.markdown,
-        result.markdown,
+        links.markdown,
       );
       await db
         .update(executions)
@@ -324,9 +332,9 @@ export class Executor {
           durationMs: finishedAt.getTime() - startedAt.getTime(),
           report: {
             summary: result.summary,
-            markdown: result.markdown,
+            markdown: links.markdown,
             sources: result.sources,
-            uncertainty: result.uncertainty,
+            uncertainty,
             change: { status: change, ...(previous ? { previousExecutionId: previous.id } : {}) },
             ...(result.emailBlocks.length > 0 ? { email: { blocks: result.emailBlocks } } : {}),
           },
