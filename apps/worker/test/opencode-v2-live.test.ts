@@ -189,7 +189,6 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       request.on('end', () => {
         const body = JSON.parse(raw) as { model: string; tools?: Array<{ function?: { name?: string }; name?: string }>; messages?: Array<{ role?: string }> };
         const names = (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name);
-        console.log('LIVE_MCP_TOOLS', JSON.stringify(names));
         const target = names.find((name) => typeof name === 'string' && name.endsWith('compose_email'));
         const hasToolResult = (body.messages ?? []).some((message) => message.role === 'tool');
         response.writeHead(200, { 'content-type': 'text/event-stream' });
