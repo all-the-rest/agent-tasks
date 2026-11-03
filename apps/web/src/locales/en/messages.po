@@ -1615,6 +1615,9 @@ msgstr "Allow web research"
 msgid "tasks.basicSection"
 msgstr "Task"
 
+msgid "tasks.completed"
+msgstr "Completed"
+
 msgid "tasks.count"
 msgstr "{count} tasks"
 
@@ -1680,6 +1683,27 @@ msgstr "Enabled"
 
 msgid "tasks.enabledHelp"
 msgstr "Disabled tasks keep their schedule but never run."
+
+msgid "tasks.endAfterRuns"
+msgstr "After a number of scheduled runs"
+
+msgid "tasks.endAfterRunsSummary"
+msgstr "End after {count} scheduled runs"
+
+msgid "tasks.endCondition"
+msgstr "End condition"
+
+msgid "tasks.endDate"
+msgstr "End date"
+
+msgid "tasks.endNever"
+msgstr "Never"
+
+msgid "tasks.endOnDate"
+msgstr "On a date"
+
+msgid "tasks.endRuns"
+msgstr "Number of scheduled runs"
 
 msgid "tasks.executionsTitle"
 msgstr "Executions"
@@ -1905,6 +1929,9 @@ msgstr "The description must be at most 2000 characters."
 
 msgid "validation.emailInvalid"
 msgstr "Enter a valid email address."
+
+msgid "validation.endConditionInvalid"
+msgstr "Enter a valid end date or number of runs."
 
 msgid "validation.instructionsMax"
 msgstr "The instructions must be at most 8000 characters."

@@ -148,23 +148,25 @@ export function TasksPage() {
                       </Link>
                       <p className="text-xs opacity-60">{task.model}</p>
                     </div>
-                    <span className={`badge badge-sm ${task.enabled ? 'badge-success' : 'badge-ghost'}`}>
-                      {task.enabled ? t('common.enabled') : t('common.disabled')}
+                    <span className={`badge badge-sm ${task.enabled ? 'badge-success' : task.completedAt ? 'badge-info' : 'badge-ghost'}`}>
+                      {task.completedAt ? t('tasks.completed') : task.enabled ? t('common.enabled') : t('common.disabled')}
                     </span>
                   </div>
                   <p className="text-xs opacity-70">{describeSchedule(task.schedule, t)}</p>
                   <p className="text-xs opacity-60">
-                    {t('tasks.nextRun')}: {task.enabled ? formatDate(task.nextRunAt, i18n.language) : t('common.never')}
+                    {t('tasks.nextRun')}: {task.enabled && !task.completedAt ? formatDate(task.nextRunAt, i18n.language) : t('common.never')}
                   </p>
                   <div className="flex flex-wrap items-center gap-1 border-t border-base-200 pt-2">
-                    <button
-                      type="button"
-                      className="btn btn-xs btn-outline"
-                      disabled={pendingId === task.id}
-                      onClick={() => action.mutate({ id: task.id, name: task.enabled ? 'pause' : 'resume' })}
-                    >
-                      {task.enabled ? t('tasks.pause') : t('tasks.resume')}
-                    </button>
+                    {!task.completedAt ? (
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-outline"
+                        disabled={pendingId === task.id}
+                        onClick={() => action.mutate({ id: task.id, name: task.enabled ? 'pause' : 'resume' })}
+                      >
+                        {task.enabled ? t('tasks.pause') : t('tasks.resume')}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="btn btn-xs btn-outline"
@@ -239,23 +241,25 @@ export function TasksPage() {
                       {describeSchedule(task.schedule, t)}
                     </td>
                     <td className="hidden whitespace-nowrap text-xs opacity-70 sm:table-cell">
-                      {task.enabled ? formatDate(task.nextRunAt, i18n.language) : t('common.never')}
-                    </td>
-                    <td>
-                      <span className={`badge badge-sm ${task.enabled ? 'badge-success' : 'badge-ghost'}`}>
-                        {task.enabled ? t('common.enabled') : t('common.disabled')}
+                        {task.enabled && !task.completedAt ? formatDate(task.nextRunAt, i18n.language) : t('common.never')}
+                      </td>
+                      <td>
+                      <span className={`badge badge-sm ${task.enabled ? 'badge-success' : task.completedAt ? 'badge-info' : 'badge-ghost'}`}>
+                        {task.completedAt ? t('tasks.completed') : task.enabled ? t('common.enabled') : t('common.disabled')}
                       </span>
                     </td>
                     <td>
                       <div className="flex flex-wrap justify-end gap-1">
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-xs"
-                          disabled={pendingId === task.id}
-                          onClick={() => action.mutate({ id: task.id, name: task.enabled ? 'pause' : 'resume' })}
-                        >
-                          {task.enabled ? t('tasks.pause') : t('tasks.resume')}
-                        </button>
+                        {!task.completedAt ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-xs"
+                            disabled={pendingId === task.id}
+                            onClick={() => action.mutate({ id: task.id, name: task.enabled ? 'pause' : 'resume' })}
+                          >
+                            {task.enabled ? t('tasks.pause') : t('tasks.resume')}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="btn btn-ghost btn-xs"

@@ -23,6 +23,7 @@ function validValues(overrides: Partial<TaskFormValues> = {}): TaskFormValues {
       daysOfMonth: [1],
       cron: '0 9 * * 1',
     },
+    endCondition: { type: 'never', date: '', runs: 1 },
     allowWebResearch: true,
     notification: 'email',
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
@@ -99,6 +100,16 @@ describe('taskFormSchema', () => {
     expect(parsed.data).not.toHaveProperty('limits');
     expect(toTaskInput(parsed.data)).not.toHaveProperty('limits');
   });
+
+  it('validates date and run-count end conditions', () => {
+    expect(taskFormSchema.safeParse(validValues({ endCondition: { type: 'on_date', date: '2026-11-03', runs: 1 } })).success).toBe(true);
+    const invalidDate = taskFormSchema.safeParse(validValues({ endCondition: { type: 'on_date', date: '2026-02-30', runs: 1 } }));
+    expect(invalidDate.success).toBe(false);
+    if (!invalidDate.success) expect(invalidDate.error.issues.map((issue) => issue.message)).toContain('validation.endConditionInvalid');
+    const invalidRunCount = taskFormSchema.safeParse(validValues({ endCondition: { type: 'after_runs', date: '', runs: 0 } }));
+    expect(invalidRunCount.success).toBe(false);
+    if (!invalidRunCount.success) expect(invalidRunCount.error.issues.map((issue) => issue.message)).toContain('validation.endConditionInvalid');
+  });
 });
 
 describe('toTaskInput', () => {
@@ -117,5 +128,16 @@ describe('toTaskInput', () => {
     expect(input.systemInstructions).toBeUndefined();
     expect(input.schedule.weekdays).toEqual([1]);
     expect(input.schedule.cron).toBeUndefined();
+  });
+
+  it('sends only the selected end condition', () => {
+    expect(toTaskInput(validValues({ endCondition: { type: 'after_runs', date: '', runs: 4 } })).endCondition).toEqual({
+      type: 'after_runs',
+      runs: 4,
+    });
+    expect(toTaskInput(validValues({ endCondition: { type: 'on_date', date: '2026-12-31', runs: 1 } })).endCondition).toEqual({
+      type: 'on_date',
+      date: '2026-12-31',
+    });
   });
 });

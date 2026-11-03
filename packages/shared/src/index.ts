@@ -7,6 +7,7 @@ export * from './net.js';
 export * from './schedule.js';
 export * from './schemas.js';
 export * from './status.js';
+export * from './task-end-condition.js';
 export * from './time.js';
 export * from './report.js';
 export * from './web-csp.js';

@@ -145,14 +145,16 @@ export function TaskDetailPage() {
             <Link className="btn btn-sm btn-outline" to={`/tasks/${data.id}/edit`}>
               {t('common.edit')}
             </Link>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline"
-              onClick={() => action.mutate(data.enabled ? 'pause' : 'resume')}
-              disabled={action.isPending}
-            >
-              {data.enabled ? t('tasks.pause') : t('tasks.resume')}
-            </button>
+            {!data.completedAt ? (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => action.mutate(data.enabled ? 'pause' : 'resume')}
+                disabled={action.isPending}
+              >
+                {data.enabled ? t('tasks.pause') : t('tasks.resume')}
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-sm btn-primary"
@@ -196,8 +198,8 @@ export function TaskDetailPage() {
           <section className="card border border-base-300 bg-base-100 shadow-sm">
             <div className="card-body gap-3 p-5">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`badge ${data.enabled ? 'badge-success' : 'badge-ghost'}`}>
-                  {data.enabled ? t('common.enabled') : t('common.disabled')}
+                <span className={`badge ${data.enabled ? 'badge-success' : data.completedAt ? 'badge-info' : 'badge-ghost'}`}>
+                  {data.completedAt ? t('tasks.completed') : data.enabled ? t('common.enabled') : t('common.disabled')}
                 </span>
                 <span className="badge badge-ghost">{data.model}</span>
                 <span className="text-xs opacity-60">
@@ -275,9 +277,17 @@ export function TaskDetailPage() {
               <p>{describeSchedule(data.schedule, t)}</p>
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
                 <dt className="opacity-60">{t('tasks.nextRun')}</dt>
-                <dd className="text-right">{data.enabled ? formatDate(data.nextRunAt, i18n.language) : t('common.never')}</dd>
+                <dd className="text-right">{data.enabled && !data.completedAt ? formatDate(data.nextRunAt, i18n.language) : t('common.never')}</dd>
                 <dt className="opacity-60">{t('tasks.timezone')}</dt>
                 <dd className="text-right">{data.timezone}</dd>
+                <dt className="opacity-60">{t('tasks.endCondition')}</dt>
+                <dd className="text-right">
+                  {data.endCondition.type === 'never'
+                    ? t('tasks.endNever')
+                    : data.endCondition.type === 'on_date'
+                      ? data.endCondition.date
+                      : t('tasks.endAfterRunsSummary', { count: data.endCondition.runs })}
+                </dd>
               </dl>
               <div className="mt-2 flex flex-wrap gap-2">
                 <span className={`badge badge-sm ${data.allowWebResearch ? 'badge-info' : 'badge-ghost'}`}>

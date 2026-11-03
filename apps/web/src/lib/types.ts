@@ -9,6 +9,7 @@ import type {
   Role,
   ScheduleTimePresets,
 } from '@agent-tasks/shared';
+import type { TaskEndCondition as SharedTaskEndCondition } from '@agent-tasks/shared';
 
 export type {
   ExecutionStatus,
@@ -25,6 +26,7 @@ export type SchedulePreset = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly
 export type Locale = 'en' | 'de';
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type Notification = 'none' | 'email';
+export type TaskEndCondition = SharedTaskEndCondition;
 
 export interface TaskSchedule {
   preset: SchedulePreset;
@@ -49,6 +51,9 @@ export interface Task {
   model: string;
   enabled: boolean;
   schedule: TaskSchedule;
+  endCondition: TaskEndCondition;
+  scheduledRunCount: number;
+  completedAt: string | null;
   timezone: string;
   allowWebResearch: boolean;
   notification: Notification;
@@ -68,6 +73,7 @@ export interface TaskInput {
   model: string;
   enabled: boolean;
   schedule: TaskSchedule;
+  endCondition: TaskEndCondition;
   allowWebResearch: boolean;
   notification: Notification;
   memorySettings: MemorySettings;

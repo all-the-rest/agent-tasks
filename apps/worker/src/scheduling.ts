@@ -1,6 +1,12 @@
 import type { Database } from '@agent-tasks/database';
 import { executions, tasks } from '@agent-tasks/database';
-import { nextOccurrence, scheduleSchema } from '@agent-tasks/shared';
+import {
+  isAfterTaskEndDate,
+  isTaskEndConditionReached,
+  nextOccurrence,
+  scheduleSchema,
+  taskEndConditionSchema,
+} from '@agent-tasks/shared';
 import { and, eq, lt, sql as raw } from 'drizzle-orm';
 import { exceededExecutionLimit } from './quota.js';
 import type { ExecutionLimits, LimitRefusal } from './quota.js';
@@ -22,20 +28,70 @@ export interface DueTask {
  */
 export async function scheduleDueExecutions(db: Database, now: Date = new Date()): Promise<DueTask[]> {
   return db.transaction(async (tx) => {
-    const due = await tx.execute<{ id: string; owner_id: string; schedule: unknown; next_run_at: Date }>(raw`
-      select id, owner_id, schedule, next_run_at
+    const due = await tx.execute<{
+      id: string;
+      owner_id: string;
+      enabled: boolean;
+      schedule: unknown;
+      next_run_at: Date | null;
+      end_condition: unknown;
+      scheduled_run_count: number;
+    }>(raw`
+      select id, owner_id, enabled, schedule, next_run_at, end_condition, scheduled_run_count
       from tasks
-      where enabled = true and next_run_at is not null and next_run_at <= ${now.toISOString()}
-      order by next_run_at asc
+      where completed_at is null and (
+        (enabled = true and next_run_at is not null and next_run_at <= ${now.toISOString()})
+        or (
+          end_condition->>'type' = 'on_date'
+          and (end_condition->>'date')::date < (${now.toISOString()}::timestamptz at time zone timezone)::date
+        )
+      )
+      order by next_run_at asc nulls last
       limit 25
       for update skip locked
     `);
 
     const created: DueTask[] = [];
     for (const row of due.rows) {
-      const occurrence = new Date(row.next_run_at);
+      const endCondition = taskEndConditionSchema.parse(row.end_condition);
       const schedule = scheduleSchema.parse(row.schedule);
-      const next = nextOccurrence(schedule, occurrence);
+      const occurrence = row.next_run_at ? new Date(row.next_run_at) : null;
+      const scheduledRunCount = Number(row.scheduled_run_count);
+      const endReached = isTaskEndConditionReached(endCondition, {
+        timezone: schedule.timezone,
+        scheduledRunCount,
+        now,
+      });
+      const occurrencePastEndDate = occurrence !== null && isAfterTaskEndDate(endCondition, schedule.timezone, occurrence);
+      const completeTask = () => tx.execute(raw`
+        update tasks
+        set enabled = false, next_run_at = null, completed_at = coalesce(completed_at, ${now.toISOString()}), updated_at = now()
+        where id = ${row.id} and completed_at is null
+      `);
+
+      // A date end is inclusive: a delayed occurrence on the selected local date
+      // may still be booked, but no later occurrence can be. If the date passed
+      // and there is nothing left inside its window, finish without booking.
+      if (endCondition.type === 'after_runs' && scheduledRunCount >= endCondition.runs) {
+        await completeTask();
+        continue;
+      }
+      // Pausing suppresses all bookings. Still retire date-bounded tasks after
+      // their local end date so they do not remain paused-but-incomplete forever.
+      if (!row.enabled) {
+        if (endReached) await completeTask();
+        continue;
+      }
+      if (endReached && (occurrence === null || occurrencePastEndDate)) {
+        await completeTask();
+        continue;
+      }
+      if (!occurrence) continue;
+      if (occurrencePastEndDate) {
+        await completeTask();
+        continue;
+      }
+
       const inserted = await tx.execute<{ id: string }>(raw`
         insert into executions (id, task_id, owner_id, task_title, status, trigger, scheduled_for, model, provider_id)
         select ${crypto.randomUUID()}, t.id, t.owner_id, t.title, 'queued', 'schedule', ${occurrence.toISOString()}, t.model, t.provider_id
@@ -43,11 +99,31 @@ export async function scheduleDueExecutions(db: Database, now: Date = new Date()
         on conflict (task_id, scheduled_for) do nothing
         returning id
       `);
+      const executionId = inserted.rows[0]?.id;
+      const nextScheduledRunCount = scheduledRunCount + (executionId ? 1 : 0);
+      const runLimitReached =
+        endCondition.type === 'after_runs' && nextScheduledRunCount >= endCondition.runs;
+      const dateExpired =
+        endCondition.type === 'on_date' && isTaskEndConditionReached(endCondition, {
+          timezone: schedule.timezone,
+          scheduledRunCount: nextScheduledRunCount,
+          now,
+        });
+      const next = nextOccurrence(schedule, occurrence);
+      const nextOccurrencePastEndDate = next !== null && isAfterTaskEndDate(endCondition, schedule.timezone, next);
+      const dateWindowExhausted = dateExpired && (next === null || nextOccurrencePastEndDate);
+      const completed = runLimitReached || dateWindowExhausted || next === null;
+      const nextRunAt = completed ? null : next;
       await tx.execute(raw`
-        update tasks set next_run_at = ${next ? next.toISOString() : null}, last_run_at = ${occurrence.toISOString()}, updated_at = now()
+        update tasks
+        set next_run_at = ${nextRunAt ? nextRunAt.toISOString() : null},
+            last_run_at = ${occurrence.toISOString()},
+            scheduled_run_count = ${nextScheduledRunCount},
+            enabled = case when ${completed} then false else enabled end,
+            completed_at = case when ${completed} then coalesce(completed_at, ${now.toISOString()}) else completed_at end,
+            updated_at = now()
         where id = ${row.id}
       `);
-      const executionId = inserted.rows[0]?.id;
       if (executionId) created.push({ taskId: row.id, ownerId: row.owner_id, occurrence, executionId });
     }
     return created;

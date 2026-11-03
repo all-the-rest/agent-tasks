@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import type { TaskEndCondition } from '@agent-tasks/shared';
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
@@ -200,6 +201,9 @@ export const tasks = pgTable(
     model: text('model').notNull(),
     enabled: boolean('enabled').notNull().default(true),
     schedule: jsonb('schedule').notNull(),
+    endCondition: jsonb('end_condition').$type<TaskEndCondition>().notNull().default({ type: 'never' }),
+    scheduledRunCount: integer('scheduled_run_count').notNull().default(0),
+    completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
     timezone: text('timezone').notNull(),
     limits: jsonb('limits').notNull(),
     allowWebResearch: boolean('allow_web_research').notNull().default(true),

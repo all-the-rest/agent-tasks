@@ -37,6 +37,7 @@ function emptyValues(timezone: string): TaskFormValues {
     model: '',
     enabled: true,
     schedule: { ...defaultSchedule(timezone), timePreset: 'morning' },
+    endCondition: { type: 'never', date: '', runs: 1 },
     allowWebResearch: true,
     notification: 'none',
     memorySettings: { ...DEFAULT_MEMORY_SETTINGS },
@@ -66,6 +67,11 @@ function taskValues(task: Task, fallbackTimezone: string): TaskFormValues {
           ? [task.schedule.dayOfMonth]
           : [1],
       cron: task.schedule.cron ?? '',
+    },
+    endCondition: {
+      type: task.endCondition.type,
+      date: task.endCondition.type === 'on_date' ? task.endCondition.date : '',
+      runs: task.endCondition.type === 'after_runs' ? task.endCondition.runs : 1,
     },
     allowWebResearch: task.allowWebResearch,
     notification: task.notification,
@@ -125,6 +131,7 @@ export function TaskFormPage() {
 
   const providerId = watch('providerId');
   const schedule = watch('schedule');
+  const endConditionType = watch('endCondition.type');
   const preset = schedule?.preset ?? 'daily';
   const weekdays = schedule?.weekdays ?? [];
   const daysOfMonth = monthlyDays({
@@ -505,6 +512,48 @@ export function TaskFormPage() {
                 })}</span>
               ) : null}
             </div>
+
+            <Field label={t('tasks.endCondition')} htmlFor="task-end-condition">
+              <select id="task-end-condition" className="select w-full" {...register('endCondition.type')}>
+                <option value="never">{t('tasks.endNever')}</option>
+                <option value="on_date">{t('tasks.endOnDate')}</option>
+                <option value="after_runs">{t('tasks.endAfterRuns')}</option>
+              </select>
+            </Field>
+            {endConditionType === 'on_date' ? (
+              <Field
+                label={t('tasks.endDate')}
+                htmlFor="task-end-date"
+                error={tr(errors.endCondition?.date?.message)}
+                required
+              >
+                <input
+                  id="task-end-date"
+                  type="date"
+                  className="input w-full"
+                  aria-invalid={Boolean(errors.endCondition?.date)}
+                  {...register('endCondition.date')}
+                />
+              </Field>
+            ) : null}
+            {endConditionType === 'after_runs' ? (
+              <Field
+                label={t('tasks.endRuns')}
+                htmlFor="task-end-runs"
+                error={tr(errors.endCondition?.runs?.message)}
+                required
+              >
+                <input
+                  id="task-end-runs"
+                  type="number"
+                  min={1}
+                  max={2_147_483_647}
+                  className="input w-full"
+                  aria-invalid={Boolean(errors.endCondition?.runs)}
+                  {...register('endCondition.runs', { valueAsNumber: true })}
+                />
+              </Field>
+            ) : null}
           </div>
         </section>
 
