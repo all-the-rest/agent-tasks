@@ -187,6 +187,7 @@ jobs:
             echo "AUTH_SECRET=$(openssl rand -hex 32)"
             echo "SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)"
             echo "RUNNER_TOKEN=$(openssl rand -hex 24)"
+            echo "OPENCODE_SERVER_PASSWORD=$(openssl rand -hex 32)"
             echo "PUBLIC_BASE_URL=http://localhost:8080"
             echo "COOKIE_SECURE=false"
             echo "SETUP_TOKEN=$SETUP_TOKEN"
@@ -297,6 +298,8 @@ jobs:
             dockerfile: docker/Dockerfile.api
           - name: runner
             dockerfile: docker/Dockerfile.runner
+          - name: opencode
+            dockerfile: docker/Dockerfile.opencode
     steps:
       - name: Checkout
         uses: actions/checkout@v4
