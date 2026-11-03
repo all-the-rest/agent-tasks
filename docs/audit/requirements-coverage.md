@@ -93,7 +93,7 @@ are not listed here.
 | 11 | Secret redaction in logs, errors and provider messages | IMPLEMENTED — the executor collects the active key plus every other credential of that provider (`collectKnownSecrets`) and redacts all of them. |
 | 11 | Credentials never returned by any API response | IMPLEMENTED — `/api/providers` whitelists fields and `/api/admin/providers` returns `redactProviderConfig` (safe keys only, every header value replaced by `***`). |
 | 12 | Markdown + JSON export | PARTIAL — JSON omits the tool timeline/errors; Markdown omits summary and uncertainty; no test. |
-| 12 | No invented links | PARTIAL — the sources list is tool-derived, but the report Markdown can contain unvalidated model links. |
+| 12 | No invented links | IMPLEMENTED — the worker reduces every report link that no tool result produced to plain text and records an uncertainty note (`checkReportLinks`). |
 | 12 | Historical comparison through the execution list per task | PARTIAL — a per-task list exists; no comparison exists. |
 | 14 | Watchtower labels for api/worker/web only | IMPLEMENTED — only api and worker opt in; browser-runner, provisioners, mail and SearXNG do not carry the label. |
 | 02 | Audit log for every sensitive administrative operation | UNPROVEN — writes exist, no test asserts them (and Better Auth admin endpoints write none). |
@@ -255,7 +255,7 @@ execution-scoped handler's `where` clause contains `ownerId = me.id` (tasks.ts l
 | 1 | Metadata, tool timeline, sources, Markdown report, usage, sanitized errors | PARTIAL | `executor.ts`; `tasks.ts:323-339`. The isolated OpenCode path persists one synthetic `opencode` step per run; individual MCP tool calls are not turned into timeline steps (sources, e-mail blocks and memory proposals are collected) | `execution.test.ts` |
 | 2 | Markdown + JSON export with `Content-Disposition` | IMPLEMENTED | `tasks.ts` export route: JSON carries metadata, duration, sanitized error, report, usage and the full step timeline; Markdown renders summary, report, sources and uncertainty via `reportToMarkdown`; both set `Content-Disposition` and are owner-scoped | `isolation.test.ts` (JSON steps/duration/uncertainty, Markdown summary/uncertainty, cross-user 404) |
 | 3 | Clickable sources with timestamps and confidence | IMPLEMENTED | `ExecutionDetailPage.tsx` sources tab; `execution_sources` | `execution.test.ts:275-277` |
-| 4 | No invented links: sources from tool results only | PARTIAL | `onSource` only in `open_url`/`click_element` (`tools.ts:110,405`); report Markdown itself is unvalidated model output | none |
+| 4 | No invented links: sources from tool results only | IMPLEMENTED | sources come from `open_url`/`click_element`; `checkReportLinks` strips any Markdown link the tool results did not produce and adds an uncertainty note | `report.test.ts`, `execution.test.ts` |
 | 5 | Historical comparison via the per-task execution list | PARTIAL | `tasks.ts:268-298`, `TaskDetailPage.tsx:28-31` — a list, no comparison | none |
 
 ## 13 — Web UI

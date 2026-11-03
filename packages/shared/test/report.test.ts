@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { emptyReport, reportChangeStatus, reportToMarkdown } from '../src/report.js';
+import { checkReportLinks, emptyReport, reportChangeStatus, reportToMarkdown } from '../src/report.js';
 
-describe('report change detection', () => {
-  it('marks the first run and a missing predecessor honestly', () => {
+describe('report change detection', () => {  it('marks the first run and a missing predecessor honestly', () => {
     expect(reportChangeStatus(null, 'anything')).toBe('first');
     expect(reportChangeStatus(undefined, 'anything')).toBe('first');
     expect(reportChangeStatus('   ', 'anything')).toBe('unknown');
@@ -29,5 +28,27 @@ describe('report rendering', () => {
     expect(markdown).toContain('https://example.com/');
     expect(markdown).toContain('## Uncertainty');
     expect(markdown).toContain('Only one source was available');
+  });
+});
+
+describe('report link validation', () => {
+  it('keeps links that a tool result actually produced and reduces unbacked ones to text', () => {
+    const markdown = [
+      'See [the report](https://example.com/report) and [invented](https://hallucinated.example/page).',
+      'A [same page](https://example.com/report/#section) is still the same source.',
+    ].join('\n');
+    const result = checkReportLinks(markdown, [{ url: 'https://example.com/report' }]);
+
+    expect(result.markdown).toContain('[the report](https://example.com/report)');
+    expect(result.markdown).toContain('[same page](https://example.com/report/#section)');
+    expect(result.markdown).toContain('invented');
+    expect(result.markdown).not.toContain('hallucinated.example');
+    expect(result.removed).toEqual(['https://hallucinated.example/page']);
+  });
+
+  it('handles an empty link text without leaving a broken markdown link', () => {
+    const result = checkReportLinks('[](https://invented.example/a)', []);
+    expect(result.markdown).toBe('source');
+    expect(result.markdown).not.toContain('](');
   });
 });
