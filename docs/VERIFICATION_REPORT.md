@@ -1,36 +1,58 @@
 # Verification report
 
-## OpenCode V2 groundwork — 2026-11-03
+## OpenCode Go spike and migration decision — 2026-11-03
 
-The separate OpenCode 2.2.5 image was built with `docker build --pull -f
-docker/Dockerfile.opencode --build-arg OPENCODE_VERSION=2.2.5 -t
-agent-tasks-opencode:spike .`. Root, local, E2E and production Compose
-configurations validated with their example environment files. `pnpm -r
---workspace-concurrency=1 typecheck`, `pnpm lint`, `pnpm test:unit` (221 tests),
-and `git diff --check` passed.
+**Decision: NO-GO for production cutover.** OpenCode Go remains the target, but
+authentication, centrally managed web configuration, secure credential storage,
+production isolation, and product-parity gates are not all met. Keep
+`OPENCODE_RUNTIME_ENABLED` unset or `0`; continue to use the existing runtime.
 
-The opt-in command `OPENCODE_LIVE_TEST=1 pnpm exec vitest run --project unit
-apps/worker/test/opencode-v2-live.test.ts` passed (1 test) against the locally
-installed OpenCode 2.2.5. It starts an isolated OpenCode process and fake
-OpenAI-compatible HTTP provider, checks authentication, creates a session through
-the adapter, sends a prompt, and verifies the fake response in session messages.
-It also calls the real Executor with an explicitly injected text-only OpenCode
-runner, using a fake persistence layer, and checks the resulting execution report.
+OpenCode 2.2.5's `GET /api/integration` lists `opencode-go` with `key` and `env`
+methods, not OAuth. The separate `opencode` device-OAuth integration is not
+OpenCode Go. A pinned server accepted a test key through
+`POST /api/integration/opencode-go/connect/key` (`204`), but stores credentials in
+its SQLite credential database; `GET /api/credential` can return those secrets.
+Never expose OpenCode Connect or credential endpoints directly to a browser.
+The required admin-only Agent Tasks UI/BFF flow, shared Go credential source,
+approved central model catalog, and rotation/removal behavior are not implemented.
+The existing Compose/bootstrap environment variables are not the intended product
+configuration model.
 
-The same test also ran with `OPENCODE_TEST_DATABASE_URL` pointing to a dedicated,
-migrated local PostgreSQL 15.19 database. With `OPENCODE_LIVE_TEST=1`, it inserts
-a task and queued execution, delivers the job through pg-boss to the real Executor,
-calls OpenCode 2.2.5 against the fake provider, and verifies the report in PostgreSQL.
-An independent SQL query returned `status=completed` and
-`markdown=mock integration answer`. The focused scheduler, task and admin
-integration tests also passed (15 tests). Never point this test at production data;
-the optional database branch creates test records and pg-boss infrastructure.
+The pinned OpenCode 2.2.5 image and experimental per-execution provisioner were
+built. `scripts/verify-opencode-provisioner.mjs` passed in the provisioner
+container with fake API key/header values. It verified that persistent config
+contains no fake credentials and only references runtime environment variables;
+secret files are owner-only (`0600`, uid/gid 10001), and OpenCode config/state
+directories are owner-only writable tmpfs (`0700`). It also verified the pinned
+binary, authenticated session creation, release/network detachment, session
+survival after container recreation for the same execution, cross-execution
+session denial, rejection of a different execution credential, and distinct
+internal Docker networks. The smoke sends **no prompt** to OpenCode Go or any live
+provider and does not validate real Go credentials.
 
-**Not verified:** the container smoke test could not run because the execution
-harness denied `docker run`; image build is not runtime verification. The OpenCode
-runner is not enabled in the deployed worker. The live test uses a preconfigured mock
-provider, not owner-specific provider credential mapping into OpenCode. Tenant
-isolation, real provider credentials, tools, recovery, and product parity remain open.
+The runtime is still a text-only prototype: tool/MCP, research/source, usage,
+memory, email, report parity, real Executor worker-restart recovery, and an
+idempotency/reconciliation contract for ambiguous prompt dispatch remain open.
+The V2 HTTP API is experimental. The prototype smoke is not a production security
+review or deployment proof.
+
+Current verification for this change:
+
+| Command | Result |
+| --- | --- |
+| `pnpm lint` | passed |
+| `pnpm -r typecheck` | passed (10 workspace projects) |
+| `pnpm test:unit` | **234 passed, 1 skipped**, 34 files passed / 1 skipped |
+| Focused provisioner + worker Vitest tests | **10 passed** |
+| `scripts/verify-opencode-provisioner.mjs` in the rebuilt provisioner container | all lifecycle/isolation checks passed (fake credentials only) |
+| OpenCode and provisioner Docker image builds | passed |
+| `ratchet check` | **not green**: `gates-untouched` sees one unpushed commit (`ece5517`) mixing CI gate and product changes; this predates the current working-tree changes and must be resolved before commit/push |
+
+The separate OpenCode 2.2.5 adapter live test also passed earlier against a fake
+OpenAI-compatible HTTP provider, including a prompt/response and a PostgreSQL-backed
+Executor run. That is adapter evidence, not a Go-account test or proof of the
+central credential flow. Never point the optional database test at production
+data; it creates test records and pg-boss infrastructure.
 
 Scope: the implementation in this repository against the original brief
 ("Agent Tasks — self-hosted AI task scheduler"). Every row names the code that
@@ -652,9 +674,13 @@ in the same file still produced a finding.
   fallback link.
 - Unit tests cover the renderer, multipart content and HTML escaping.
 
-## Final verdict: READY
+## Final verdict: READY for original scope; OpenCode migration NO-GO
 
-All mandatory requirements are backed by executed evidence. The previously open
+The overall `READY` verdict covers the original Agent Tasks scheduler scope; it
+does not approve an OpenCode cutover. Issue #16 remains **NO-GO** until its
+authentication, central-configuration, secret-handling, isolation, and product
+parity gates are met (see the OpenCode spike section above). The original-scope
+requirements are backed by executed evidence. The previously open
 Chromium sandbox is proven end to end: probe run 41226712667 starts Chromium with
 `sandbox=true` under the exact production posture (pwuser, `cap_drop: ALL` +
 `cap_add: SYS_CHROOT`, `no-new-privileges`, the shipped seccomp profile) and
@@ -667,12 +693,13 @@ surviving worker. The agent-composed completion e-mail is covered by the shared
 block builder and an end-to-end integration test; CI's Mailpit check reports
 spam score 0 and 85.6 % HTML support with the same builder.
 
-Remaining limits are non-mandatory or environment-scoped:
+Remaining limits are non-mandatory or environment-scoped for the original
+Agent Tasks scope, except for the separate OpenCode migration decision above:
 
-1. **OpenCode Go with a real account** — by operator decision the
-   contract-enforcing fake API is sufficient; live model ids and allowance
-   values remain unknown. The two mandatory client headers (tool User-Agent,
-   stable `x-opencode-session`) are enforced and tested.
+1. **OpenCode Go migration — NO-GO** — no real Go account/API key was used. The
+   OpenAI-compatible fake provider validates adapter behavior only; Go auth,
+   actual model/allowance behavior, the admin BFF Connect flow, and safe native
+   credential storage remain unverified or unimplemented.
 2. **Codex account-scoped execution** — optional and experimental, disabled by
    default, no account available.
 3. **Real internet SMTP delivery** — Mailpit + SpamAssassin only; SPF/DKIM/DMARC

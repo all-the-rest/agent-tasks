@@ -78,26 +78,35 @@ function safeProviderHeaders(provider, executionId) {
   const source = provider.headers && typeof provider.headers === 'object' && !Array.isArray(provider.headers)
     ? provider.headers : {};
   const headers = {};
+  const secrets = {};
+  let secretIndex = 0;
+  const addSecretHeader = (name, value) => {
+    const environmentName = `AGENT_TASKS_PROVIDER_HEADER_${secretIndex++}`;
+    headers[name] = `{env:${environmentName}}`;
+    secrets[environmentName] = value;
+  };
   for (const [name, value] of Object.entries(source)) {
     if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/.test(name) || typeof value !== 'string' || value.length > 600
       || /^(authorization|proxy-authorization|cookie|host|x-api-key|x-agent-tasks-egress)$/i.test(name)) {
       throw new Error('Provider has unsupported custom headers');
     }
-    headers[name] = value;
+    addSecretHeader(name, value);
   }
   const sessionHeader = typeof provider.sessionHeader === 'string' ? provider.sessionHeader : 'x-opencode-session';
   if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/.test(sessionHeader)) throw new Error('Invalid provider session header');
   headers[sessionHeader] = executionId;
-  if (typeof provider.userAgent === 'string') headers['User-Agent'] = provider.userAgent.slice(0, 120);
-  if (typeof provider.organization === 'string' && provider.organization.length <= 120) headers['OpenAI-Organization'] = provider.organization;
-  return headers;
+  if (typeof provider.userAgent === 'string') addSecretHeader('User-Agent', provider.userAgent.slice(0, 120));
+  if (typeof provider.organization === 'string' && provider.organization.length <= 120) {
+    addSecretHeader('OpenAI-Organization', provider.organization);
+  }
+  return { headers, secrets };
 }
 
-export function runtimeConfig(input, egressToken, providerBaseUrl) {
+export function runtimeConfig(input, providerBaseUrl) {
   const model = input.provider.models.find((entry) => entry.id === input.model.id);
   if (!model) throw new Error('Task model is not configured on its provider');
-  const headers = safeProviderHeaders(input.provider, input.lease.executionId);
-  headers['x-agent-tasks-egress'] = egressToken;
+  const { headers } = safeProviderHeaders(input.provider, input.lease.executionId);
+  headers['x-agent-tasks-egress'] = '{env:AGENT_TASKS_EGRESS_TOKEN}';
   const modelConfig = { name: model.label ?? model.id };
   modelConfig.limit = {
     ...(Number.isInteger(model.contextLength) && model.contextLength > 0 ? { context: model.contextLength } : {}),
@@ -164,21 +173,23 @@ async function volume(name, labelValue) {
   if (existing) {
     const labels = JSON.parse(await docker(['volume', 'inspect', '--format', '{{json .Labels}}', name]));
     if (labels?.[`${LABEL}.resource`] !== labelValue) throw new Error('Runtime volume ownership mismatch');
-    return;
+    return false;
   }
   await docker(['volume', 'create', '--label', `${LABEL}.resource=${labelValue}`, name]);
+  return true;
 }
 
 async function network(name, executionHash, ownerHash) {
   const existing = await docker(['network', 'ls', '--quiet', '--filter', `name=^${name}$`]);
   if (existing) {
-    const info = JSON.parse(await docker(['network', 'inspect', '--format', '{{json .}}', name]))[0];
+    const info = JSON.parse(await docker(['network', 'inspect', '--format', '{{json .}}', name]));
     if (info?.Labels?.[`${LABEL}.execution`] !== executionHash || info?.Labels?.[`${LABEL}.owner`] !== ownerHash || info?.Internal !== true) {
       throw new Error('Runtime network ownership mismatch');
     }
-    return;
+    return false;
   }
   await docker(['network', 'create', '--internal', '--label', `${LABEL}.execution=${executionHash}`, '--label', `${LABEL}.owner=${ownerHash}`, name]);
+  return true;
 }
 
 async function attachRuntimeNetwork(state) {
@@ -229,51 +240,106 @@ async function prepareRuntime(input, token) {
   const networkName = `agent-tasks-oc-net-${executionHash}`;
   const egressToken = hmac(token, `egress:${input.lease.executionId}:${ownerHash}`);
   const password = hmac(token, `server:${input.lease.executionId}:${ownerHash}`);
+  let stage = 'validate provider configuration';
+  const providerHeaderConfig = safeProviderHeaders(input.provider, input.lease.executionId);
+  const providerHeaders = providerHeaderConfig.secrets;
   const upstream = await providerUrl(input.provider.baseUrl);
-  const state = { ownerHash, executionHash, executionId: input.lease.executionId, containerName, dataVolume, configVolume, network: networkName, upstream };
-  await network(networkName, executionHash, ownerHash);
-  await withRuntimeNetwork(state, async () => {
-    const old = await containerExists(containerName);
-    if (old) {
-      const labels = JSON.parse(await docker(['inspect', '--format', '{{json .Config.Labels}}', old]));
-      if (labels?.[`${LABEL}.owner`] !== ownerHash || labels?.[`${LABEL}.execution`] !== executionHash) {
-        throw new Error('Runtime container ownership mismatch');
+  const state = {
+    ownerHash,
+    executionHash,
+    executionId: input.lease.executionId,
+    containerName,
+    dataVolume,
+    configVolume,
+    network: networkName,
+    upstream,
+    providerHeaderNames: new Set(Object.keys(providerHeaderConfig.headers).map((name) => name.toLowerCase())),
+  };
+  let createdNetwork = false;
+  let createdDataVolume = false;
+  let createdConfigVolume = false;
+  try {
+    stage = 'create execution network';
+    createdNetwork = await network(networkName, executionHash, ownerHash);
+    stage = 'attach provisioner to execution network';
+    await withRuntimeNetwork(state, async () => {
+      stage = 'inspect existing runtime';
+      const old = await containerExists(containerName);
+      if (old) {
+        const labels = JSON.parse(await docker(['inspect', '--format', '{{json .Config.Labels}}', old]));
+        if (labels?.[`${LABEL}.owner`] !== ownerHash || labels?.[`${LABEL}.execution`] !== executionHash) {
+          throw new Error('Runtime container ownership mismatch');
+        }
+        await docker(['rm', '--force', old]);
       }
-      await docker(['rm', '--force', old]);
-    }
-    await volume(dataVolume, `${executionHash}:${ownerHash}:data`);
-    await volume(configVolume, `${executionHash}:${ownerHash}:config`);
-    const providerBaseUrl = `http://${NETWORK_ALIAS}:${API_PORT}/v1/runtime/${input.lease.executionId}/provider`;
-    const config = JSON.stringify(runtimeConfig(input, egressToken, providerBaseUrl));
-    await docker([
-      'run', '--rm', '--network', 'none', '--read-only', '--user', '0:0', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
-      '--mount', `type=volume,src=${configVolume},dst=/run/config`, '--entrypoint', 'sh', IMAGE,
-      '-ec', 'umask 022; if [ -f /run/config/opencode.json ]; then chmod 0600 /run/config/opencode.json; fi; cat > /run/config/opencode.json; chmod 0444 /run/config/opencode.json',
-    ], config);
-    await docker([
-      'create', '--name', containerName, '--network', networkName, '--network-alias', 'opencode-runtime',
-      '--label', `${LABEL}.execution=${executionHash}`, '--label', `${LABEL}.owner=${ownerHash}`,
-      '--label', `${LABEL}.created=${Date.now()}`,
-      '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--pids-limit', '128',
-      '--memory', memoryLimit(), '--cpus', cpuLimit(),
-      '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m,mode=1777',
-      '--tmpfs', '/run/agent-tasks:rw,noexec,nosuid,size=1m,mode=0700,uid=10001,gid=10001',
-      '--tmpfs', '/home/opencode/.cache:rw,noexec,nosuid,size=128m,mode=0700,uid=10001,gid=10001',
-      '--mount', `type=volume,src=${dataVolume},dst=/home/opencode/.local/share/opencode`,
-      '--mount', `type=volume,src=${configVolume},dst=/etc/opencode,readonly`,
-      '--entrypoint', '/bin/sleep', IMAGE, 'infinity',
-    ]);
-    await docker(['start', containerName]);
-    await writeRuntimeSecret(containerName, 'server-password', password);
-    await writeRuntimeSecret(containerName, 'provider-key', input.apiKey ?? '');
-    await docker([
-      'exec', '--detach', '--user', '10001:10001', containerName,
-      'sh', '-ec', 'export OPENCODE_SERVER_PASSWORD="$(cat /run/agent-tasks/server-password)"; export AGENT_TASKS_API_KEY="$(cat /run/agent-tasks/provider-key)"; exec /usr/local/bin/opencode serve --hostname 0.0.0.0 --port 4096',
-    ]);
-    await waitForRuntime(state, password);
-  });
-  const baseUrl = `${process.env.PROVISIONER_PUBLIC_URL ?? `http://${NETWORK_ALIAS}:${API_PORT}`}/v1/runtime/${input.lease.executionId}/`;
-  return { state, response: { baseUrl, password, directory: '/workspace', model: { providerID: 'agent_tasks', id: input.model.id } } };
+      stage = 'create runtime volumes';
+      createdDataVolume = await volume(dataVolume, `${executionHash}:${ownerHash}:data`);
+      createdConfigVolume = await volume(configVolume, `${executionHash}:${ownerHash}:config`);
+      const providerBaseUrl = `http://${NETWORK_ALIAS}:${API_PORT}/v1/runtime/${input.lease.executionId}/provider`;
+      const config = JSON.stringify(runtimeConfig(input, providerBaseUrl));
+      stage = 'write runtime configuration';
+      await docker([
+        'run', '--interactive', '--rm', '--network', 'none', '--read-only', '--user', '0:0', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+        '--mount', `type=volume,src=${configVolume},dst=/run/config`, '--entrypoint', 'sh', IMAGE,
+        '-ec', 'umask 022; if [ -f /run/config/opencode.json ]; then chmod 0600 /run/config/opencode.json; fi; cat > /run/config/opencode.json; chmod 0444 /run/config/opencode.json',
+      ], config);
+      stage = 'create runtime container';
+      await docker([
+        'create', '--name', containerName, '--network', networkName, '--network-alias', 'opencode-runtime',
+        '--label', `${LABEL}.execution=${executionHash}`, '--label', `${LABEL}.owner=${ownerHash}`,
+        '--label', `${LABEL}.created=${Date.now()}`,
+        '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--pids-limit', '128',
+        '--memory', memoryLimit(), '--cpus', cpuLimit(),
+        '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m,mode=1777',
+        '--tmpfs', '/run/agent-tasks:rw,noexec,nosuid,size=1m,mode=0700,uid=10001,gid=10001',
+        '--tmpfs', '/home/opencode/.config:rw,noexec,nosuid,size=16m,mode=0700,uid=10001,gid=10001',
+        '--tmpfs', '/home/opencode/.local/state:rw,noexec,nosuid,size=16m,mode=0700,uid=10001,gid=10001',
+        '--tmpfs', '/home/opencode/.cache:rw,noexec,nosuid,size=128m,mode=0700,uid=10001,gid=10001',
+        '--mount', `type=volume,src=${dataVolume},dst=/home/opencode/.local/share/opencode`,
+        '--mount', `type=volume,src=${configVolume},dst=/etc/opencode,readonly`,
+        '--entrypoint', '/bin/sleep', IMAGE, 'infinity',
+      ]);
+      stage = 'start runtime container';
+      await docker(['start', containerName]);
+      const runtimeSecrets = {
+        OPENCODE_SERVER_PASSWORD: password,
+        AGENT_TASKS_API_KEY: input.apiKey ?? '',
+        AGENT_TASKS_EGRESS_TOKEN: egressToken,
+        ...providerHeaders,
+      };
+      stage = 'write runtime secrets';
+      for (const [name, value] of Object.entries(runtimeSecrets)) await writeRuntimeSecret(containerName, name, value);
+      const exports = Object.keys(runtimeSecrets).map((name) => `export ${name}="$(cat /run/agent-tasks/${name})"`).join('; ');
+      stage = 'start OpenCode server';
+      await docker([
+        'exec', '--detach', '--user', '10001:10001', containerName,
+        'sh', '-ec', `${exports}; exec /usr/local/bin/opencode serve --hostname 0.0.0.0 --port 4096`,
+      ]);
+      stage = 'wait for OpenCode readiness';
+      await waitForRuntime(state, password);
+    });
+    const baseUrl = `${process.env.PROVISIONER_PUBLIC_URL ?? `http://${NETWORK_ALIAS}:${API_PORT}`}/v1/runtime/${input.lease.executionId}/`;
+    return { state, response: { baseUrl, password, directory: '/workspace', model: { providerID: 'agent_tasks', id: input.model.id } } };
+  } catch (error) {
+    // Keep diagnostics useful without logging credentials, provider URLs, or
+    // provider configuration received in the request body.
+    const httpStatus = typeof error?.httpStatus === 'number' ? error.httpStatus : undefined;
+    const connectionError = typeof error?.connectionError === 'string' ? error.connectionError : undefined;
+    const runtimeStatus = await docker(['inspect', '--format', '{{.State.Status}}:{{.State.ExitCode}}', containerName]).catch(() => undefined);
+    console.error(JSON.stringify({
+      event: 'opencode_runtime_open_failed',
+      stage,
+      ...(httpStatus ? { httpStatus } : {}),
+      ...(connectionError ? { connectionError } : {}),
+      ...(runtimeStatus ? { runtimeStatus } : {}),
+    }));
+    await docker(['rm', '--force', containerName]).catch(() => undefined);
+    await detachRuntimeNetwork(state);
+    if (createdNetwork) await docker(['network', 'rm', networkName]).catch(() => undefined);
+    if (createdConfigVolume) await docker(['volume', 'rm', configVolume]).catch(() => undefined);
+    if (createdDataVolume) await docker(['volume', 'rm', dataVolume]).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function writeRuntimeSecret(containerName, name, value) {
@@ -282,16 +348,24 @@ async function writeRuntimeSecret(containerName, name, value) {
 
 async function waitForRuntime(state, password) {
   const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`;
+  let lastHttpStatus;
+  let lastConnectionError;
   for (let i = 0; i < 120; i += 1) {
     try {
       const response = await globalThis.fetch(`http://${state.containerName}:4096/api/info`, { headers: { authorization }, signal: globalThis.AbortSignal.timeout(1_000) });
       if (response.ok) return;
-    } catch {
+      lastHttpStatus = response.status;
+    } catch (error) {
       // The process is still starting; don't include request errors or credentials in logs.
+      const code = error?.cause?.code ?? error?.code;
+      if (typeof code === 'string' && /^[A-Z0-9_]+$/.test(code)) lastConnectionError = code;
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error('Isolated OpenCode runtime did not become ready');
+  const error = new Error('Isolated OpenCode runtime did not become ready');
+  error.httpStatus = lastHttpStatus;
+  error.connectionError = lastConnectionError;
+  throw error;
 }
 
 async function readJson(request, maximum = MAX_REQUEST_BYTES) {
@@ -392,12 +466,7 @@ async function proxyProviderRequest(request, response, state) {
   const incoming = new URL(request.url, 'http://provisioner.invalid');
   const suffix = incoming.pathname.slice(routePrefix.length);
   const path = `${pathPrefix}/${suffix.replace(/^\/+/, '')}${incoming.search}`;
-  const headers = {};
-  for (const [name, value] of Object.entries(request.headers)) {
-    const lower = name.toLowerCase();
-    if (['accept', 'content-type', 'authorization', 'openai-organization', 'user-agent'].includes(lower)
-      || lower.startsWith('openai-') && lower !== 'openai-organization') headers[lower] = value;
-  }
+  const headers = providerRequestHeaders(request.headers, state.providerHeaderNames);
   headers.host = state.upstream.host;
   const selected = addresses[0];
   const upstream = httpsRequest({
@@ -436,6 +505,18 @@ async function proxyProviderRequest(request, response, state) {
   });
   request.on('end', () => upstream.end());
   request.on('error', () => upstream.destroy());
+}
+
+export function providerRequestHeaders(requestHeaders, allowedHeaderNames = new Set()) {
+  const headers = {};
+  for (const [name, value] of Object.entries(requestHeaders)) {
+    if (typeof value !== 'string') continue;
+    const lower = name.toLowerCase();
+    if (['accept', 'content-type', 'authorization', 'openai-organization', 'user-agent'].includes(lower)
+      || lower.startsWith('openai-') && lower !== 'openai-organization'
+      || allowedHeaderNames.has(lower) && lower !== 'x-agent-tasks-egress') headers[lower] = value;
+  }
+  return headers;
 }
 
 async function streamBounded(body, response, maxBytes) {

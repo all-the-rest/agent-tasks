@@ -16,7 +16,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 opencode \
  && useradd --system --uid 10001 --gid opencode --create-home --home-dir /home/opencode opencode \
- && mkdir -p /etc/opencode /home/opencode/.local/share/opencode /workspace \
+  && mkdir -p /etc/opencode /home/opencode/.config /home/opencode/.local/share/opencode /home/opencode/.local/state /workspace \
  && chown -R opencode:opencode /home/opencode /workspace
 COPY --from=install --chown=root:root /root/.opencode/bin/opencode /usr/local/bin/opencode
 COPY --chown=root:root docker/opencode.json /etc/opencode/opencode.json
