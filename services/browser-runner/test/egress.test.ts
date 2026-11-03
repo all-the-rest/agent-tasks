@@ -108,6 +108,25 @@ describe('egress proxy', () => {
     expect(await request(proxy.port, '[fe80::1]:443')).toContain('403');
   });
 
+  it('re-validates a redirect follow-up instead of trusting the first hop', async () => {
+    // Chromium follows a redirect by issuing a new absolute-form request through
+    // the proxy, so each hop is checked on its own; there is no per-session
+    // allowlist. A redirect into a private network is refused and recorded before
+    // any socket is opened.
+    const before = proxy.blocked.length;
+    const blockedHop = await get(proxy.port, 'http://rebind.internal.example/login');
+    expect(blockedHop.status).toBe(403);
+    expect(blockedHop.body).toContain('blocked by egress policy');
+    expect(proxy.blocked.length).toBeGreaterThan(before);
+    expect(proxy.blocked.slice(before).some((entry) => entry.host === 'rebind.internal.example')).toBe(true);
+
+    // The block log is per request: the same hostname is recorded again on a
+    // repeated hop rather than reusing an earlier decision.
+    const repeated = await get(proxy.port, 'http://rebind.internal.example/login');
+    expect(repeated.status).toBe(403);
+    expect(proxy.blocked.slice(before).filter((entry) => entry.host === 'rebind.internal.example')).toHaveLength(2);
+  });
+
   it('tunnels a public target when the network answers', async () => {
     // The tunnel is only established after the address passed the policy check.
     const reachable = await new Promise<boolean>((resolve) => {

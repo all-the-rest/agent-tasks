@@ -1,9 +1,15 @@
 # OpenCode runtime isolation: decision and integration boundary
 
-**Decision (2026-11-03): GO for the isolated runtime foundation; production
-cutover stays gated.** `OPENCODE_RUNTIME_ENABLED` remains unset or `0` until the
-gates below are proven with a real OpenCode Go key. The flag is not a fallback to
-the existing runtime.
+**Decision (2026-11-03): OpenCode is the worker's only execution backend;
+production activation stays gated.** Local and CI execution use a test-only fake
+provisioner. The production example intentionally leaves
+`OPENCODE_PROVISIONER_TOKEN` empty, and `deployment/deploy.sh` refuses every real
+deploy while the source-controlled marker
+`deployment/OPENCODE_RUNTIME_APPROVED` is absent, before it contacts the host.
+That marker is a deliberate part of the reviewed change that closes the gates
+below — no `.env` value, token or profile can bypass it. The preflight separately
+rejects the `opencode-runtime` profile and an empty worker provisioner token, so
+a deploy cannot leave a worker restart loop.
 
 ## What the foundation now proves
 
@@ -14,8 +20,23 @@ the existing runtime.
   default for new tasks, can hide models from the task editor, reports the last
   health check and links to the audit log. Hide/default are provider config, not
   catalog rows, so a model refresh never loses the administrator's choice.
-- **One egress exit.** `opencode` and `opencode-runtime` are internal Docker
-  networks; only the provisioner joins `opencode-egress`. The runtime container is
+- **One persisted catalog, explicit capability.** The worker and the provisioner
+  read the same catalog the task editor shows: the discovered `provider_models`
+  rows merged with the administrator's `config.models` metadata overrides, so a
+  discovered model is usable without a duplicated declaration and a declared
+  model survives a refresh. Tool support is never inferred from discovery — the
+  OpenAI `/models` route cannot express it. Only an explicit
+  `supportsTools: true` marks a model tool-capable, via the admin toggle that
+  writes `config.models`. Research, e-mail and memory tasks are refused with a
+  clear 400 before provisioning when the model lacks that flag; the worker, the
+  runner and the provisioner repeat the check so no path silently runs a task
+  without its tools.
+- **Unsupported provider kinds are refused, not remapped.** Only
+  `openai-compatible` executes. The API returns 400 for task creation, an
+  execution-relevant update or a manual run on any other kind, and marks those
+  providers `executable: false` while keeping their rows and credentials intact.
+- **One egress exit.** `opencode-runtime` is an internal Docker network with no
+  shared OpenCode service; only the provisioner joins `opencode-egress`. The runtime container is
   never published and has no direct route out. Inference traffic crosses the
   provisioner, which is the audited boundary.
 - **Per-execution isolation.** The provisioner creates a private internal network,
@@ -29,6 +50,13 @@ the existing runtime.
   are replaced by step number, so reconciliation cannot duplicate rows. Unit tests
   cover recovery, replay, fail-closed and cancellation-interrupt; the integration
   test exercises the real session store.
+- **Model variants survive the boundary.** `model#variant` is split in the
+  worker before provisioning: the provisioner validates the base id against the
+  merged persisted catalog, declares all six variants on the runtime model and returns
+  the accepted variant. The client and runner both reject a dropped or rewritten
+  variant, so a reasoning selection is never silently lost. The opt-in live test
+  runs real OpenCode 2.2.5 for every variant and asserts the provider request
+  carries the matching `reasoning_effort`.
 - **Structured output through tools.** A worker-hosted MCP endpoint exposes an
   explicit allowlist with a per-execution bearer token and call budget. The
   provisioner registers it as a remote MCP server (`codemode: false`) and proxies

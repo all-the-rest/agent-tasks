@@ -34,8 +34,9 @@ lists exactly what a profile starts.
 
 | Profile | Services | Purpose |
 | --- | --- | --- |
-| (default) | postgres, api, worker, browser-runner, opencode | API + SPA, scheduler and execution; isolated OpenCode spike; no web search |
+| (default, root/local Compose) | postgres, api, worker, browser-runner, opencode-test-provisioner | API + SPA, scheduler and deterministic test execution; fake runtime makes no provider calls; no web search |
 | `search` | searxng | SearXNG backend used by tasks with web research |
+| `opencode-runtime` | `opencode-provisioner` (root/local Compose only) | Real per-execution runtime provisioner; privileged Docker socket and provider egress boundary. Do not activate in production: `deployment/deploy.sh` rejects it until verification gates pass. |
 
 ```bash
 docker compose --profile search up -d --build          # first install with web search
@@ -77,7 +78,7 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `RATE_LIMIT_SIGNIN_MAX` | api | `5` | no, 1–1000; forwarded by `compose.yaml` |
 | `RATE_LIMIT_WINDOW_SECONDS` | api | `60` | no, 10–3600; forwarded by `compose.yaml` |
 | `RUN_MIGRATIONS` | api | unset (migrations skipped) | no; `compose.yaml` sets `"true"`, and only the exact string `true` runs them |
-| `AGENT_TASKS_ENABLE_CODEX` | ai-providers (Codex) | unset (disabled) | no; `1` opts in; forwarded by `compose.yaml` (default `0`). The worker additionally requires `CODEX_ISOLATED_RUNNER=1` before it will run Codex |
+| `AGENT_TASKS_ENABLE_CODEX` | ai-providers (Codex) | unset (disabled) | no; `1` opts in; forwarded by `compose.yaml` (default `0`). The worker rejects the `codex` provider kind, so this only affects admin health checks and library tests |
 
 ### Worker and browser runner
 
@@ -87,7 +88,8 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `RUNNER_TOKEN` | worker, browser-runner | — | yes, at least 16 characters |
 | `WORKER_CONCURRENCY` | worker | `1` (range 1–8) | no; sets pg-boss `localConcurrency`, i.e. parallel executions per worker process. Add replicas for more capacity |
 | `WORKER_ID` | worker | `worker-<8 random hex>` | no; **not forwarded by `compose.yaml`** |
-| `CODEX_HOME_ROOT` | worker | `/var/lib/agent-tasks/codex` | no, must be absolute; the per-user directory is a hash of the owner id below this root. `compose.yaml` forwards it and mounts the `codex-homes` volume there |
+| `OPENCODE_PROVISIONER_URL` | worker | — | yes; root/local Compose targets the isolated test-only fake; production targets the real provisioner |
+| `OPENCODE_PROVISIONER_TOKEN` | worker, provisioner | — | yes for a running worker; at least 32 characters. Local/E2E generates it. The production example deliberately leaves it empty while execution is disabled; without it, the worker exits environment validation, and with it but no provisioner the startup health gate prevents queue registration. |
 | `RUNNER_ALLOW_HTTP` | browser-runner | `true` | no |
 | `RUNNER_ALLOWED_PORTS` | browser-runner | `80,443` | no; comma-separated |
 | `RUNNER_MAX_SESSIONS` | browser-runner | `2` | no |
@@ -113,10 +115,9 @@ These are read by `compose.yaml`, not by the application:
 | `IMAGE_TAG` | `latest` | Release selector |
 | `BROWSER_MEMORY_LIMIT` | `1g` | Container limit for browser-runner |
 | `BROWSER_CPUS` | `1.0` | CPU limit for browser-runner |
-| `OPENCODE_SERVER_PASSWORD` | — | Required Basic Auth password for the private OpenCode V2 server; generate with `openssl rand -hex 32` |
-| `OPENCODE_MEMORY_LIMIT` | `1g` | Container memory ceiling for OpenCode |
-| `OPENCODE_CPUS` | `1.0` | Container CPU ceiling for OpenCode |
-| `OPENCODE_VERSION` | `2.2.5` | Version used when building the root Compose image; production pulls the release image |
+| `OPENCODE_MEMORY_LIMIT` | `1g` | Container memory ceiling for the profile-gated provisioned runtime |
+| `OPENCODE_CPUS` | `1.0` | CPU ceiling for the profile-gated provisioned runtime |
+| `OPENCODE_VERSION` | `2.2.5` | Version used when building the root Compose runtime image; production pulls the release image |
 | `MAILPIT_SMTP_PORT` | `1025` | Published SMTP port of the optional `mail` profile |
 | `MAILPIT_HTTP_PORT` | `8025` | Published Mailpit UI/API port |
 
@@ -414,8 +415,11 @@ preflight does not parse raw `KEY=` tails. The rendered JSON is piped directly
 into a small parser that emits only symbolic pass/fail reasons, so `.env` values
 are never printed or logged. The parser requires `RUNNER_TOKEN` on `worker` and
 `browser-runner`, rejects a mismatch between them, and rejects a token that also
-reaches `api`. It also requires the rendered project name to be exactly
-`agent-tasks`. The host needs `python3` for that parser; a missing parser stops
+reaches `api`. It also requires a 32-character `OPENCODE_PROVISIONER_TOKEN` on the
+worker, because the worker has no fallback execution path and exits before queue
+registration without it; the production example leaves it empty on purpose, so
+production deploys stay blocked until the runtime gates pass. It also requires the
+rendered project name to be exactly `agent-tasks`. The host needs `python3` for that parser; a missing parser stops
 the deploy instead of skipping the checks. The staged seccomp profile is parsed
 as JSON locally before it is transferred, so a malformed profile fails the deploy
 without host contact.
@@ -461,7 +465,13 @@ first.
 
 The deploy stages `compose.yaml.next` and
 `docker/seccomp-browser.json.next`, then runs a fail-closed preflight before the
-active files change. The preflight checks the `.env` owner/mode, the effective
+active files change. Before any SSH connection, a real deploy also requires the
+source-controlled marker `deployment/OPENCODE_RUNTIME_APPROVED`. It is absent
+while the isolated OpenCode runtime's verification gates are open, so production
+deploys are refused instead of leaving a restart-looping worker. The marker is
+added (or removed) only in the reviewed change that closes those gates; no host
+`.env` value or token can bypass it. `--dry-run` stays available without it and
+prints the blocked state. The preflight checks the `.env` owner/mode, the effective
 Compose-interpolated values described above, the exact
 `agent-tasks_postgres-data:/var/lib/postgresql/data` mount, the exact `webnet`
 subnet/gateway, rejects an active `mail` profile (Mailpit would publish on all
@@ -479,6 +489,12 @@ container is recreated:
 DEPLOY_HOST=root@docker.example deployment/deploy.sh --dry-run
 DEPLOY_HOST=root@docker.example deployment/deploy.sh
 ```
+
+While the isolated OpenCode runtime gates are open, the preflight rejects the
+`opencode-runtime` profile and an empty `OPENCODE_PROVISIONER_TOKEN`. The worker
+has no fallback execution path, so a deploy would otherwise replace the worker
+with a restart loop. Production deploys are therefore intentionally blocked until
+those gates pass and both guards are removed.
 
 If `agent-tasks_postgres-data` exists but Postgres is stopped, the deploy stops
 instead of running migrations without a dump. Start only the database
@@ -659,17 +675,20 @@ AUTH_SECRET=$(openssl rand -hex 32)
 SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)
 SETUP_TOKEN=$(openssl rand -hex 32)
 RUNNER_TOKEN=$(openssl rand -base64 24)
+OPENCODE_PROVISIONER_TOKEN=$(openssl rand -hex 32)
 sed -i \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" \
   -e "s|^AUTH_SECRET=.*|AUTH_SECRET=${AUTH_SECRET}|" \
   -e "s|^SECRETS_ENCRYPTION_KEY=.*|SECRETS_ENCRYPTION_KEY=${SECRETS_ENCRYPTION_KEY}|" \
   -e "s|^SETUP_TOKEN=.*|SETUP_TOKEN=${SETUP_TOKEN}|" \
   -e "s|^RUNNER_TOKEN=.*|RUNNER_TOKEN=${RUNNER_TOKEN}|" \
+  -e "s|^OPENCODE_PROVISIONER_TOKEN=.*|OPENCODE_PROVISIONER_TOKEN=${OPENCODE_PROVISIONER_TOKEN}|" \
   .env
 ```
 
 `SECRETS_ENCRYPTION_KEY` must decode to exactly 32 bytes, `AUTH_SECRET` needs at
-least 32 characters, `SETUP_TOKEN` and `RUNNER_TOKEN` need at least 16.
+least 32 characters, `SETUP_TOKEN` and `RUNNER_TOKEN` need at least 16,
+`OPENCODE_PROVISIONER_TOKEN` at least 32.
 
 Start the stack and read the setup token:
 
@@ -814,6 +833,8 @@ procedure under [Deploy, backup and rollback](#deploy-backup-and-rollback).
 | Deploy stops with "not a valid JSON object" | the local `docker/seccomp-browser.json` is malformed; fix it in the repository before deploying, nothing was transferred |
 | Deploy stops with "RUNNER_TOKEN must be set on worker and browser-runner only" | set `RUNNER_TOKEN` in the host `.env`; Compose passes it to `worker` and `browser-runner`, never to `api` |
 | Deploy stops with a placeholder value | replace the named key in `/opt/stacks/agent-tasks/.env`; the preflight names the key and never prints the value |
+| Deploy stops with "the isolated runtime is disabled in production" | expected while the OpenCode runtime gates are open: the worker cannot start without a provisioner, so the deploy refuses before changing the stack. Do not set `OPENCODE_PROVISIONER_TOKEN` or activate `opencode-runtime` until the gates in [`docs/architecture/opencode-runtime-isolation.md`](docs/architecture/opencode-runtime-isolation.md) pass and the profile rejection is removed |
+| Deploy stops with "OpenCode runtime profile must remain disabled" | remove `opencode-runtime` from `COMPOSE_PROFILES`; production execution stays gated |
 | Deploy stops with "could not render compose.yaml.next" | run `docker compose -p agent-tasks --env-file .env -f compose.yaml.next config -q` as root on the host; install the Compose plugin or `python3` if the message names it |
 | Deploy stops with "seccomp profile" | `deploy.sh` stages `docker/seccomp-browser.json`; check that `/opt/stacks/agent-tasks/docker` is writable and neither it nor the staged profile is a symlink |
 | Deploy stops with a missing SearXNG settings file or placeholder | create the root:root 0600 host file described under [Search settings](#search-settings-host-only), or remove `COMPOSE_PROFILES=search` |

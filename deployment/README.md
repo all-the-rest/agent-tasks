@@ -83,9 +83,18 @@ deployment/stack.sh e2e logs --no-color --tail=100 api worker
 deployment/stack.sh e2e down -v
 ```
 
-Without profiles the core services start (`postgres`, `api`, `worker`,
-`browser-runner`, `opencode`). OpenCode is isolated and not yet used by the worker
-for task execution. `--profile mail` adds Mailpit and SpamAssassin;
+Without profiles, local/E2E starts (`postgres`, `api`, `worker`,
+`browser-runner`, `opencode-test-provisioner`). The fake provisioner is internal,
+has no Docker socket or egress, ignores provider credentials, and supplies
+deterministic execution coverage without an external model. **A task run on this
+stack is simulated:** its report starts with a “Simulated execution” banner, and
+no provider is called. The local stack is therefore a development/demo
+environment, not a way to run real research. The real
+`opencode-provisioner` is behind `opencode-runtime`; it is not used by local/E2E
+by default and must not be activated in production before its verification gates
+pass. `deployment/deploy.sh` refuses every real production deploy while the
+source-controlled `OPENCODE_RUNTIME_APPROVED` marker is absent and rejects that
+production profile. `--profile mail` adds Mailpit and SpamAssassin;
 `--profile search` adds SearXNG. `deployment/stack.sh local config --services`
 lists exactly what a selection starts.
 
@@ -97,7 +106,7 @@ lists exactly what a selection starts.
 | `AUTH_SECRET` | `openssl rand -hex 32` |
 | `SECRETS_ENCRYPTION_KEY` | `openssl rand -base64 32` |
 | `RUNNER_TOKEN` | `openssl rand -hex 24` |
-| `OPENCODE_SERVER_PASSWORD` | `openssl rand -hex 32` |
+| `OPENCODE_PROVISIONER_TOKEN` | `openssl rand -hex 32` (internal local/E2E fake service authentication) |
 | `SETUP_TOKEN` and `E2E_SETUP_TOKEN` | the same `setup-<hex>` value |
 | `ADMIN_PASSWORD` and `E2E_ADMIN_PASSWORD` | the same `Admin-<hex>` value |
 
@@ -118,7 +127,11 @@ deployment/stack.sh e2e --profile mail --profile search up -d --build
 `E2E_BASE_URL` points at `http://localhost:8180`. The suite starts its
 deterministic OpenAI-compatible mock on the host; Docker reaches it through the
 first non-loopback IPv4 address. Set `E2E_MOCK_BASE_URL=http://<gateway>:18099`
-when the Docker daemon runs on another machine.
+when the Docker daemon runs on another machine. Task execution itself goes through
+the network-internal fake provisioner, so the suite needs no model download or
+provider egress. `FAKE_RUNTIME_MEMORY_OPS=1` (set in `env/e2e.env.example` and by
+`stack.sh`) makes the fake emit one finding and one recommendation per session for
+the learning checks; the mock above still backs provider discovery and health.
 
 ### Production (host-managed)
 
@@ -139,7 +152,9 @@ root:root/0600, an implicit `compose.override.*` file exists, the host `.env`
 sets `COMPOSE_FILE`/`COMPOSE_PROJECT_NAME`, the effective Compose-interpolated
 values are empty/placeholders or use a hostless/non-HTTPS `PUBLIC_BASE_URL`,
 `RUNNER_TOKEN` is missing from `worker` or `browser-runner`, differs between
-them, or reaches `api`, `webnet` is missing or is not exactly subnet
+them, or reaches `api`, the worker has no `OPENCODE_PROVISIONER_TOKEN` (the worker
+exits without the runtime, so the deploy refuses instead of leaving a restart
+loop), an `opencode-runtime` profile is active, `webnet` is missing or is not exactly subnet
 `172.18.0.0/16` with gateway `172.18.0.1`, or the search profile lacks a
 root:root 0600 SearXNG settings file with a generated secret. Values are
 rendered with `docker compose config` and piped through a symbolic parser; they
@@ -165,9 +180,10 @@ directly, and Watchtower updates the images.
 The API image contains the built SPA; there is no separate web container. The
 release workflow publishes
 `ghcr.io/all-the-rest/agent-tasks/{api,browser-runner,opencode,opencode-provisioner}`
-for every `v*` tag. `IMAGE_TAG` selects the release; the production compose file
-has no `build` section and pulls the registry tag. A local source checkout can
-still use `deployment/stack.sh local ... --build`.
+for every `v*` tag. The test-only fake provisioner is built from this checkout
+and is never published as a production runtime. `IMAGE_TAG` selects the release;
+the production compose file has no `build` section and pulls the registry tag. A
+local source checkout can still use `deployment/stack.sh local ... --build`.
 
 ## Validation
 
@@ -177,8 +193,10 @@ These commands need no Docker daemon:
 deployment/stack.sh local config -q
 deployment/stack.sh e2e config -q
 deployment/stack.sh production config -q   # local validation only; placeholders allowed
-docker compose --env-file deployment/env/production.env.example config -q
-                                            # root file used by the local quick start
+OPENCODE_PROVISIONER_TOKEN=local-validation-token-0123456789abcdef \
+  docker compose --env-file deployment/env/production.env.example config -q
+                                            # root file used by the local quick start;
+                                            # the fake provisioner requires a token
 bash -n deployment/deploy.sh
 sh -n deployment/stack.sh
 shellcheck -S warning deployment/deploy.sh deployment/stack.sh \

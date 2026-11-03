@@ -108,6 +108,25 @@ describe('OpenCode runner recovery', () => {
       .rejects.toThrow('rejected the prompt without a durable message');
   });
 
+  it('classifies provider rate limits and outages as retryable, other errors as terminal', async () => {
+    const clientFor = (error: unknown): OpenCodeV2Client => clientWith((path) => {
+      if (path.endsWith('/message')) {
+        return new Response(JSON.stringify({ data: [{ ...completed, finish: 'error', content: [], error }] }));
+      }
+      return new Response(JSON.stringify({ data: {} }));
+    });
+    const run = (error: unknown) => createOpenCodeV2Runner({
+      client: clientFor(error), directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store(),
+    })(options(), lease);
+
+    await expect(run({ name: 'ProviderError', data: { message: '429 Too Many Requests' } }))
+      .rejects.toMatchObject({ code: 'rate_limited' });
+    await expect(run({ name: 'ProviderError', data: { message: '503 Service Unavailable' } }))
+      .rejects.toMatchObject({ code: 'unavailable' });
+    await expect(run({ name: 'ProviderError', data: { message: 'invalid api key' } }))
+      .rejects.toThrow('did not complete successfully');
+  });
+
   it('waits for the MCP bridge to connect before dispatching', async () => {
     let statusReads = 0;
     let messageReads = 0;

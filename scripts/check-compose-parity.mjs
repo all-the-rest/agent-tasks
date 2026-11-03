@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable no-undef -- standalone Node script run outside the bundler */
 // Guard the deliberate divergence between the development compose file and the
 // vendored production file:
 //
@@ -17,9 +18,9 @@ import { volumeSignatures, sharedServiceFieldDifferences, sharedVolumeDifference
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const envFile = 'deployment/env/production.env.example';
-const profileArgs = ['--profile', 'mail', '--profile', 'search'];
+const profileArgs = ['--profile', 'mail', '--profile', 'search', '--profile', 'opencode-runtime'];
 
-function composeConfig(file, extra = []) {
+function composeConfig(file, extra = [], extraEnv = {}) {
   const args = [
     'compose',
     '--env-file',
@@ -37,6 +38,7 @@ function composeConfig(file, extra = []) {
       execFileSync('docker', args, {
         cwd: root,
         encoding: 'utf8',
+        env: { ...process.env, ...extraEnv },
         stdio: ['ignore', 'pipe', 'pipe']
       })
     );
@@ -48,13 +50,21 @@ function composeConfig(file, extra = []) {
   }
 }
 
-const development = composeConfig('compose.yaml');
+// Root/local Compose fails closed without a provisioner token (the checker never
+// starts the fake service, so a non-secret fixture value is enough). Production is
+// rendered without it to prove the worker receives no token by default.
+const development = composeConfig('compose.yaml', [], {
+  OPENCODE_PROVISIONER_TOKEN: 'compose-parity-fixture-token-0123456789'
+});
 const production = composeConfig('deployment/compose.production.yaml', [
   '--project-directory',
   root
 ]);
 
 const failures = [];
+// The fake runtime is local/E2E-only and stays out of the shared-service
+// comparison; the profile-gated real provisioner exists in both files.
+const developmentOnlyServices = new Set(['opencode-test-provisioner']);
 function check(condition, message) {
   if (!condition) failures.push(message);
 }
@@ -70,13 +80,16 @@ function securityOpts(service) {
     .sort();
 }
 function networkNames(service) {
-  return Object.keys(service.networks ?? {}).sort();
+  return Object.keys(service?.networks ?? {}).sort();
 }
 
+const sharedDevelopmentServices = Object.fromEntries(
+  Object.entries(development.services ?? {}).filter(([name]) => !developmentOnlyServices.has(name))
+);
 check(
-  stable(Object.keys(development.services ?? {}).sort()) ===
+  stable(Object.keys(sharedDevelopmentServices).sort()) ===
     stable(Object.keys(production.services ?? {}).sort()),
-  'service sets differ between compose.yaml and compose.production.yaml'
+  'service sets differ between compose.yaml and compose.production.yaml (excluding the documented local fake runtime)'
 );
 check(production.name === 'agent-tasks', 'production project name must stay agent-tasks');
 check(
@@ -111,6 +124,19 @@ for (const difference of sharedVolumeDifferences(development, production)) {
 }
 for (const difference of sharedNetworkDifferences(development, production)) {
   check(false, `network ${difference} differs from compose.yaml`);
+}
+
+const testProvisioner = development.services?.['opencode-test-provisioner'];
+check(Boolean(testProvisioner), 'compose.yaml must include the local fake provisioner');
+if (testProvisioner) {
+  check(
+    Object.keys(testProvisioner.networks ?? {}).join(',') === 'opencode-runtime',
+    'local fake provisioner must attach only to the internal opencode-runtime network'
+  );
+  check((testProvisioner.ports ?? []).length === 0, 'local fake provisioner must not publish a host port');
+  check((testProvisioner.volumes ?? []).length === 0, 'local fake provisioner must not mount persistent or host data');
+  check((testProvisioner.cap_drop ?? []).includes('ALL'), 'local fake provisioner must drop all capabilities');
+  check(testProvisioner.read_only === true, 'local fake provisioner must have a read-only root filesystem');
 }
 
 // Critical production values must fail closed in the raw file. Rendered config
@@ -159,18 +185,61 @@ check(
   'production browser-runner must default to the deploy-staged seccomp profile'
 );
 check(
+  production.services?.worker?.environment?.OPENCODE_PROVISIONER_TOKEN === '',
+  'production worker must receive no provisioner token by default, so it cannot start execution'
+);
+check(
+  production.services?.worker?.environment?.OPENCODE_PROVISIONER_URL === 'http://opencode-provisioner:4090',
+  'production worker must target the real isolated provisioner, not the local fake'
+);
+check(
+  !networkNames(production.services?.worker).includes('opencode-egress'),
+  'production worker must never join the provider-egress network'
+);
+const productionProvisioner = production.services?.['opencode-provisioner'];
+check(
+  productionProvisioner?.profiles?.includes('opencode-runtime') === true,
+  'production provisioner must remain profile-gated'
+);
+check(
+  productionProvisioner?.read_only === true && (productionProvisioner?.cap_drop ?? []).includes('ALL'),
+  'production provisioner must stay read-only with all capabilities dropped'
+);
+check(
+  (productionProvisioner?.ports ?? []).length === 0,
+  'production provisioner must not publish a host port'
+);
+check(
+  (productionProvisioner?.volumes ?? []).some((volume) => volume.source === '/var/run/docker.sock'),
+  'production provisioner must be the only service with the Docker socket'
+);
+check(
+  stable(networkNames(productionProvisioner)) === stable(['opencode-egress', 'opencode-runtime']),
+  'production provisioner must join the internal runtime network and the egress network only'
+);
+check(
+  stable(networkNames(production.services?.worker)) === stable(['backend', 'opencode-runtime']),
+  'production worker must join backend and the internal runtime network only'
+);
+check(
   production.services?.searxng?.volumes?.some(
     (volume) => volume.source === '/opt/stacks/agent-tasks/docker/searxng/settings.yml'
   ) === true,
   'production SearXNG must default to the host-only settings file'
 );
 
-for (const [name, dev] of Object.entries(development.services ?? {})) {
+for (const [name, dev] of Object.entries(sharedDevelopmentServices)) {
   const prod = production.services?.[name];
   check(Boolean(prod), `production is missing service ${name}`);
   if (!prod) continue;
 
-  for (const field of sharedServiceFieldDifferences(dev, prod)) {
+  const devComparable = name === 'worker'
+    ? comparableWorker(dev, true)
+    : name === 'opencode-provisioner' ? comparableProvisioner(dev) : dev;
+  const prodComparable = name === 'worker'
+    ? comparableWorker(prod, false)
+    : name === 'opencode-provisioner' ? comparableProvisioner(prod) : prod;
+  for (const field of sharedServiceFieldDifferences(devComparable, prodComparable)) {
     check(
       false,
       `${name}.${field} differs from compose.yaml (production may only differ where documented)`
@@ -210,6 +279,25 @@ for (const [name, dev] of Object.entries(development.services ?? {})) {
       `${name} networks differ from compose.yaml`
     );
   }
+}
+
+function comparableProvisioner(service) {
+  const normalized = structuredClone(service);
+  normalized.environment ??= {};
+  // Both renders share the same example env; only the fixture token injected for
+  // the root/local render differs, and neither value is a real secret.
+  normalized.environment.OPENCODE_PROVISIONER_TOKEN = '<provisioner-token>';
+  return normalized;
+}
+
+function comparableWorker(service, local) {
+  const normalized = structuredClone(service);
+  normalized.environment ??= {};
+  normalized.environment.OPENCODE_PROVISIONER_URL = '<internal-provisioner>';
+  normalized.environment.OPENCODE_PROVISIONER_TOKEN = '<provisioner-token>';
+  if (local) delete normalized.depends_on?.['opencode-test-provisioner'];
+  if (!local) delete normalized.profiles;
+  return normalized;
 }
 
 if (failures.length > 0) {

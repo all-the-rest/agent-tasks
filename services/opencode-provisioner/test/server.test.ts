@@ -15,7 +15,7 @@ const input = {
     headers: { 'x-tenant-token': 'must-not-persist-header' },
     sessionHeader: 'x-opencode-session', timeoutMs: 60_000,
   },
-  model: { providerID: 'existing-provider', id: 'model-a' },
+  model: { id: 'model-a' },
   apiKey: 'must-not-be-persisted',
   systemPrompt: 'Prompt policy goes here', maxAgentSteps: 9, maxOutputBytes: 8_192,
 };
@@ -40,7 +40,7 @@ describe('isolated OpenCode provisioner service', () => {
       response: {
         baseUrl: `${baseUrl}/v1/runtime/${request.lease.executionId}/`,
         password: 'p'.repeat(64), directory: '/workspace',
-        model: { providerID: 'agent_tasks', id: request.model.id },
+        model: { providerID: 'agent_tasks', id: request.model.id, ...(request.model.variant ? { variant: request.model.variant } : {}) },
       },
     }));
     baseUrl = await listen(createProvisionerServer({ token, provision }));
@@ -49,7 +49,7 @@ describe('isolated OpenCode provisioner service', () => {
     const runtime = await client.open({
       lease, providerKind: 'openai-compatible',
       providerContext: { apiKey: 'fake-key', config: input.provider },
-      model: 'model-a', systemPrompt: 'test', maxAgentSteps: 4, maxOutputBytes: 8192,
+      model: { id: 'model-a' }, systemPrompt: 'test', maxAgentSteps: 4, maxOutputBytes: 8192,
       toolBridge: bridge,
     });
     expect(runtime.model.id).toBe('model-a');
@@ -57,6 +57,55 @@ describe('isolated OpenCode provisioner service', () => {
     expect(provision.mock.calls[0]?.[0]).toMatchObject({
       lease, apiKey: 'fake-key', model: { id: 'model-a' }, toolBridge: bridge,
     });
+  });
+
+  it('carries model#variant as a separate reasoning effort through the real request contract', async () => {
+    let baseUrl = '';
+    const provision = vi.fn(async (request) => ({
+      state: { executionId: request.lease.executionId },
+      response: {
+        baseUrl: `${baseUrl}/v1/runtime/${request.lease.executionId}/`,
+        password: 'p'.repeat(64), directory: '/workspace',
+        model: { providerID: 'agent_tasks', id: request.model.id, ...(request.model.variant ? { variant: request.model.variant } : {}) },
+      },
+    }));
+    baseUrl = await listen(createProvisionerServer({ token, provision }));
+    const client = new HttpOpenCodeProvisioner(baseUrl, token);
+    const runtime = await client.open({
+      lease, providerKind: 'openai-compatible',
+      providerContext: { apiKey: 'fake-key', config: input.provider },
+      model: { id: 'model-a', variant: 'high' }, systemPrompt: 'test', maxAgentSteps: 4, maxOutputBytes: 8192,
+    });
+    expect(runtime.model).toEqual({ providerID: 'agent_tasks', id: 'model-a', variant: 'high' });
+    expect(provision.mock.calls[0]?.[0].model).toEqual({ id: 'model-a', variant: 'high' });
+  });
+
+  it('rejects unsplit ids, unknown variants and undeclared models before provisioning', async () => {
+    const provision = vi.fn();
+    const baseUrl = await listen(createProvisionerServer({ token, provision }));
+    const post = (model: unknown) => globalThis.fetch(`${baseUrl}/v1/runtimes/open`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...input, model }),
+    });
+    expect((await post({ id: 'model-a#high' })).status).toBe(502);
+    expect((await post({ id: 'model-a', variant: 'bogus' })).status).toBe(502);
+    expect((await post({ id: 'not-configured', variant: 'high' })).status).toBe(502);
+    expect(provision).not.toHaveBeenCalled();
+  });
+
+  it('declares every supported variant so the runtime maps it to reasoning effort', () => {
+    const config = runtimeConfig({ ...input, model: { id: 'model-a', variant: 'high' } }, 'http://opencode-provisioner:4090/provider');
+    // The catalog id stays the base model; the variant is a session choice.
+    expect(config.model).toBe('agent_tasks/model-a');
+    expect(config.providers.agent_tasks.models['model-a'].variants).toEqual([
+      { id: 'none', body: { reasoning_effort: 'none' } },
+      { id: 'minimal', body: { reasoning_effort: 'minimal' } },
+      { id: 'low', body: { reasoning_effort: 'low' } },
+      { id: 'medium', body: { reasoning_effort: 'medium' } },
+      { id: 'high', body: { reasoning_effort: 'high' } },
+      { id: 'xhigh', body: { reasoning_effort: 'xhigh' } },
+    ]);
   });
   it('builds a tool-denying provider config without storing credentials', () => {
     const config = runtimeConfig(input, 'http://opencode-provisioner:4090/provider');
@@ -84,8 +133,40 @@ describe('isolated OpenCode provisioner service', () => {
     expect(JSON.stringify(config)).not.toContain('egress-token');
   });
 
-  it('registers the worker MCP bridge and allows exactly its namespaced tools', () => {
-    const bridgeToken = 'b'.repeat(43);
+  it('sets tool_call only from explicit catalog metadata, never from an absent value', () => {
+    const capable = runtimeConfig(input, 'http://opencode-provisioner:4090/provider');
+    expect(capable.providers.agent_tasks.models['model-a'].tool_call).toBe(true);
+    const toolLess = runtimeConfig({
+      ...input,
+      provider: { ...input.provider, models: [{ id: 'model-a', label: 'Model A', supportsTools: false }] },
+    }, 'http://opencode-provisioner:4090/provider');
+    expect(toolLess.providers.agent_tasks.models['model-a'].tool_call).toBe(false);
+    const unknown = runtimeConfig({
+      ...input,
+      provider: { ...input.provider, models: [{ id: 'model-a', label: 'Model A' }] },
+    }, 'http://opencode-provisioner:4090/provider');
+    expect(unknown.providers.agent_tasks.models['model-a'].tool_call).toBe(false);
+  });
+
+  it('refuses a tool bridge for a model that is not explicitly tool-capable', async () => {
+    const provision = vi.fn();
+    const baseUrl = await listen(createProvisionerServer({ token, provision }));
+    for (const supportsTools of [false, undefined]) {
+      const response = await globalThis.fetch(`${baseUrl}/v1/runtimes/open`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...input,
+          provider: { ...input.provider, models: [{ id: 'model-a', label: 'Model A', supportsTools }] },
+          toolBridge: { token: 'b'.repeat(43), tools: ['compose_email'] },
+        }),
+      });
+      expect(response.status, `supportsTools=${supportsTools}`).toBe(502);
+    }
+    expect(provision).not.toHaveBeenCalled();
+  });
+
+  it('registers the worker MCP bridge and allows exactly its namespaced tools', () => {    const bridgeToken = 'b'.repeat(43);
     const tools = ['compose_email', 'add_email_block'];
     const config = runtimeConfig({ ...input, toolBridge: { token: bridgeToken, tools } }, 'http://opencode-provisioner:4090/provider');
     expect(config.mcp.servers).toEqual({

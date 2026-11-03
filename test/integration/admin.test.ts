@@ -11,6 +11,56 @@ afterEach(async () => {
 });
 
 describe('administrator invariants', () => {
+  it('writes an audit row for every sensitive administrative action', async () => {
+    harness = await createHarness();
+    const admin = await bootstrapAdmin(harness);
+
+    const invited = await harness.app.inject({
+      method: 'POST',
+      url: '/api/admin/invitations',
+      headers: { cookie: admin.cookie },
+      payload: { email: 'audited@example.com', role: 'USER' },
+    });
+    expect(invited.statusCode, invited.body).toBe(201);
+
+    const settings = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+      payload: { allowRegistration: false },
+    });
+    expect(settings.statusCode, settings.body).toBe(200);
+
+    const provider = await harness.app.inject({
+      method: 'POST',
+      url: '/api/admin/providers',
+      headers: { cookie: admin.cookie },
+      payload: { name: 'Audited provider', kind: 'openai-compatible', config: { baseUrl: 'http://mock:8080/v1' } },
+    });
+    expect(provider.statusCode, provider.body).toBe(201);
+    const providerId = provider.json().id as string;
+
+    const revoked = await harness.app.inject({
+      method: 'DELETE',
+      url: `/api/admin/providers/${providerId}`,
+      headers: { cookie: admin.cookie },
+    });
+    expect(revoked.statusCode, revoked.body).toBe(204);
+
+    const rows = await harness.db.pool.query(
+      'select action, target_type, target_id from audit_logs where actor_id = $1 order by created_at',
+      [admin.id],
+    );
+    const actions = rows.rows.map((row) => row.action);
+    for (const expected of ['setup.completed', 'user.invited', 'settings.updated', 'provider.created', 'provider.deleted']) {
+      expect(actions, JSON.stringify(rows.rows)).toContain(expected);
+    }
+    const providerEvent = rows.rows.find((row) => row.action === 'provider.created');
+    // Audit metadata must identify the target without storing the credential.
+    expect(providerEvent).toMatchObject({ target_type: 'provider', target_id: providerId });
+    expect(JSON.stringify(rows.rows)).not.toContain('mock-api-key');
+  });
+
   it('does not expose legacy per-agent limits through system settings', async () => {
     harness = await createHarness();
     const admin = await bootstrapAdmin(harness);

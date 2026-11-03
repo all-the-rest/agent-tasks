@@ -11,6 +11,7 @@ import {
   providerBaseUrl,
   providerConfigNeedsUpdate,
   providerHeaderNames,
+  withModelToolSupport,
 } from '../lib/provider-config';
 import { AdminTabs } from '../components/AdminTabs';
 import {
@@ -195,10 +196,18 @@ export function AdminProvidersPage() {
   // the next task's preselection follows it without a redeploy. The config sent back
   // still carries the `***` header sentinel, which the API resolves server-side.
   const saveModelPolicy = useMutation({
-    mutationFn: (input: { provider: AdminProvider; disabledModels?: string[]; defaultModel?: string }) => {
-      const config = buildProviderUpdateConfig(input.provider.config, providerBaseUrl(input.provider.config));
+    mutationFn: (input: {
+      provider: AdminProvider;
+      disabledModels?: string[];
+      defaultModel?: string;
+      toolSupport?: { modelId: string; supportsTools: boolean };
+    }) => {
+      let config = buildProviderUpdateConfig(input.provider.config, providerBaseUrl(input.provider.config));
       if (input.disabledModels !== undefined) config.disabledModels = input.disabledModels;
       if (input.defaultModel !== undefined) config.defaultModel = input.defaultModel;
+      if (input.toolSupport) {
+        config = withModelToolSupport(config, input.toolSupport.modelId, input.toolSupport.supportsTools);
+      }
       return api.admin.updateProvider(input.provider.id, { config });
     },
     onSuccess: async () => {
@@ -256,6 +265,9 @@ export function AdminProvidersPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="truncate font-bold">{provider.name}</h2>
                         <span className="badge badge-ghost badge-sm">{kindLabel(provider.kind, t)}</span>
+                        {!provider.executable ? (
+                          <span className="badge badge-warning badge-sm">{t('admin.providerNotExecutable')}</span>
+                        ) : null}
                         {provider.isDefault ? (
                           <span className="badge badge-primary badge-sm">{t('admin.defaultProvider')}</span>
                         ) : null}
@@ -280,6 +292,9 @@ export function AdminProvidersPage() {
                           <p className="text-sm font-semibold">{t('admin.modelCatalog')}</p>
                           <span className="badge badge-ghost badge-sm">{provider.models.length}</span>
                         </div>
+                        {provider.executable ? (
+                          <p className="mt-1 text-xs opacity-70">{t('admin.modelToolsHint')}</p>
+                        ) : null}
                         {provider.models.length === 0 ? (
                           <p className="mt-1 text-xs opacity-70">{t('admin.modelCatalogEmpty')}</p>
                         ) : (
@@ -293,6 +308,21 @@ export function AdminProvidersPage() {
                                   {model.label ? <span className="opacity-70">{model.label}</span> : null}
                                   {model.supportsTools ? (
                                     <span className="badge badge-ghost badge-xs">{t('admin.modelSupportsTools')}</span>
+                                  ) : null}
+                                  {provider.executable ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-xs btn-ghost"
+                                      disabled={saveModelPolicy.isPending}
+                                      onClick={() =>
+                                        saveModelPolicy.mutate({
+                                          provider,
+                                          toolSupport: { modelId: model.id, supportsTools: !model.supportsTools },
+                                        })
+                                      }
+                                    >
+                                      {model.supportsTools ? t('admin.disableTools') : t('admin.enableTools')}
+                                    </button>
                                   ) : null}
                                   {model.contextLength ? (
                                     <span className="opacity-60">{t('admin.modelContext', { count: model.contextLength })}</span>

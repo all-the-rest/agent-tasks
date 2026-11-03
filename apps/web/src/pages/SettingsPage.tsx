@@ -551,6 +551,9 @@ export function SettingsPage() {
                       {provider.kind}
                       {provider.baseUrl ? ` · ${provider.baseUrl}` : ''}
                     </p>
+                    {provider.executable === false ? (
+                      <p className="text-xs text-warning">{t('settings.providerNotExecutable')}</p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span

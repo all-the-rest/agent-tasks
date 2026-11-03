@@ -421,8 +421,8 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Sources and confidence | ✅+ | Unique per URL, excerpt stored |
 | Token usage and duration | ✅+ | `usage` JSON, `duration_ms` |
 | Cancel / retry / export | ✅+ | Markdown and JSON export (`tasks.ts:404-426`); the reference exposes cancel implicitly |
-| "Nothing to report" as an outcome | 🟡 | `emptyReport()` exists; no suppression or distinct state |
-| Notification only when relevant | ❌ | With e-mail enabled, every completed run sends — even when the report says nothing changed |
+| "Nothing to report" as an outcome | ✅ | Each completed run stores `report.change` (`first` / `changed` / `unchanged` / `unknown`) against the previous completed run of the same task |
+| Notification only when relevant | ✅ | `notification: "email_on_change"` suppresses the e-mail when the report text is unchanged; a changed or uncomparable report is always delivered |
 | Concurrency guard per task | 🟡 | Run-now refuses while a run is active; the scheduler only dedupes per occurrence. Concurrency is limited per **user** (`quota.ts:29-31`), not per task |
 
 **Lifecycle, sharing, compliance**
@@ -510,7 +510,7 @@ Kept deliberately, per §5:
 - [x] Unread runs and an inbox-style review surface with an explicit per-run read action
 - [x] Prompt-first creation with a confirmable draft
 - [x] End condition: never / on a date / after N scheduled bookings (manual runs and retries do not count)
-- [ ] "Nothing to report" outcome that suppresses notification
+- [x] "Nothing to report" outcome that suppresses notification
 - [ ] Notification channels beyond e-mail, with per-feature settings
 - [ ] Share snapshot with copy-on-adopt and revoke
 - [ ] Destination: continue an existing thread or start a standalone run

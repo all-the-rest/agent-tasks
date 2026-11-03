@@ -5,7 +5,7 @@ function response(body: unknown, status = 200): Response {
   return new Response(body === undefined ? null : JSON.stringify(body), { status });
 }
 
-describe('OpenCode V2 HTTP adapter spike', () => {
+describe('OpenCode V2 HTTP adapter', () => {
   it('creates a location-scoped session without overriding agent permissions', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response({ data: { id: 'ses_1' } }));
     const client = new OpenCodeV2Client({ baseUrl: 'http://opencode.test/', password: 'secret', fetch: fetchMock });
@@ -16,6 +16,16 @@ describe('OpenCode V2 HTTP adapter spike', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       location: { directory: '/workspace' },
       model: { providerID: 'openai', id: 'gpt-test' },
+    });
+  });
+
+  it('sends the base model with its reasoning variant in the session model', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response({ data: { id: 'ses_variant' } }));
+    const client = new OpenCodeV2Client({ baseUrl: 'http://opencode.test/', password: 'secret', fetch: fetchMock });
+    await client.createSession({ directory: '/workspace', model: { providerID: 'agent_tasks', id: 'model-a', variant: 'high' } });
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toEqual({
+      location: { directory: '/workspace' },
+      model: { providerID: 'agent_tasks', id: 'model-a', variant: 'high' },
     });
   });
 

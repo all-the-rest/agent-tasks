@@ -2,15 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PgBoss } from 'pg-boss';
 import { SecretBox } from '@agent-tasks/ai-providers';
-import { createMockOpenAiServer } from '@agent-tasks/mock-openai';
-import type { MockServer } from '@agent-tasks/mock-openai';
 import { Executor } from '../../apps/worker/src/executor';
 import type { WorkerEnv } from '../../apps/worker/src/env';
 import { bootstrapAdmin, createHarness } from '../helpers/harness';
 import type { TestHarness } from '../helpers/harness';
+import { FakeOpenCodeProvisioner } from '../helpers/fake-opencode';
 
 let harness: TestHarness;
-let mock: MockServer;
+let openCode: FakeOpenCodeProvisioner;
 let ownerId: string;
 let providerId: string;
 let taskId: string;
@@ -27,6 +26,8 @@ function workerEnv(): WorkerEnv {
     RUNNER_TOKEN: 'memory-execution-runner-token',
     PUBLIC_BASE_URL: 'http://localhost:8080',
     WORKER_CONCURRENCY: 1,
+    OPENCODE_PROVISIONER_URL: 'http://fake-opencode.invalid:4090',
+    OPENCODE_PROVISIONER_TOKEN: 'integration-fake-provisioner-token-0123456789',
     LOG_LEVEL: 'silent',
   };
 }
@@ -44,29 +45,27 @@ async function newExecution(): Promise<string> {
 }
 
 async function run(executionId: string): Promise<void> {
-  const executor = new Executor({ db: harness.db.db, env: workerEnv(), boss: bossStub, workerId: 'memory-test-worker' });
+  const executor = new Executor({
+    db: harness.db.db,
+    env: workerEnv(),
+    boss: bossStub,
+    workerId: 'memory-test-worker',
+    openCodeRunner: openCode.runner(harness.db.db),
+  });
   await executor.handle(executionId);
   const row = await harness.db.pool.query('select status, error from executions where id = $1', [executionId]);
   expect(row.rows[0].status, row.rows[0].error).toBe('completed');
 }
 
 function systemPrompts(): string[] {
-  return mock.requests
-    .map((request) => {
-      const messages = (request.body?.messages as Array<{ role?: string; content?: unknown }> | undefined) ?? [];
-      return messages.filter((message) => message.role === 'system').map((message) => String(message.content ?? '')).join('\n');
-    })
-    .filter(Boolean);
+  return openCode.requests.map((request) => request.systemPrompt);
 }
 
 beforeAll(async () => {
   harness = await createHarness();
-  const owner = await bootstrapAdmin(harness, `memory-owner-${randomUUID()}@example.com`, 'memory-owner-password-123');
-  ownerId = owner.id;
-  ownerCookieValue = owner.cookie;
-  mock = await createMockOpenAiServer({
-    researchSteps: 0,
-    requireStableSession: false,
+  openCode = new FakeOpenCodeProvisioner();
+  await openCode.start();
+  openCode.defaultPlan = {
     memoryOps: [{ category: 'finding', content: MEMORY_TEXT, semanticKey: 'finding.alpha-price' }],
     recommendationOps: [
       {
@@ -78,10 +77,13 @@ beforeAll(async () => {
         metadata: { price: 42 },
       },
     ],
-  });
+  };
+  const owner = await bootstrapAdmin(harness, `memory-owner-${randomUUID()}@example.com`, 'memory-owner-password-123');
+  ownerId = owner.id;
+  ownerCookieValue = owner.cookie;
   providerId = (await harness.db.pool.query(
     `insert into providers (id, name, kind, enabled, is_default, config) values ($1,$2,'openai-compatible',true,true,$3) returning id`,
-    [randomUUID(), `Memory mock ${randomUUID()}`, JSON.stringify({ baseUrl: mock.url, models: [{ id: 'mock-researcher', supportsTools: true }] })],
+    [randomUUID(), `Memory mock ${randomUUID()}`, JSON.stringify({ baseUrl: 'https://provider.invalid/v1', models: [{ id: 'mock-researcher', supportsTools: true }] })],
   )).rows[0].id;
   const box = new SecretBox(harness.env.SECRETS_ENCRYPTION_KEY);
   await harness.db.pool.query(
@@ -110,11 +112,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await mock.close();
+  await openCode.close();
   await harness.close();
 });
 
-describe('automatic task learning across real executions', () => {
+describe('automatic task learning across provisioned fake executions', () => {
   it('persists structured task memory and recommendations only after success', async () => {
     const executionId = await newExecution();
     await run(executionId);
@@ -130,8 +132,10 @@ describe('automatic task learning across real executions', () => {
     const global = await harness.db.pool.query('select count(*)::int as count from memories where owner_id = $1 and scope = $2', [ownerId, 'global']);
     expect(global.rows[0].count).toBe(0);
 
+    // The provisioned runtime records one execution step; the validated memory
+    // operations are applied by the worker after the run and journaled separately.
     const steps = await harness.db.pool.query(`select tool, ok from execution_steps where execution_id = $1 order by step`, [executionId]);
-    expect(steps.rows.map((step) => step.tool)).toEqual(['record_task_memory', 'track_recommendation']);
+    expect(steps.rows.map((step) => step.tool)).toEqual(['opencode']);
     expect(steps.rows.every((step) => step.ok)).toBe(true);
 
     const changes = await harness.db.pool.query('select action from memory_changes where execution_id = $1', [executionId]);
@@ -220,10 +224,12 @@ describe('automatic task learning across real executions', () => {
     expect(lastPrompt).not.toContain(corrected);
     expect(lastPrompt).not.toContain('alpha price is 42 units');
 
-    // Old execution steps are a separate history. They still record what the model
-    // proposed, but nothing reconstructs memory from them after deletion.
-    const historical = await harness.db.pool.query(`select args::text as args from execution_steps where tool = 'record_task_memory'`);
-    expect(historical.rows.some((row: { args: string }) => row.args.includes('alpha price'))).toBe(true);
+    // Execution steps record only the runtime invocation; memory proposals live in
+    // the journal, so nothing can replay a memory from step history after deletion.
+    const historical = await harness.db.pool.query(
+      `select count(*)::int as count from execution_steps where tool in ('record_task_memory', 'track_recommendation')`,
+    );
+    expect(historical.rows[0].count).toBe(0);
 
     const recommendationAfter = await harness.db.pool.query('select status from recommendations where id = $1', [recommendationId]);
     expect(recommendationAfter.rows[0].status).toBe('accepted');
@@ -240,8 +246,13 @@ describe('automatic task learning across real executions', () => {
     const executionId = await newExecution();
     await run(executionId);
     const steps = await harness.db.pool.query('select tool, ok from execution_steps where execution_id = $1', [executionId]);
-    expect(steps.rows.length).toBeGreaterThan(0);
-    expect(steps.rows.every((row: { ok: boolean }) => row.ok === false)).toBe(true);
+    expect(steps.rows.map((row: { tool: string }) => row.tool)).toEqual(['opencode']);
+    expect(steps.rows.every((row: { ok: boolean }) => row.ok === true)).toBe(true);
+    // With learning off the bridge offers no memory tools, so the model's scripted
+    // memory operations are never dispatched and no journal entry is written.
+    expect(openCode.toolCalls.filter((call) => call.executionId === executionId)).toEqual([]);
+    const changes = await harness.db.pool.query('select count(*)::int as count from memory_changes where execution_id = $1', [executionId]);
+    expect(changes.rows[0].count).toBe(0);
     const memoryAfter = await harness.db.pool.query('select count(*)::int as count from memories where task_id = $1', [taskId]);
     expect(memoryAfter.rows[0].count).toBe(memoryBefore.rows[0].count);
   }, 120_000);

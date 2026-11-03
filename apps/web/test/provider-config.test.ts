@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   REDACTED_HEADER_VALUE,
   buildProviderUpdateConfig,
+  declaredModels,
   disabledModelIds,
   preferredModelId,
   providerBaseUrl,
   providerConfigNeedsUpdate,
   providerHeaderNames,
+  withModelToolSupport,
 } from '../src/lib/provider-config';
 
 describe('provider config editing', () => {
@@ -51,5 +53,23 @@ describe('provider config editing', () => {
   it('reads hidden models defensively', () => {
     expect(disabledModelIds({ disabledModels: ['model-b', 3] })).toEqual(['model-b']);
     expect(disabledModelIds({})).toEqual([]);
+  });
+
+  it('records an explicit tool capability for a catalog model without losing metadata', () => {
+    const config = withModelToolSupport(
+      { baseUrl: 'https://api.example.com/v1', models: [{ id: 'model-a', label: 'Model A', contextLength: 32_000 }] },
+      'model-a',
+      true,
+    );
+    expect(config.models).toEqual([{ id: 'model-a', label: 'Model A', contextLength: 32_000, supportsTools: true }]);
+
+    const added = withModelToolSupport({ baseUrl: 'https://api.example.com/v1' }, 'model-b', false);
+    expect(added.models).toEqual([{ id: 'model-b', supportsTools: false }]);
+  });
+
+  it('reads the admin-declared metadata defensively', () => {
+    expect(declaredModels({ models: [{ id: 'model-a', supportsTools: true }, { id: 1 }, null, { id: 'model-b', label: 'B' }] }))
+      .toEqual([{ id: 'model-a', supportsTools: true }, { id: 'model-b', label: 'B' }]);
+    expect(declaredModels({})).toEqual([]);
   });
 });

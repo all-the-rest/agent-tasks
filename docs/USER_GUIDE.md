@@ -163,11 +163,16 @@ place a provider is configured: the deployment environment never seeds one and
 never carries an inference key.
 
 The card lists the discovered catalog. Mark one model as the default for new
-tasks, hide models the task editor should not offer, and read the last health
-result with its timestamp; **Audit log** shows who changed the connection. The
-default and hidden choices are stored in the provider config, so a later model
-refresh keeps them. The key itself is never shown again — the dialog only offers
-to set or rotate it.
+tasks, mark the models that really support tools with **Enable tools** (tasks
+that use research or memory require it), hide models the task editor
+should not offer, and read the last health result with its timestamp; **Audit
+log** shows who changed the connection. The default and hidden choices are stored
+in the provider config, so a later model refresh keeps them. The key itself is
+never shown again — the dialog only offers to set or rotate it.
+
+Only `openai-compatible` providers run tasks. Other kinds stay visible here and
+under Settings for credential management, marked **not executable**; the task
+editor lists only providers the worker can execute.
 
 German UI: [Anbieter](images/admin-providers.de.png).
 

@@ -85,6 +85,8 @@ Before the active stack is changed, the remote preflight checks:
     PUBLIC_BASE_URL with a host name
   - RUNNER_TOKEN is set on worker and browser-runner with the same value and is
     absent from api (the token never belongs to the API service)
+  - OPENCODE_PROVISIONER_TOKEN is set on the worker: the worker has no fallback
+    execution path, so a deploy without it would only create a restart loop
   - the rendered project name is exactly agent-tasks
   - webnet exists with exactly subnet 172.18.0.0/16 and gateway 172.18.0.1
   - the host-only SearXNG settings exist and are not a placeholder when the
@@ -223,6 +225,23 @@ if [ "$dry_run" -eq 0 ]; then
   umask 077
   mkdir -p -- "$ssh_control_dir"
   chmod 700 "$ssh_control_dir"
+fi
+
+# Source-controlled release interlock. The isolated OpenCode runtime is the
+# worker's only execution path, and its production verification gates are still
+# open. Deploying would push a worker that exits at startup and restart-loops,
+# because the same preflight refuses the runtime profile. A file (not an
+# environment value) is used deliberately: no host .env or token can bypass it.
+# Remove it in the same reviewed change that closes the gates in
+# docs/architecture/opencode-runtime-isolation.md.
+if [ ! -f "${script_dir}/OPENCODE_RUNTIME_APPROVED" ]; then
+  if [ "$dry_run" -eq 1 ]; then
+    printf 'dry-run: production execution is blocked until the OpenCode runtime gates pass (%s is absent)\n' "${script_dir}/OPENCODE_RUNTIME_APPROVED" >&2
+  else
+    echo "deploy: production execution is blocked: the isolated OpenCode runtime is required and its verification gates are still open." >&2
+    echo "        A deploy now would leave the worker in a restart loop. See docs/architecture/opencode-runtime-isolation.md." >&2
+    exit 1
+  fi
 fi
 
 run() {
@@ -469,13 +488,16 @@ for volume in postgres_volumes:
 if postgres_volume_name != "agent-tasks_postgres-data":
     fail("POSTGRES_VOLUME:name")
 
-# The optional mail profile publishes Mailpit on every host interface. Production
-# sends through an external relay instead, so an active mail profile fails closed.
+# The optional mail profile publishes Mailpit on every host interface. The
+# OpenCode profile mounts the Docker socket and enables provider egress; both
+# remain disabled in production until their respective configuration is approved.
 for name in services:
     profiles = service(name).get("profiles")
     profiles = profiles if isinstance(profiles, list) else []
     if "mail" in profiles or name in ("mailpit", "spamassassin"):
         fail("MAIL:unsupported")
+    if "opencode-runtime" in profiles or name == "opencode-provisioner":
+        fail("OPENCODE_RUNTIME:unsupported")
 
 auth_secret = require(api, "AUTH_SECRET")
 if len(auth_secret) < 32:
@@ -504,6 +526,18 @@ if runner_token != runner_token_runner:
     fail("RUNNER_TOKEN:mismatch")
 if text(api, "RUNNER_TOKEN") != "":
     fail("RUNNER_TOKEN:wrong-service")
+
+# The worker has no non-OpenCode execution path: an empty provisioner token makes
+# it exit at startup, before queue registration. Refuse the deploy instead of
+# leaving a restart loop on the host. Enabling the token also requires the
+# profile, which the profile check above rejects until the gates pass.
+provisioner_token = text(worker, "OPENCODE_PROVISIONER_TOKEN")
+if provisioner_token == "":
+    fail("OPENCODE_PROVISIONER_TOKEN:runtime-disabled")
+if placeholder(provisioner_token):
+    fail("OPENCODE_PROVISIONER_TOKEN:placeholder")
+if len(provisioner_token) < 32:
+    fail("OPENCODE_PROVISIONER_TOKEN:short")
 
 public_url = require(api, "PUBLIC_BASE_URL")
 try:
@@ -613,8 +647,14 @@ effective_report=$(
     wrong) fail "$key must be agent-tasks (the deploy pins -p agent-tasks)" ;;
     mismatch) fail "$key must be identical on worker and browser-runner in the effective Compose configuration" ;;
     wrong-service) fail "$key must be set on worker and browser-runner only, never on api" ;;
+    runtime-disabled) fail "$key is empty: the isolated runtime is disabled in production, so the worker would exit before queue registration. Production deploys stay blocked until the verification gates pass (docs/architecture/opencode-runtime-isolation.md)" ;;
     name) fail "$key must resolve to the Docker volume agent-tasks_postgres-data mounted at /var/lib/postgresql/data; a different name would start an empty database" ;;
-    unsupported) fail "the mail profile must not be active in production; Mailpit publishes ports on all interfaces, use SMTP_URL with an external relay instead" ;;
+    unsupported)
+      case "$key" in
+        MAIL) fail "the mail profile must not be active in production; Mailpit publishes ports on all interfaces, use SMTP_URL with an external relay instead" ;;
+        OPENCODE_RUNTIME) fail "the OpenCode runtime profile must remain disabled in production until the documented provider, egress, MCP and credential verification gates pass" ;;
+      esac
+      ;;
     *) fail "the effective Compose configuration is invalid ($code)" ;;
   esac
 }

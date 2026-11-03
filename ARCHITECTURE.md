@@ -50,17 +50,19 @@ decrypted provider key; keys live AES-256-GCM encrypted in `provider_credentials
 not in environment variables. There is no built-in vendor default: the provider
 record carries the base URL.
 
-The Ollama adapter remains in `packages/ai-providers` for local development and is
-not part of the production deployment. See
-[`docs/architecture/providers.md`](docs/architecture/providers.md).
+The legacy Ollama, `openai` and Codex adapters remain in `packages/ai-providers` as
+development or experimental code, but the worker executor accepts only
+`openai-compatible`. See [`docs/architecture/providers.md`](docs/architecture/providers.md).
 
-OpenCode 2.x is also built as a separate, version-pinned `opencode` service on a
-private network shared only with the worker. It has its own persistent data volume,
-no public port, database access, or browser-runner access. The V2 HTTP adapter and
-container are an integration spike only: task execution still uses the legacy worker
-loop, and no production cutover has occurred. The OpenCode agent has a fixed 60-step
-cap and deny-by-default permissions; the V2 API does not expose equivalent per-run
-hard controls for the legacy duration, tool, page-visit, search, or output budgets.
+OpenCode 2.x is the worker's only task-execution backend. The worker calls the
+profile-gated `opencode-provisioner`, which creates a private, non-root,
+version-pinned runtime per execution with its own volumes and network. The runtime has
+no direct egress and reaches the provider only through the provisioner; structured
+output comes back through a worker-hosted MCP bridge. The OpenCode agent has a fixed
+60-step cap and deny-by-default permissions; the V2 API does not expose equivalent
+per-run hard controls for the legacy duration, tool, page-visit, search or output
+budgets. Production activation stays gated, and `deployment/deploy.sh` rejects the
+`opencode-runtime` profile.
 
 ## Request path of a scheduled task
 
@@ -71,9 +73,10 @@ hard controls for the legacy duration, tool, page-visit, search, or output budge
 2. The tick enqueues `execution-run` for each new execution.
 3. A worker atomically reserves the owner's concurrency/daily quota while claiming
    the execution (`queued → running`, lease), opens a browser session when the task
-   allows web research and runs the legacy agent loop.
-4. Each tool call is validated, executed and stored in `execution_steps`; pages that
-   are opened contribute sources.
+   allows web research and asks the provisioner for the execution's isolated OpenCode
+   runtime.
+4. Each tool call is validated through the worker-hosted MCP bridge, executed and
+   stored in `execution_steps`; pages that are opened contribute sources.
 5. The final Markdown, sources, uncertainty notes and usage are written to
    `executions`; the browser session is closed.
 

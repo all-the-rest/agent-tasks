@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
@@ -147,6 +147,7 @@ function mockCreationApi() {
       id: PROVIDER_ID,
       name: 'Default provider',
       kind: 'openai-compatible',
+      executable: true,
       isDefault: true,
       hasCredential: true,
       hasPersonalCredential: false,
@@ -332,6 +333,40 @@ describe('prompt-first task creation', () => {
     expect((await screen.findByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement).value).toBe('');
     expect(screen.getByRole('button', { name: 'Save task' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review and create task' })).toBeNull();
+  });
+
+  it('offers only providers the worker can execute', async () => {
+    mockCreationApi();
+    vi.mocked(api.providers.list).mockResolvedValue([
+      {
+        id: PROVIDER_ID,
+        name: 'Default provider',
+        kind: 'openai-compatible',
+        executable: true,
+        isDefault: true,
+        hasCredential: true,
+        hasPersonalCredential: false,
+        models: [{ id: 'mock-model', label: 'Mock model', supportsTools: true, contextLength: 32_000 }],
+      },
+      {
+        id: '123e4567-e89b-12d3-a456-426614174099',
+        name: 'Legacy Ollama',
+        kind: 'ollama',
+        executable: false,
+        isDefault: false,
+        hasCredential: true,
+        hasPersonalCredential: false,
+        models: [],
+      },
+    ]);
+    renderCreationFlow(['/tasks/new']);
+
+    const providerSelect = await screen.findByRole('combobox', { name: 'Provider' });
+    await waitFor(() => {
+      expect(within(providerSelect).getAllByRole('option').map((option) => option.textContent)).toContain('Default provider');
+    });
+    const optionNames = within(providerSelect).getAllByRole('option').map((option) => option.textContent);
+    expect(optionNames).not.toContain('Legacy Ollama');
   });
 
   it('localizes the prompt composer and its next-step action in German', async () => {

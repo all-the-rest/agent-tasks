@@ -94,8 +94,14 @@ msgstr "Zum Benutzer machen"
 msgid "admin.disable"
 msgstr "Deaktivieren"
 
+msgid "admin.disableTools"
+msgstr "Tools deaktivieren"
+
 msgid "admin.enable"
 msgstr "Aktivieren"
+
+msgid "admin.enableTools"
+msgstr "Tools aktivieren"
 
 msgid "admin.executions24h"
 msgstr "Ausführungen (24 h)"
@@ -193,6 +199,9 @@ msgstr "Modellkatalog aktualisiert."
 msgid "admin.modelSupportsTools"
 msgstr "Tools"
 
+msgid "admin.modelToolsHint"
+msgstr "Aufgaben mit Recherche oder Erinnerung brauchen ein ausdrücklich tool-fähiges Modell. Die Erkennung kann Tool-Unterstützung nicht beweisen, deshalb hier nach Prüfung markieren."
+
 msgid "admin.modelsRefreshed"
 msgstr "Modelle aktualisiert."
 
@@ -267,6 +276,9 @@ msgstr "Art"
 
 msgid "admin.providerName"
 msgstr "Name"
+
+msgid "admin.providerNotExecutable"
+msgstr "nicht ausführbar"
 
 msgid "admin.providerSaved"
 msgstr "Anbieter aktualisiert."
@@ -1516,6 +1528,9 @@ msgstr "Diese Einstellungen folgen deinem Konto über Geräte hinweg."
 msgid "settings.provider"
 msgstr "Anbieter"
 
+msgid "settings.providerNotExecutable"
+msgstr "Dieser Anbietertyp kann keine Aufgaben ausführen; er wird nur für die Schlüsselverwaltung angezeigt."
+
 msgid "settings.removeKey"
 msgstr "Schlüssel entfernen"
 
@@ -1759,6 +1774,9 @@ msgstr "Neue Aufgabe"
 msgid "tasks.nextRun"
 msgstr "Nächster Lauf"
 
+msgid "tasks.noExecutableProviders"
+msgstr "Kein Anbieter kann Aufgaben ausführen. Bitte einen Administrator bitten, einen OpenAI-kompatiblen Anbieter hinzuzufügen."
+
 msgid "tasks.noExecutions"
 msgstr "Diese Aufgabe ist noch nicht gelaufen."
 
@@ -1776,6 +1794,9 @@ msgstr "Benachrichtigung"
 
 msgid "tasks.notificationEmail"
 msgstr "E-Mail senden"
+
+msgid "tasks.notificationEmailOnChange"
+msgstr "E-Mail nur bei geändertem Bericht senden"
 
 msgid "tasks.notificationNone"
 msgstr "Keine Benachrichtigung"
@@ -1830,6 +1851,9 @@ msgstr "Anbieter"
 
 msgid "tasks.providerCredentialHint"
 msgstr "Dieser Anbieter benötigt einen persönlichen API-Schlüssel in den Einstellungen."
+
+msgid "tasks.providerNotExecutable"
+msgstr "Diese Aufgabe verwendet einen Anbieter, den der Worker nicht ausführen kann. Bitte einen OpenAI-kompatiblen Anbieter wählen."
 
 msgid "tasks.resume"
 msgstr "Fortsetzen"

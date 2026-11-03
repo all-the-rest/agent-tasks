@@ -11,24 +11,22 @@ import { HttpOpenCodeProvisioner } from './http-opencode-provisioner.js';
 
 const env = loadWorkerEnv();
 const workerId = env.WORKER_ID ?? `worker-${randomUUID().slice(0, 8)}`;
-if (env.OPENCODE_RUNTIME_ENABLED === '1' && !env.OPENCODE_PROVISIONER_TOKEN) {
-  throw new Error('OPENCODE_PROVISIONER_TOKEN is required when OPENCODE_RUNTIME_ENABLED=1');
-}
+const provisioner = new HttpOpenCodeProvisioner(env.OPENCODE_PROVISIONER_URL, env.OPENCODE_PROVISIONER_TOKEN);
+// A worker must not subscribe to queues unless the isolated runtime boundary is
+// present. A missing profile/service therefore stops startup before it can claim
+// an execution row or consume an execution job.
+await provisioner.assertAvailable();
 const database = createDatabase(env.DATABASE_URL, { max: 4 });
 const boss = await createBoss(env.DATABASE_URL);
 // One hub per worker process; each execution registers its own token and budget.
 // The provisioner proxies the runtime's MCP traffic to this port on the internal
 // network, so it is never published.
-const toolBridgeHub = env.OPENCODE_RUNTIME_ENABLED === '1'
-  ? await createToolBridgeHub({ port: 4091 })
-  : undefined;
-const openCodeRunner = env.OPENCODE_RUNTIME_ENABLED === '1'
-  ? createIsolatedOpenCodeRunner(
-      new HttpOpenCodeProvisioner(env.OPENCODE_PROVISIONER_URL, env.OPENCODE_PROVISIONER_TOKEN!),
-      new OpenCodeSessionStore(database.db),
-      toolBridgeHub,
-    )
-  : undefined;
+const toolBridgeHub = await createToolBridgeHub({ port: 4091 });
+const openCodeRunner = createIsolatedOpenCodeRunner(
+  provisioner,
+  new OpenCodeSessionStore(database.db),
+  toolBridgeHub,
+);
 const executor = new Executor({ db: database.db, env, boss, workerId, openCodeRunner });
 
 const log = (event: string, extra: Record<string, unknown> = {}): void => {

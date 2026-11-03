@@ -11,7 +11,11 @@ import { OpenCodeV2Client } from '../src/opencode-v2-client.js';
 function options(apiKey: string): RunAgentOptions {
   return {
     provider: { kind: 'openai-compatible' }, model: 'model', title: 'Research task', prompt: 'hello', timezone: 'UTC',
-    allowWebResearch: false, allowForms: false, providerContext: { apiKey, config: {} }, limits: AGENT_RUNTIME_LIMITS,
+    allowWebResearch: false, allowForms: false,
+    // The real executor always passes the merged persisted catalog; tool tests
+    // declare the capability explicitly rather than inferring it.
+    providerContext: { apiKey, config: { models: [{ id: 'model', label: 'Model', supportsTools: true }] } },
+    limits: AGENT_RUNTIME_LIMITS,
   } as RunAgentOptions;
 }
 
@@ -196,5 +200,81 @@ describe('isolated OpenCode runtime integration', () => {
     const runner = createIsolatedOpenCodeRunner({ open }, store);
     await expect(runner(options('secret'), { executionId: 'id', ownerId: 'other-owner', workerId: 'worker' })).rejects.toThrow('lease unavailable');
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('splits model#variant and forwards the base id plus reasoning effort', async () => {
+    const mappings = new Map<string, OpenCodeSessionMapping>();
+    const store = {
+      access: vi.fn(async (lease: OpenCodeExecutionLease, candidate?: OpenCodeSessionMapping) => {
+        if (candidate && !mappings.has(lease.executionId)) mappings.set(lease.executionId, candidate);
+        return mappings.get(lease.executionId) ?? null;
+      }),
+      claimPrompt: vi.fn(async () => true),
+    } as unknown as OpenCodeSessionStore;
+    const release = vi.fn(async () => undefined);
+    const sessionBodies: Array<Record<string, unknown>> = [];
+    const open = vi.fn<IsolatedOpenCodeProvisioner['open']>(async ({ model }) => {
+      expect(model).toEqual({ id: 'mock-model', variant: 'high' });
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+        const path = (url as URL).pathname;
+        if (path === '/api/session') sessionBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        const data = path === '/api/session' ? { id: 'ses_variant' }
+          : path.endsWith('/message') ? [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'answer' }] }] : {};
+        return new Response(JSON.stringify({ data }));
+      });
+      return {
+        client: new OpenCodeV2Client({ baseUrl: 'http://test.invalid', password: 'test', fetch: fetchMock }),
+        directory: '/isolated',
+        model: { providerID: 'agent_tasks', ...model },
+        release,
+      };
+    });
+    const runner = createIsolatedOpenCodeRunner({ open }, store);
+    const result = await runner({
+      ...options('owner-key'),
+      model: 'mock-model#high',
+      providerContext: { apiKey: 'owner-key', config: { models: [{ id: 'mock-model', supportsTools: true }] } },
+    }, { executionId: 'execution-variant', ownerId: 'owner', workerId: 'worker' });
+    expect(result.markdown).toBe('answer');
+    expect(open).toHaveBeenCalledOnce();
+    expect(sessionBodies[0]?.model).toEqual({ providerID: 'agent_tasks', id: 'mock-model', variant: 'high' });
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an unknown variant or an undeclared base model before provisioning', async () => {
+    const open = vi.fn<IsolatedOpenCodeProvisioner['open']>();
+    const store = { access: vi.fn(async () => null) } as unknown as OpenCodeSessionStore;
+    const runner = createIsolatedOpenCodeRunner({ open }, store);
+    const lease = { executionId: 'execution-invalid', ownerId: 'owner', workerId: 'worker' };
+    await expect(runner({ ...options('key'), model: 'mock-model#bogus' }, lease)).rejects.toThrow('unknown model variant');
+    await expect(runner({
+      ...options('key'),
+      model: 'missing-model#high',
+      providerContext: { apiKey: 'key', config: { models: [{ id: 'mock-model' }] } },
+    }, lease)).rejects.toThrow('model missing-model is not configured on its provider');
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('fails instead of running when the provisioned runtime drops the requested variant', async () => {
+    const mappings = new Map<string, OpenCodeSessionMapping>();
+    const store = {
+      access: vi.fn(async (lease: OpenCodeExecutionLease, candidate?: OpenCodeSessionMapping) => {
+        if (candidate && !mappings.has(lease.executionId)) mappings.set(lease.executionId, candidate);
+        return mappings.get(lease.executionId) ?? null;
+      }),
+    } as unknown as OpenCodeSessionStore;
+    const open = vi.fn<IsolatedOpenCodeProvisioner['open']>(async () => ({
+      client: new OpenCodeV2Client({ baseUrl: 'http://test.invalid', password: 'test', fetch: vi.fn<typeof fetch>() }),
+      directory: '/isolated',
+      model: { providerID: 'agent_tasks', id: 'mock-model' },
+      release: vi.fn(async () => undefined),
+    }));
+    const runner = createIsolatedOpenCodeRunner({ open }, store);
+    await expect(runner({
+      ...options('key'),
+      model: 'mock-model#high',
+      providerContext: { apiKey: 'key', config: { models: [{ id: 'mock-model', supportsTools: true }] } },
+    }, { executionId: 'execution-dropped', ownerId: 'owner', workerId: 'worker' }))
+      .rejects.toThrow('OpenCode model does not match the task model');
   });
 });

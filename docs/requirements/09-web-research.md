@@ -13,8 +13,8 @@ Actual discovery and page reading, not model recall.
 - [x] Visited URLs, timestamps, titles and excerpts recorded per execution
 - [x] Inaccessible pages reported honestly as errors, not invented content
 - [x] Domain/redirect validation in the browser layer
-- [ ] Respect robots.txt/tos per site — documented as an operator responsibility, not enforced
-- [ ] Captcha/paywall bypass — explicitly out of scope
+- [x] Respect robots.txt/tos per site — documented as an operator responsibility, not enforced (`docs/security/browser-isolation.md`)
+- [x] Captcha/paywall bypass — explicitly out of scope
 
 ## Evidence
 

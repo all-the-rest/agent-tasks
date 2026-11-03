@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Executor } from '../src/executor.js';
+import { Executor, modelSupportsTools } from '../src/executor.js';
 import type { WorkerEnv } from '../src/env.js';
 
 const env: WorkerEnv = {
@@ -9,13 +9,13 @@ const env: WorkerEnv = {
   RUNNER_URL: 'http://127.0.0.1:1',
   RUNNER_TOKEN: 'unit-test-runner-token',
   WORKER_CONCURRENCY: 1,
-  CODEX_HOME_ROOT: '/var/lib/agent-tasks/codex',
-  CODEX_ISOLATED_RUNNER: '0',
+  OPENCODE_PROVISIONER_URL: 'http://opencode-provisioner:4090',
+  OPENCODE_PROVISIONER_TOKEN: 'unit-test-provisioner-token-0123456789',
   LOG_LEVEL: 'silent',
 };
 
 function makeExecutor(): Executor {
-  return new Executor({ db: {} as never, env, boss: {} as never, workerId: 'unit-worker' });
+  return new Executor({ db: {} as never, env, boss: {} as never, workerId: 'unit-worker', openCodeRunner: async () => { throw new Error('not used'); } });
 }
 
 interface ExecutorInternals {
@@ -58,10 +58,21 @@ describe('executor shutdown', () => {
   });
 });
 
-describe('OpenCode feature gate', () => {
-  it('fails closed when enabled without a provisioned runtime', () => {
-    expect(() => new Executor({ db: {} as never, env: { ...env, OPENCODE_RUNTIME_ENABLED: '1' }, boss: {} as never, workerId: 'unit-worker' }))
-      .toThrow('without an isolated execution provisioner');
+describe('tool capability', () => {
+  it('never infers tool support without an explicit catalog declaration', () => {
+    expect(modelSupportsTools({ models: [{ id: 'model-a', supportsTools: true }] }, 'model-a')).toBe(true);
+    expect(modelSupportsTools({ models: [{ id: 'model-a', supportsTools: true }] }, 'model-a#high')).toBe(true);
+    expect(modelSupportsTools({ models: [{ id: 'model-a' }] }, 'model-a')).toBe(false);
+    expect(modelSupportsTools({ models: [] }, 'model-a')).toBe(false);
+    expect(modelSupportsTools({}, 'model-a')).toBe(false);
+    expect(modelSupportsTools(undefined, 'model-a')).toBe(false);
+  });
+});
+
+describe('isolated OpenCode requirement', () => {
+  it('fails closed without a provisioned runner', () => {
+    expect(() => new Executor({ db: {} as never, env, boss: {} as never, workerId: 'unit-worker', openCodeRunner: undefined } as never))
+      .toThrow('Isolated OpenCode execution provisioner is required');
     expect(() => makeExecutor()).not.toThrow();
   });
 });

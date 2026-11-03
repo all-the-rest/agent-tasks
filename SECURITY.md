@@ -21,7 +21,7 @@ within 72 hours and to publish a fix and advisory within 30 days for confirmed i
 | Browser → reverse proxy → API | HTTPS at the reverse proxy, `SameSite=Lax` cookies, origin checks; the API port binds to loopback by default |
 | API → Postgres | Private compose network only, no published port, single application role |
 | Worker → browser runner | Shared token (`RUNNER_TOKEN`), private compose network, no published port |
-| Worker → OpenCode V2 | Service Basic Auth (`OPENCODE_SERVER_PASSWORD`), private worker-only network, no published port; spike only |
+| Worker → provisioner → OpenCode runtime | Worker/provisioner bearer token on an internal network; per-execution runtimes have no direct egress and are not published. The real provisioner also has the Docker socket and provider-egress network, so its `opencode-runtime` profile is rejected by production deploys until verification passes. Local/E2E uses a fake provisioner without those capabilities. |
 | Runner → Internet | Enforcing HTTP proxy: scheme/port allowlist, DNS resolved in the proxy, all answers must be public, connection pinned to a checked IP |
 | Legacy model → tools | Allowlist of defined tools, Zod-validated arguments, fixed internal per-run bounds; form filling off |
 | Webpage → model | Retrieved text is wrapped in `UNTRUSTED EXTERNAL CONTENT` and never treated as instructions |
@@ -98,11 +98,10 @@ the real boundary. A per-execution container launcher is the documented next ste
 
 - System instructions, user prompt and retrieved content are separated; retrieved
   content is wrapped and labelled as data.
-- The legacy model can only call allowlisted tools; every call is validated and
-  counted against fixed internal per-run bounds. Neither admins nor task owners can
-  override them. OpenCode V2 is not yet wired into execution; its spike config denies
-  all permissions by default and caps agent steps, but V2 does not expose equivalent
-  per-run controls for the other legacy budgets.
+- OpenCode V2 is the worker's only task-execution backend. It has a fixed agent-step
+  cap and receives only the worker-hosted MCP tools explicitly allowed for that
+  execution. V2 does not expose equivalent hard controls for every legacy per-run
+  budget; production execution remains disabled pending the documented gates.
 - The worker does not expose `fill_form` (`allowForms: false`); the runner also
   refuses clicks on login/checkout/payment/destructive controls and form submits on
   authentication or payment pages.

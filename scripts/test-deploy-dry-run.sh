@@ -13,6 +13,17 @@ deploy="$repo/deployment/deploy.sh"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-tasks-deploy-test.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
+# A real deploy is blocked unless the source-controlled release interlock is
+# present. Every stub run after the known_hosts check uses this approved copy, so
+# the mechanics stay covered while the repository itself remains blocked.
+approved="$tmp/deploy-approved"
+mkdir -p "$approved/deployment" "$approved/docker"
+cp "$repo/deployment/deploy.sh" "$approved/deployment/"
+cp "$repo/deployment/compose.production.yaml" "$approved/deployment/"
+cp "$repo/docker/seccomp-browser.json" "$approved/docker/"
+: > "$approved/deployment/OPENCODE_RUNTIME_APPROVED"
+approved_deploy="$approved/deployment/deploy.sh"
+
 # Deterministic low-entropy fixtures. The preflight contract needs syntactically
 # valid values, not realistic secrets, so repeated characters keep Gitleaks and
 # the pre-commit secret regex quiet. Assignments are also assembled at runtime
@@ -22,6 +33,7 @@ postgres_value=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 admin_value=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 runner_value=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 runner_other=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+provisioner_value=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 # Base64 of 32 zero bytes: exactly the decoded length the preflight requires.
 encryption_value=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
@@ -273,6 +285,16 @@ grep -q 'known_hosts is missing or unreadable' "$out" || fail 'missing known_hos
 
 printf 'deploy.invalid ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestOnly\n' > "$known_hosts"
 
+# Without the source-controlled interlock, no real deploy may touch the host even
+# when every host-side value (including the provisioner token) is set.
+: > "$calls"
+: > "$stdin_log"
+if run_deploy "root@deploy.invalid" "$deploy" > "$out" 2>&1; then
+  fail 'a real deploy was accepted without the OpenCode runtime release interlock'
+fi
+grep -q 'production execution is blocked' "$out" || fail 'runtime interlock error is unclear'
+[ ! -s "$calls" ] || fail 'a blocked deploy still invoked ssh/rsync'
+
 extract_body prereq "$tmp/prereq.sh"
 extract_body preflight "$tmp/preflight.sh"
 extract_body backup "$tmp/backup.sh"
@@ -382,7 +404,8 @@ cat > "$tmp/config-template.json" <<'JSON'
     },
     "worker": {
       "environment": {
-        "RUNNER_TOKEN": "@runner@"
+        "RUNNER_TOKEN": "@runner@",
+        "OPENCODE_PROVISIONER_TOKEN": "@provisioner@"
       }
     },
     "browser-runner": {
@@ -408,6 +431,7 @@ sed \
   -e "s|@admin@|$admin_value|g" \
   -e "s|@postgres@|$postgres_value|g" \
   -e "s|@runner@|$runner_value|g" \
+  -e "s|@provisioner@|$provisioner_value|g" \
   -e "s|__REMOTE__|$remote|g" \
   "$tmp/config-template.json" > "$tmp/config-valid.json"
 
@@ -429,7 +453,7 @@ if [ "${DEPLOY_TEST_RENDER_COMPOSE:-0}" = 1 ]; then
     env_line ADMIN_PASSWORD "$admin_value"
     env_line RUNNER_SECCOMP_PATH "$remote/docker/seccomp-browser.json"
     env_line SEARXNG_SETTINGS_PATH "$remote/docker/searxng/settings.yml"
-    env_line OPENCODE_SERVER_PASSWORD "$runner_value"
+    env_line OPENCODE_PROVISIONER_TOKEN "$provisioner_value"
   } > "$tmp/compose-test.env"
   printf 'server:\n  secret_key: compose-contract-test-key\n' > \
     "$remote/docker/searxng/settings.yml"
@@ -475,6 +499,10 @@ elif mutation == "project-wrong":
     document["name"] = "other-project"
 elif mutation == "postgres-volume-name-wrong":
     document["volumes"]["postgres-data"]["name"] = "agent-tasks_legacy-postgres-data"
+elif mutation == "opencode-profile":
+    services["opencode-provisioner"] = {"profiles": ["opencode-runtime"]}
+elif mutation == "provisioner-token-missing":
+    del services["worker"]["environment"]["OPENCODE_PROVISIONER_TOKEN"]
 else:
     raise SystemExit(f"unknown mutation: {mutation}")
 with open(sys.argv[2], "w", encoding="utf-8") as handle:
@@ -488,6 +516,8 @@ edit_fixture "$tmp/config-valid.json" "$tmp/config-runner-mismatch.json" runner-
 edit_fixture "$tmp/config-valid.json" "$tmp/config-api-also-token.json" api-also-token "$runner_other"
 edit_fixture "$tmp/config-valid.json" "$tmp/config-project-wrong.json" project-wrong "$runner_other"
 edit_fixture "$tmp/config-valid.json" "$tmp/config-volume-wrong.json" postgres-volume-name-wrong "$runner_other"
+edit_fixture "$tmp/config-valid.json" "$tmp/config-opencode-profile.json" opencode-profile "$runner_other"
+edit_fixture "$tmp/config-valid.json" "$tmp/config-provisioner-missing.json" provisioner-token-missing "$runner_other"
 
 # A fixture that drifts from the real services must fail the contract check.
 for drift in api-token-only worker-missing api-also-token; do
@@ -588,6 +618,7 @@ preflight_case() {
     grep -Fq -- "$auth_value" "$out" ||
     grep -Fq -- "$admin_value" "$out" ||
     grep -Fq -- "$runner_value" "$out" ||
+    grep -Fq -- "$provisioner_value" "$out" ||
     grep -Fq -- "$encryption_value" "$out"; then
     fail "preflight '$case_name' printed a secret value"
   fi
@@ -629,6 +660,12 @@ preflight_case postgres-volume fail "$tmp/config-volume-wrong.json" "$tmp/net-va
 # uses SMTP_URL with an external relay instead, so an active mail profile fails
 # closed before any container changes.
 preflight_case mail-profile fail "$tmp/config-mail-profile.json" "$tmp/net-valid" 'root:root 600' 'mail profile'
+# The real runtime provisioner has the Docker socket and provider egress. Production
+# must reject it until the documented verification gates pass.
+preflight_case opencode-profile fail "$tmp/config-opencode-profile.json" "$tmp/net-valid" 'root:root 600' 'OpenCode runtime profile'
+# The worker has no fallback: without a provisioner token it exits before queue
+# registration, so a deploy would leave a restart loop instead of a working stack.
+preflight_case provisioner-token-missing fail "$tmp/config-provisioner-missing.json" "$tmp/net-valid" 'root:root 600' 'isolated runtime is disabled'
 # The runner token is validated on the services that actually use it.
 preflight_case runner-token-api fail "$tmp/config-api-token-only.json" "$tmp/net-valid" 'root:root 600' 'RUNNER_TOKEN'
 preflight_case runner-token-missing fail "$tmp/config-worker-missing.json" "$tmp/net-valid" 'root:root 600' 'RUNNER_TOKEN'
@@ -640,7 +677,7 @@ preflight_case project-name fail "$tmp/config-project-wrong.json" "$tmp/net-vali
 # calls stay local. The first run has no staged profile, so the runner is recreated.
 : > "$calls"
 : > "$stdin_log"
-if ! run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE=missing "$deploy" > "$out" 2>&1; then
+if ! run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE=missing "$approved_deploy" > "$out" 2>&1; then
   fail 'stubbed real run failed'
 fi
 grep -q '^ssh ' "$calls" || fail 'stubbed run did not use ssh'
@@ -699,7 +736,7 @@ local_hash=$(file_hash "$repo/docker/seccomp-browser.json") ||
 # Unchanged staged bytes must not force-recreate anything.
 : > "$calls"
 : > "$stdin_log"
-if ! run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE="$local_hash" "$deploy" > "$out" 2>&1; then
+if ! run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE="$local_hash" "$approved_deploy" > "$out" 2>&1; then
   fail 'stubbed unchanged-seccomp run failed'
 fi
 if grep -q 'force-recreate' "$calls"; then
@@ -709,7 +746,7 @@ fi
 # Changed staged bytes must recreate exactly browser-runner, with no deps.
 : > "$calls"
 : > "$stdin_log"
-if ! run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE=deadbeef "$deploy" > "$out" 2>&1; then
+if ! run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE=deadbeef "$approved_deploy" > "$out" 2>&1; then
   fail 'stubbed changed-seccomp run failed'
 fi
 grep -q 'up -d --no-deps --force-recreate --wait --wait-timeout 180 browser-runner' "$calls" ||
@@ -718,7 +755,7 @@ grep -q 'up -d --no-deps --force-recreate --wait --wait-timeout 180 browser-runn
 # A symlinked host profile must fail closed before rsync could follow it.
 : > "$calls"
 : > "$stdin_log"
-if run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE=symlink "$deploy" > "$out" 2>&1; then
+if run_deploy "root@deploy.invalid" env DEPLOY_TEST_SECCOMP_STATE=symlink "$approved_deploy" > "$out" 2>&1; then
   fail 'symlinked seccomp profile was accepted'
 fi
 grep -q 'must not be a symlink' "$out" || fail 'symlinked seccomp profile error is unclear'
@@ -904,4 +941,4 @@ if ! node "$repo/scripts/test-compose-parity.mjs" > "$out" 2>&1; then
   fail 'compose parity volume tests failed'
 fi
 
-printf 'deploy test: OK (offline dry run, strict SSH, executed prereq/preflight/backup/promote bodies, Compose project/file pinning, override and COMPOSE_* rejection, RUNNER_TOKEN on worker+browser-runner, local seccomp JSON validation, DB-backup success/failure paths, promotion, production stack.sh is config-only)\n'
+printf 'deploy test: OK (offline dry run, strict SSH, executed prereq/preflight/backup/promote bodies, Compose project/file pinning, override and COMPOSE_* rejection, RUNNER_TOKEN on worker+browser-runner, provisioner token, mail and opencode-runtime profile rejection, local seccomp JSON validation, DB-backup success/failure paths, promotion, production stack.sh is config-only)\n'

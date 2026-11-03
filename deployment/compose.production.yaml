@@ -103,9 +103,6 @@ services:
       RUNNER_URL: http://browser-runner:8081
       RUNNER_TOKEN: ${RUNNER_TOKEN:?set RUNNER_TOKEN in .env}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
-      CODEX_HOME_ROOT: /var/lib/agent-tasks/codex
-      CODEX_ISOLATED_RUNNER: ${CODEX_ISOLATED_RUNNER:-0}
-      OPENCODE_RUNTIME_ENABLED: ${OPENCODE_RUNTIME_ENABLED:-0}
       OPENCODE_PROVISIONER_URL: http://opencode-provisioner:4090
       OPENCODE_PROVISIONER_TOKEN: ${OPENCODE_PROVISIONER_TOKEN:-}
     depends_on:
@@ -113,12 +110,9 @@ services:
         condition: service_healthy
       browser-runner:
         condition: service_started
-    networks: [backend, opencode, opencode-runtime]
+    networks: [backend, opencode-runtime]
     read_only: true
     tmpfs: [/tmp]
-    volumes:
-      # One login directory per user for the opt-in Codex adapter (owner id subdirectory).
-      - codex-homes:/var/lib/agent-tasks/codex
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -127,38 +121,8 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
     stop_grace_period: 40s
 
-  # Separate OpenCode V2 server image. No port is published; only the worker
-  # shares this network. OpenCode has no database or browser-runner access.
-  opencode:
-    image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/opencode:${IMAGE_TAG:-latest}
-    pull_policy: always
-    restart: unless-stopped
-    environment:
-      OPENCODE_SERVER_USERNAME: opencode
-      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?set OPENCODE_SERVER_PASSWORD in .env}
-    volumes:
-      - opencode-data:/home/opencode/.local/share/opencode
-    networks: [opencode]
-    read_only: true
-    tmpfs:
-      - /tmp:size=128m,mode=1777
-      - /home/opencode/.cache:size=128m,mode=0700,uid=10001,gid=10001
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    pids_limit: 128
-    mem_limit: ${OPENCODE_MEMORY_LIMIT:-1g}
-    cpus: ${OPENCODE_CPUS:-1.0}
-    healthcheck:
-      test: ["CMD-SHELL", "curl --fail --silent --show-error --user \"$${OPENCODE_SERVER_USERNAME}:$${OPENCODE_SERVER_PASSWORD}\" http://127.0.0.1:4096/api/info >/dev/null"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    labels:
-      <<: *stack-label
-      com.centurylinklabs.watchtower.enable: "false"
-  # Requires explicit profile opt-in; the worker itself never gets the socket.
+  # The real provisioner is profile-gated. Worker startup requires its endpoint
+  # and token before registering queues; keep this inactive until verification.
   opencode-provisioner:
     profiles: [opencode-runtime]
     image: ${IMAGE_PREFIX:-ghcr.io/all-the-rest/agent-tasks}/opencode-provisioner:${IMAGE_TAG:-latest}
@@ -179,7 +143,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [opencode-runtime, opencode-egress]
     read_only: true
-    tmpfs: [/tmp:size=64m,mode=1777]
+    # Block form: flow style would split `size=...,mode=...` into list items and
+    # Docker then rejects `mode=1777` as a mount path.
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -191,6 +158,7 @@ services:
       retries: 10
       start_period: 5s
     labels:
+      <<: *stack-label
       com.centurylinklabs.watchtower.enable: "false"
 
   # Hardened browser execution: non-root, read-only root, no capabilities, no
@@ -292,11 +260,8 @@ networks:
   backend:
     internal: false
   # Prerequisite owned by the Caddy/proxy stack, not by this Compose project.
-  # Expected subnet 172.18.0.0/16, gateway 172.18.0.1; the API reserves
-  # 172.18.0.70 for the proxy upstream. deploy.sh verifies this before changing
-  # the active stack and never creates the network.
-  opencode:
-    internal: true
+  # Internal worker/provisioner traffic. Only the profile-gated provisioner
+  # gets the separate provider-egress network.
   opencode-runtime:
     name: ${COMPOSE_PROJECT_NAME:-agent-tasks}_opencode-runtime
     internal: true

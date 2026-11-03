@@ -4,6 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { providerCredentials, providerModels, providers } from '@agent-tasks/database';
 import { AppError, classifyAddress, codexConfigSchema, compatibleConfigSchema, normalizeHostname, ollamaConfigSchema, providerKindSchema } from '@agent-tasks/shared';
+import { isExecutableProviderKind, mergeProviderCatalog } from '@agent-tasks/shared';
+import type { CatalogModel } from '@agent-tasks/shared';
 import { createProvider, contextFor, resolveCredential } from '@agent-tasks/ai-providers';
 import type { AppContext } from '../context.js';
 import { AUDIT_ACTIONS } from '../lib/audit.js';
@@ -119,6 +121,32 @@ function adminProviderView<T extends { config: unknown }>(provider: T): T & { co
   return { ...provider, config: redactProviderConfig(provider.config) };
 }
 
+interface ProviderModelRow {
+  providerId: string;
+  modelId: string;
+  label: string;
+  supportsTools: boolean;
+  contextLength: number | null;
+}
+
+function toCatalogModel(row: ProviderModelRow): CatalogModel {
+  return {
+    id: row.modelId,
+    label: row.label,
+    supportsTools: row.supportsTools,
+    ...(row.contextLength !== null ? { contextLength: row.contextLength } : {}),
+  };
+}
+
+/**
+ * The catalog the task editor, the worker and the provisioner must agree on: the
+ * persisted discovery rows are the ids, and `config.models` carries the admin's
+ * explicit metadata overrides (notably tool capability).
+ */
+function effectiveCatalog(config: unknown, rows: ReadonlyArray<ProviderModelRow>): CatalogModel[] {
+  return mergeProviderCatalog((config as { models?: unknown } | undefined)?.models, rows.map(toCatalogModel));
+}
+
 export async function registerProviderRoutes(app: FastifyInstance, context: AppContext): Promise<void> {
   const { db, secrets } = context;
 
@@ -141,6 +169,7 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
         id: provider.id,
         name: provider.name,
         kind: provider.kind,
+        executable: isExecutableProviderKind(provider.kind),
         isDefault: provider.isDefault,
         // Only non-secret, browser-safe configuration leaves the server.
         baseUrl: typeof config.baseUrl === 'string' ? config.baseUrl : undefined,
@@ -148,9 +177,8 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
         defaultModel: typeof config.defaultModel === 'string' ? config.defaultModel : undefined,
         hasCredential: credentials.some((credential) => credential.providerId === provider.id && (credential.ownerId === null || credential.ownerId === me.id)),
         hasPersonalCredential: credentials.some((credential) => credential.providerId === provider.id && credential.ownerId === me.id),
-        models: models
-          .filter((model) => model.providerId === provider.id && !disabledModels.includes(model.modelId))
-          .map((model) => ({ id: model.modelId, label: model.label, supportsTools: model.supportsTools, contextLength: model.contextLength })),
+        models: effectiveCatalog(config, models.filter((model) => model.providerId === provider.id))
+          .filter((model) => !disabledModels.includes(model.id)),
       };
     });
   });
@@ -206,6 +234,7 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
       id: provider.id,
       name: provider.name,
       kind: provider.kind,
+      executable: isExecutableProviderKind(provider.kind),
       enabled: provider.enabled,
       isDefault: provider.isDefault,
       config: redactProviderConfig(provider.config),
@@ -213,9 +242,7 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
       personalCredentials: credentials.filter((credential) => credential.providerId === provider.id && credential.ownerId !== null).length,
       // The catalog is admin-visible so one connection can be approved and the
       // task editor only offers models that actually exist.
-      models: models
-        .filter((model) => model.providerId === provider.id)
-        .map((model) => ({ id: model.modelId, label: model.label, supportsTools: model.supportsTools, contextLength: model.contextLength })),
+      models: effectiveCatalog(provider.config, models.filter((model) => model.providerId === provider.id)),
     }));
   });
 
