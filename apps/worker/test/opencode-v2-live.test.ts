@@ -510,6 +510,10 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       } satisfies WorkerEnv;
       const executor = new Executor({ db: db as never, env, boss: {} as never, workerId: 'live-research-worker', openCodeRunner });
       await executor.handle(executionId);
+      const usage = updates.find((update) => update.table === executions && update.values.status === 'completed')?.values.usage;
+      // The mock provider emits no usage counters, so the runner must not invent
+      // tokens; real providers populate the per-turn values that are summed.
+      expect(usage).toEqual({});
 
       expect(sawTool, logs).toBe(true);
       expect(updates.find((update) => update.table === executions && update.values.status === 'completed')?.values.report)

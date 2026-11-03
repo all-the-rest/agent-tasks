@@ -61,8 +61,9 @@ the existing runtime.
    source. Still to confirm under the production egress proxy/SSRF controls.
 4. **Report parity with real sessions.** The report page, sanitized markdown and
    report e-mail render from the durable result. A local OpenCode 2.2.5 run now
-   produces sources, usage and e-mail blocks end-to-end; a real Go run is still
-   needed.
+   produces sources and e-mail blocks end-to-end; usage is summed over the
+   session's per-turn assistant messages, but real counters require a live
+   provider. A real Go run is still needed.
 5. **Live secret handling.** The provisioner passes secrets through runtime-only
    files and environment variables, never persistent config or logs. Rotation and
    revocation of the shared key must be exercised against the live provisioner.

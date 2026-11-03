@@ -35,8 +35,9 @@ Still open before cutover:
 2. A live Go run with research/sources and memory through the bridge under the
    production egress proxy and SSRF controls (the local OpenCode 2.2.5 run already
    retrieves and persists a source).
-3. A full OpenCode Go run producing sources and usage end-to-end (the local
-   OpenCode 2.2.5 run already produces e-mail blocks and a source via the bridge).
+3. A full OpenCode Go run producing sources and real usage end-to-end (the local
+   OpenCode 2.2.5 run produces e-mail blocks and a source via the bridge, and the
+   runner sums per-turn token usage when the provider reports it).
 4. Shared-key rotation/revocation against the live provisioner.
 
 Current verification for this change:
@@ -45,7 +46,7 @@ Current verification for this change:
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm -r typecheck` | passed (10 workspace projects) |
-| `pnpm test:unit` | **254 passed, 3 skipped**, 36 files passed / 1 skipped |
+| `pnpm test:unit` | **255 passed, 3 skipped**, 36 files passed / 1 skipped |
 | `pnpm test:integration` | **85 passed**, 13 files |
 | `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
 | `services/opencode-provisioner` unit tests | **6 passed** |
