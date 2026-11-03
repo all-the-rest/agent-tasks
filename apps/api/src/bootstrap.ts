@@ -1,19 +1,15 @@
-import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
-import { providerCredentials, providers, systemSettings, user, userPreferences } from '@agent-tasks/database';
-import { compatibleConfigSchema, systemSettingsSchema } from '@agent-tasks/shared';
+import { systemSettings, user, userPreferences } from '@agent-tasks/database';
+import { systemSettingsSchema } from '@agent-tasks/shared';
 import type { AppContext } from './context.js';
-import { DEFAULT_OPENCODE_GO_BASE_URL } from './env.js';
 
 export interface BootstrapResult {
   settings: 'created' | 'exists';
   admin: 'created' | 'exists' | 'disabled';
-  provider: 'created' | 'exists' | 'disabled';
 }
 
-// Two independent seed sections, serialised across API replicas.
+// Seed section serialised across API replicas.
 const ADMIN_LOCK_ID = 761_211_002;
-const PROVIDER_LOCK_ID = 761_211_003;
 
 /**
  * Database-backed first-start configuration. Runs before the API listens:
@@ -21,17 +17,18 @@ const PROVIDER_LOCK_ID = 761_211_003;
  * - materialises the settings row from `ALLOW_REGISTRATION` (only when absent, so
  *   admin-UI changes are never overwritten);
  * - creates the first ADMIN from `ADMIN_EMAIL`/`ADMIN_PASSWORD` when no admin
- *   exists (the legacy `SETUP_TOKEN` flow remains available when they are unset);
- * - seeds an OpenCode Go provider from `OPENCODE_GO_*` when configured.
+ *   exists (the legacy `SETUP_TOKEN` flow remains available when they are unset).
  *
- * All sections are idempotent; the advisory locks make concurrent replicas safe.
+ * Provider connections are deliberately not seeded from the environment: the
+ * admin UI/API is the only write path, so credentials never live in deployment
+ * configuration and every change is auditable. All sections are idempotent; the
+ * advisory lock makes concurrent replicas safe.
  */
 export async function ensureBootstrap(context: AppContext): Promise<BootstrapResult> {
   await waitForSchema(context);
   const settings = await ensureSettings(context);
   const admin = await ensureAdmin(context);
-  const provider = await ensureOpenCodeGoProvider(context);
-  return { settings, admin, provider };
+  return { settings, admin };
 }
 
 /** The API may start before the worker has finished its migrations. */
@@ -90,48 +87,4 @@ async function ensureAdmin(context: AppContext): Promise<'created' | 'exists' | 
     if (createdUserId) await context.db.delete(user).where(eq(user.id, createdUserId)).catch(() => undefined);
     throw error;
   }
-}
-
-async function ensureOpenCodeGoProvider(context: AppContext): Promise<'created' | 'exists' | 'disabled'> {
-  const { OPENCODE_GO_API_KEY, OPENCODE_GO_MODEL, OPENCODE_GO_MODELS } = context.env;
-  if (!OPENCODE_GO_API_KEY) return 'disabled';
-  const modelIds = (OPENCODE_GO_MODELS ?? OPENCODE_GO_MODEL ?? '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter(Boolean);
-  if (modelIds.length === 0) return 'disabled';
-
-  const name = context.env.OPENCODE_GO_NAME ?? 'OpenCode Go';
-  const config = compatibleConfigSchema.parse({
-    baseUrl: context.env.OPENCODE_GO_BASE_URL ?? DEFAULT_OPENCODE_GO_BASE_URL,
-    models: modelIds.map((id) => ({ id, supportsTools: true })),
-    stream: true,
-    userAgent: 'agent-tasks/0.1.0',
-    sessionHeader: 'x-opencode-session',
-  });
-
-  return await context.db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(${PROVIDER_LOCK_ID})`);
-    const existing = await tx.select({ id: providers.id }).from(providers).where(eq(providers.name, name)).limit(1);
-    if (existing[0]) return 'exists' as const;
-
-    const defaults = await tx.select({ id: providers.id }).from(providers).where(eq(providers.isDefault, true)).limit(1);
-    const providerId = randomUUID();
-    await tx.insert(providers).values({
-      id: providerId,
-      name,
-      kind: 'openai-compatible',
-      config,
-      enabled: true,
-      isDefault: !defaults[0],
-    });
-    await tx.insert(providerCredentials).values({
-      id: randomUUID(),
-      providerId,
-      ownerId: null,
-      label: 'OPENCODE_GO_API_KEY',
-      ciphertext: context.secrets.encrypt(OPENCODE_GO_API_KEY),
-    });
-    return 'created' as const;
-  });
 }

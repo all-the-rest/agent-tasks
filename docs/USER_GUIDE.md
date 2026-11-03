@@ -158,9 +158,9 @@ When it is off, accounts only exist through invitations.
 ![Providers](images/admin-providers.png)
 
 Add an OpenAI-compatible endpoint (OpenCode Go, OpenAI or a gateway), store its
-shared or per-user key, refresh models and run a health check. The provider can
-also be seeded at start from `OPENCODE_GO_*` in `.env` (see the
-[deployment guide](../DEPLOYMENT.md)).
+shared or per-user key, refresh models and run a health check. This is the only
+place a provider is configured: the deployment environment never seeds one and
+never carries an inference key.
 
 ### Instance settings
 

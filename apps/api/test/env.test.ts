@@ -8,11 +8,9 @@ const base = {
 };
 
 describe('API environment', () => {
-  it('defaults registration to closed and OpenCode Go to the official base URL', () => {
+  it('defaults registration to closed', () => {
     const env = loadEnv(base);
     expect(env.ALLOW_REGISTRATION).toBe('false');
-    expect(env.OPENCODE_GO_BASE_URL).toBe('https://opencode.ai/inference/go/openai/v1');
-    expect(env.OPENCODE_GO_NAME).toBe('OpenCode Go');
     expect(env.ADMIN_EMAIL).toBeUndefined();
     expect(env.ADMIN_PASSWORD).toBeUndefined();
   });
@@ -23,13 +21,10 @@ describe('API environment', () => {
       ADMIN_EMAIL: '',
       ADMIN_PASSWORD: '   ',
       SETUP_TOKEN: '',
-      OPENCODE_GO_API_KEY: '',
-      OPENCODE_GO_MODEL: '',
     });
     expect(env.ADMIN_EMAIL).toBeUndefined();
     expect(env.ADMIN_PASSWORD).toBeUndefined();
     expect(env.SETUP_TOKEN).toBeUndefined();
-    expect(env.OPENCODE_GO_API_KEY).toBeUndefined();
   });
 
   it('requires ADMIN_EMAIL and ADMIN_PASSWORD together', () => {
@@ -43,12 +38,12 @@ describe('API environment', () => {
     ).toThrow(/ADMIN_PASSWORD/);
   });
 
-  it('requires a model when the OpenCode Go key is set', () => {
-    expect(() => loadEnv({ ...base, OPENCODE_GO_API_KEY: 'sk-opencode-test' })).toThrow(
-      /OPENCODE_GO_MODEL/,
-    );
-    expect(() =>
-      loadEnv({ ...base, OPENCODE_GO_API_KEY: 'sk-opencode-test', OPENCODE_GO_MODEL: 'model-a' }),
-    ).not.toThrow();
+  it('ignores provider seed variables (the admin UI is the only source)', () => {
+    const env = loadEnv({
+      ...base,
+      OPENCODE_GO_API_KEY: 'sk-opencode-test',
+      OPENCODE_GO_MODEL: 'model-a',
+    });
+    expect(env).not.toHaveProperty('OPENCODE_GO_API_KEY');
   });
 });

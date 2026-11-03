@@ -23,11 +23,6 @@ x-app-env: &app-env
   ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
   ADMIN_NAME: ${ADMIN_NAME:-Administrator}
   ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
-  OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
-  OPENCODE_GO_BASE_URL: ${OPENCODE_GO_BASE_URL:-}
-  OPENCODE_GO_MODEL: ${OPENCODE_GO_MODEL:-}
-  OPENCODE_GO_MODELS: ${OPENCODE_GO_MODELS:-}
-  OPENCODE_GO_NAME: ${OPENCODE_GO_NAME:-OpenCode Go}
   AGENT_TASKS_ENABLE_CODEX: ${AGENT_TASKS_ENABLE_CODEX:-0}
   SMTP_URL: ${SMTP_URL:-}
   SMTP_FROM: ${SMTP_FROM:-}
@@ -190,7 +185,7 @@ services:
       PROVISIONER_PUBLIC_URL: http://opencode-provisioner:4090
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    networks: [opencode-runtime]
+    networks: [opencode-runtime, opencode-egress]
     read_only: true
     tmpfs: [/tmp:size=64m,mode=1777]
     security_opt:
@@ -303,12 +298,15 @@ services:
 networks:
   backend:
     internal: false
-  # OpenCode can reach the worker and configured inference endpoints, but not
-  # Postgres, the API or the browser runner on the application backend network.
+  # OpenCode is never published and has no direct egress. It is reachable only
+  # by the worker/provisioner; inference traffic leaves through the provisioner,
+  # which is the single audited egress boundary.
   opencode:
-    internal: false
+    internal: true
   opencode-runtime:
     name: ${COMPOSE_PROJECT_NAME:-agent-tasks}_opencode-runtime
+    internal: true
+  opencode-egress:
     internal: false
 
 volumes:
