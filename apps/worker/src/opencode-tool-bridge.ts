@@ -21,6 +21,8 @@ import type { AgentMemoryOp, AgentRecommendationOp, EmailBlock } from '@agent-ta
  */
 const MAX_BODY_BYTES = 1_000_000;
 const DEFAULT_MAX_CALLS = 40;
+/** A bridge is only useful for one execution; the token dies with the run. */
+const DEFAULT_TTL_MS = 60 * 60 * 1_000;
 const DEFAULT_PORT = 4091;
 const MCP_PATH = '/mcp';
 
@@ -36,6 +38,8 @@ export interface ToolBridgeOpenOptions {
   token?: string;
   tools?: string[];
   maxCalls?: number;
+  /** Absolute session lifetime from `open()`; expired tokens are rejected. */
+  ttlMs?: number;
   /**
    * Execution-scoped capabilities. Research tools require it; e-mail and memory
    * tools work without it. Without a context the bridge refuses to offer a
@@ -83,6 +87,7 @@ interface Session {
   recommendationOps: AgentRecommendationOp[];
   definitions: Array<{ name: string; description: string; inputSchema: unknown }>;
   context: ToolContext;
+  expiresAt: number;
 }
 
 /** Tools that need the execution's browser/search capability. */
@@ -193,6 +198,7 @@ function createSession(options: ToolBridgeOpenOptions): Session {
       inputSchema: definition.parameters,
     })),
     context,
+    expiresAt: Date.now() + (options.ttlMs ?? DEFAULT_TTL_MS),
   };
 }
 
@@ -213,6 +219,13 @@ export async function createToolBridgeHub(options: { host?: string; port?: numbe
     const token = tokenFrom(request);
     const session = token ? sessions.get(token) : undefined;
     if (!token || !session || !safeEqual(token, session.token)) {
+      response.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
+      return;
+    }
+    if (session.expiresAt <= Date.now()) {
+      // An execution that never closed its bridge (worker lost) must not leave a
+      // usable token behind; expiry is enforced on every request.
+      sessions.delete(session.token);
       response.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
       return;
     }

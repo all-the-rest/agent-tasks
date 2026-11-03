@@ -103,8 +103,11 @@ response echoes `mcp-session-id` so the transport stays correlated.
 - **Token lifecycle.** A random 32-byte bearer is minted in worker memory when the
   execution opens its bridge, registered with that session's allowlist and call
   budget, and handed to the provisioner only as runtime configuration. It is never
-  written to the database, a report or a log. Closing the execution removes the
-  session; a later request with the same token gets `401`.
+  written to the database, a report or a log. It expires after one hour, comfortably
+  above the maximum execution duration, and expiry is checked on every request, so an
+  execution whose bridge was never closed cannot leave a usable token behind. Closing
+  the execution removes the session immediately; either way a later request gets
+  `401`.
 - **Allowlist and budget.** Only the exact tools the task is entitled to are
   registered. Denied tools, malformed arguments and exhausted budgets are returned
   to the model as structured `isError` results, not exceptions. Request bodies are
