@@ -36,6 +36,10 @@ jobs:
             dockerfile: docker/Dockerfile.api
           - name: browser-runner
             dockerfile: docker/Dockerfile.runner
+          - name: opencode
+            dockerfile: docker/Dockerfile.opencode
+          - name: opencode-provisioner
+            dockerfile: docker/Dockerfile.opencode-provisioner
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -96,7 +100,7 @@ jobs:
           GH_TOKEN: ${{ env.PACKAGES_TOKEN }}
         run: |
           owner='${{ github.repository_owner }}'
-          for package in api browser-runner; do
+          for package in api browser-runner opencode opencode-provisioner; do
             encoded=$(node -p "encodeURIComponent('agent-tasks/' + process.argv[1])" "$package")
             gh api --method PATCH "/orgs/${owner}/packages/container/${encoded}" \
               -f visibility=public >/dev/null
@@ -110,8 +114,8 @@ jobs:
             echo "### GHCR visibility"
             echo ""
             echo "The workflow token cannot change org package visibility."
-            echo "Make both packages public once under Organization -> Packages:"
-            echo "\`agent-tasks/api\` and \`agent-tasks/browser-runner\`."
+            echo "Make all four packages public once under Organization -> Packages:"
+            echo "\`agent-tasks/api\`, \`agent-tasks/browser-runner\`, \`agent-tasks/opencode\`, and \`agent-tasks/opencode-provisioner\`."
             echo "Or add a PACKAGES_TOKEN secret with write:packages and org-admin rights."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -133,6 +137,6 @@ jobs:
             echo "-> Published images -> Cutting a release for the one-time visibility step."
           } >> "$GITHUB_STEP_SUMMARY"
           tag="${GITHUB_REF_NAME#v}"
-          for image in api browser-runner; do
+          for image in api browser-runner opencode opencode-provisioner; do
             docker pull "ghcr.io/${GITHUB_REPOSITORY}/${image}:${tag}"
           done
