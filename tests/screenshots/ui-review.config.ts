@@ -79,7 +79,7 @@ interface TaskFixture extends ProviderFixture {
 }
 
 const MOCK_MODEL_ID = 'ui-review-mock-model';
-const MOCK_PROVIDER_BASE_URL = 'http://127.0.0.1:1/v1';
+const MOCK_PROVIDER_BASE_URL = 'http://ui-review-mock:1/v1';
 const MOCK_CREDENTIAL_LABEL = 'ui-review-screenshots';
 const providerCache = new Map<string, Promise<ProviderFixture>>();
 const taskCache = new Map<string, Promise<TaskFixture>>();

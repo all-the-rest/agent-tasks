@@ -32,7 +32,9 @@ What is now implemented and tested:
   tasks, hides models from the task editor, shows a health badge with the
   last-checked time and links to the audit log. Default/hidden choices live in the
   provider config (never secrets) and are covered by an API integration test;
-  provider updates audit which fields changed without their values.
+  provider updates audit which fields changed without their values. Provider base
+  URLs are validated at save time: loopback/link-local/metadata addresses, URL
+  credentials and non-http(s) schemes are refused, and public hosts require https.
 - **Report parity.** The execution page renders the sanitized markdown, sources
   and a read-only preview of the notification e-mail blocks the agent composed.
   The preview maps blocks to React elements (no `dangerouslySetInnerHTML`) and

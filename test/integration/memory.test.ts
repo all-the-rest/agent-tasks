@@ -24,7 +24,7 @@ async function createProvider(): Promise<string> {
     payload: {
       name: `Memory provider ${randomUUID()}`,
       kind: 'openai-compatible',
-      config: { baseUrl: 'http://127.0.0.1:9/v1', models: [{ id: 'mock-researcher', supportsTools: true }] },
+      config: { baseUrl: 'http://mock:8080/v1', models: [{ id: 'mock-researcher', supportsTools: true }] },
     },
   });
   expect(provider.statusCode, provider.body).toBe(201);

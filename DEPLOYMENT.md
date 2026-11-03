@@ -160,14 +160,18 @@ OpenAI API or a self-hosted gateway. The adapter speaks
    - OpenAI: `https://api.openai.com/v1`
    - Gateway: your `/v1` root
    A trailing slash is removed; a value ending in `/chat/completions` is accepted and
-   `/chat/completions` is stripped when models are discovered.
+   `/chat/completions` is stripped when models are discovered. Public hosts must use
+   `https`; plain `http` is accepted only for internal single-label service names
+   (`ollama`, `mock`) and private addresses. Loopback, link-local and cloud-metadata
+   addresses, URL credentials and non-http(s) schemes are refused at save time.
 4. User-Agent: `agent-tasks/0.1.0` by default. The UI does not edit it; change
    `config.userAgent` through the API if you need another honest identifier (generic
    SDK User-Agents are rejected by the test contract).
 5. Save, then add a **credential** (the API key). It is encrypted with
    AES-256-GCM and stored in `provider_credentials`; no environment variable holds a
    provider key.
-6. **Refresh models**, then optionally mark the provider as default.
+6. **Refresh models**, then optionally mark the provider as default, mark a catalog
+   model as the default for new tasks, or hide a model from the task editor.
 
 Model discovery calls `GET {baseUrl}/models`. If the endpoint has no models route,
 declare models in `config.models` through the API (the UI edits only the base URL);

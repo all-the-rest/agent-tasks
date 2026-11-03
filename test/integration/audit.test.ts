@@ -52,7 +52,7 @@ describe('audit log', () => {
       method: 'POST',
       url: '/api/admin/providers',
       headers: { cookie: admin.cookie },
-      payload: { name: 'Audit provider', kind: 'openai-compatible', config: { baseUrl: 'http://127.0.0.1:9/v1' } },
+      payload: { name: 'Audit provider', kind: 'openai-compatible', config: { baseUrl: 'http://mock:8080/v1' } },
     });
     expect(provider.statusCode, provider.body).toBe(201);
     expect((await lastAudit('provider.created'))?.targetId).toBe(provider.json().id);

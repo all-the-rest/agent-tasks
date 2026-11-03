@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { providerCredentials, providerModels, providers } from '@agent-tasks/database';
-import { AppError, codexConfigSchema, compatibleConfigSchema, ollamaConfigSchema, providerKindSchema } from '@agent-tasks/shared';
+import { AppError, classifyAddress, codexConfigSchema, compatibleConfigSchema, normalizeHostname, ollamaConfigSchema, providerKindSchema } from '@agent-tasks/shared';
 import { createProvider, contextFor, resolveCredential } from '@agent-tasks/ai-providers';
 import type { AppContext } from '../context.js';
 import { AUDIT_ACTIONS } from '../lib/audit.js';
@@ -76,7 +77,42 @@ function parseProviderConfig(kind: string, value: unknown): unknown {
   const schema = kind === 'ollama' ? ollamaConfigSchema : kind === 'codex' ? codexConfigSchema : compatibleConfigSchema;
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw AppError.badRequest('invalid provider config', parsed.error.issues);
+  if (kind !== 'codex') assertProviderBaseUrl((parsed.data as { baseUrl: string }).baseUrl);
   return parsed.data;
+}
+
+/**
+ * Provider endpoints are admin-controlled, but a mistaken or copied value must not
+ * turn the server into an SSRF gadget. Loopback, link-local and cloud-metadata
+ * addresses are always refused. Public hosts must use https; plain http stays
+ * available for internal single-label service names (`ollama`, `mock`) and private
+ * addresses, whose traffic never leaves the deployment network.
+ */
+export function assertProviderBaseUrl(raw: string): void {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw AppError.badRequest('provider base URL is invalid');
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) throw AppError.badRequest('provider base URL must use http or https');
+  if (url.username || url.password) throw AppError.badRequest('provider base URL must not contain credentials');
+  const hostname = normalizeHostname(url.hostname);
+  if (!hostname) throw AppError.badRequest('provider base URL has an invalid host');
+  if (isIP(hostname)) {
+    const addressClass = classifyAddress(hostname);
+    if (['loopback', 'link_local', 'metadata', 'unspecified', 'multicast', 'reserved'].includes(addressClass)) {
+      throw AppError.badRequest(`provider base URL address is not allowed (${addressClass})`);
+    }
+    if (url.protocol === 'http:' && addressClass !== 'private' && addressClass !== 'unique_local') {
+      throw AppError.badRequest('provider base URL must use https for a public address');
+    }
+    return;
+  }
+  const internalName = !hostname.includes('.') || hostname.endsWith('.internal') || hostname.endsWith('.local');
+  if (url.protocol === 'http:' && !internalName) {
+    throw AppError.badRequest('provider base URL must use https for a public host');
+  }
 }
 
 function adminProviderView<T extends { config: unknown }>(provider: T): T & { config: Record<string, unknown> } {
