@@ -246,6 +246,30 @@ export function AdminProvidersPage() {
                         {provider.sharedCredential ? t('admin.sharedCredential') : t('settings.notConnected')} ·{' '}
                         {t('admin.personalCredentialCount', { count: provider.personalCredentials })}
                       </p>
+                      <div className="mt-3 rounded-box border border-base-300 bg-base-200/40 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold">{t('admin.modelCatalog')}</p>
+                          <span className="badge badge-ghost badge-sm">{provider.models.length}</span>
+                        </div>
+                        {provider.models.length === 0 ? (
+                          <p className="mt-1 text-xs opacity-70">{t('admin.modelCatalogEmpty')}</p>
+                        ) : (
+                          <ul className="mt-2 flex flex-col gap-1">
+                            {provider.models.map((model) => (
+                              <li key={model.id} className="flex flex-wrap items-center gap-2 text-xs">
+                                <code className="break-all">{model.id}</code>
+                                {model.label ? <span className="opacity-70">{model.label}</span> : null}
+                                {model.supportsTools ? (
+                                  <span className="badge badge-ghost badge-xs">{t('admin.modelSupportsTools')}</span>
+                                ) : null}
+                                {model.contextLength ? (
+                                  <span className="opacity-60">{t('admin.modelContext', { count: model.contextLength })}</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       <button
@@ -387,6 +411,24 @@ export function AdminProvidersPage() {
               onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))}
             />
           </Field>
+          {form.kind === 'openai-compatible' && !formProvider ? (
+            <p className="text-xs opacity-70">
+              {t('admin.openCodeGoHint')}{' '}
+              <button
+                type="button"
+                className="link"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    name: current.name || 'OpenCode Go',
+                    baseUrl: 'https://opencode.ai/inference/go/openai/v1',
+                  }))
+                }
+              >
+                {t('admin.useOpenCodeGo')}
+              </button>
+            </p>
+          ) : null}
           {formProvider && providerHeaderNames(formProvider.config).length > 0 ? (
             <div className="rounded-box border border-base-300 bg-base-200/50 p-3">
               <p className="text-sm font-semibold">{t('admin.providerHeaders')}</p>

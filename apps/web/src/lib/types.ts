@@ -374,6 +374,7 @@ export interface AdminProvider {
   config: Record<string, unknown>;
   sharedCredential: boolean;
   personalCredentials: number;
+  models: Array<{ id: string; label: string | null; supportsTools: boolean | null; contextLength: number | null }>;
 }
 
 export interface ProviderHealth {

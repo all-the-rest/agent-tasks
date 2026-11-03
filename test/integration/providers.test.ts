@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { providerModels } from '@agent-tasks/database';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHarness, bootstrapAdmin, inviteAndAccept } from '../helpers/harness';
 import type { TestHarness } from '../helpers/harness';
@@ -240,5 +241,22 @@ describe('provider routes', () => {
     const stored = list.json().find((row: { id: string }) => row.id === body.id);
     expect(stored.config.codexHome).toBe('/var/lib/agent-tasks/codex/single-tenant');
     expect(stored.config.enabled).toBe(true);
+  });
+
+  it('exposes the discovered model catalog to the admin UI', async () => {
+    await harness.context.db
+      .insert(providerModels)
+      .values({ providerId, modelId: 'discovered-model', label: 'Discovered model', supportsTools: true, contextLength: 128_000 })
+      .onConflictDoNothing();
+
+    const list = await harness.app.inject({ method: 'GET', url: '/api/admin/providers', headers: { cookie: adminCookie } });
+    expect(list.statusCode, list.body).toBe(200);
+    const stored = list.json().find((row: { id: string }) => row.id === providerId);
+    expect(stored.models).toContainEqual({
+      id: 'discovered-model',
+      label: 'Discovered model',
+      supportsTools: true,
+      contextLength: 128_000,
+    });
   });
 });

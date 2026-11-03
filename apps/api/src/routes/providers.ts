@@ -160,6 +160,7 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
     await requireAdmin(context, request);
     const rows = await db.select().from(providers).orderBy(providers.name);
     const credentials = await db.select({ providerId: providerCredentials.providerId, ownerId: providerCredentials.ownerId }).from(providerCredentials);
+    const models = await db.select().from(providerModels);
     return rows.map((provider) => ({
       id: provider.id,
       name: provider.name,
@@ -169,6 +170,11 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
       config: redactProviderConfig(provider.config),
       sharedCredential: credentials.some((credential) => credential.providerId === provider.id && credential.ownerId === null),
       personalCredentials: credentials.filter((credential) => credential.providerId === provider.id && credential.ownerId !== null).length,
+      // The catalog is admin-visible so one connection can be approved and the
+      // task editor only offers models that actually exist.
+      models: models
+        .filter((model) => model.providerId === provider.id)
+        .map((model) => ({ id: model.modelId, label: model.label, supportsTools: model.supportsTools, contextLength: model.contextLength })),
     }));
   });
 
