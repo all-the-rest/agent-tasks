@@ -95,6 +95,34 @@ describe('authentication', () => {
     expect(forged.statusCode).toBe(403);
   });
 
+  it('honours the admin registration setting without granting an admin role', async () => {
+    const login = await harness.app.inject({ method: 'POST', url: '/api/auth/sign-in/email', payload: { email: 'admin@example.com', password: 'admin-password-123' } });
+    const cookie = cookiesFrom(login);
+    const settings = await harness.app.inject({ method: 'GET', url: '/api/admin/settings', headers: { cookie } });
+    expect(settings.statusCode).toBe(200);
+    const update = (allowRegistration: boolean) => harness.app.inject({
+      method: 'PUT', url: '/api/admin/settings', headers: { cookie },
+      payload: { ...settings.json(), allowRegistration },
+    });
+    expect((await update(true)).statusCode).toBe(200);
+    try {
+      const signup = await harness.app.inject({
+        method: 'POST', url: '/api/auth/sign-up/email',
+        payload: { email: 'public@example.com', password: 'public-password-123', name: 'Public' },
+      });
+      expect(signup.statusCode, signup.body).toBe(200);
+      const users = await harness.db.pool.query<{ role: string }>('select role from "user" where email = $1', ['public@example.com']);
+      expect(users.rows[0]?.role).toBe('USER');
+    } finally {
+      expect((await update(false)).statusCode).toBe(200);
+    }
+    const blocked = await harness.app.inject({
+      method: 'POST', url: '/api/auth/sign-up/email',
+      payload: { email: 'blocked@example.com', password: 'blocked-password-123', name: 'Blocked' },
+    });
+    expect(blocked.statusCode).toBe(403);
+  });
+
   it('onboards invited users and rejects an invite reused for another address', async () => {
     const adminCookie = cookiesFrom(
       await harness.app.inject({ method: 'POST', url: '/api/auth/sign-in/email', payload: { email: 'admin@example.com', password: 'admin-password-123' } }),

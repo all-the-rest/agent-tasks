@@ -28,8 +28,11 @@ within 72 hours and to publish a fix and advisory within 30 days for confirmed i
 
 ## Authentication and sessions
 
-- Public registration is disabled at the HTTP layer: `POST /api/auth/sign-up/email`
-  is only forwarded with a valid, unused invite token for exactly that address.
+- Public registration is disabled by default. When the administrator enables
+  `allowRegistration`, `POST /api/auth/sign-up/email` accepts sign-ups without an
+  invitation. Otherwise it requires a valid, unused invite for that address. The
+  `ALLOW_REGISTRATION` environment variable seeds this setting on a fresh database;
+  changing it later requires updating the database setting in the admin UI.
 - The first administrator is created once with a deployment-provided `SETUP_TOKEN`;
   after that the setup endpoint returns `409`.
 - Passwords are hashed by Better Auth (scrypt-based) with a minimum length of 12.
