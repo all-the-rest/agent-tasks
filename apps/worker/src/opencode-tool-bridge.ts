@@ -1,0 +1,288 @@
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { findTool, toolDefinitions } from '@agent-tasks/agent-runtime';
+import type { ToolContext } from '@agent-tasks/agent-runtime';
+import type { EmailBlock } from '@agent-tasks/shared';
+
+/**
+ * Worker-hosted MCP endpoint for OpenCode executions.
+ *
+ * OpenCode speaks JSON-RPC over HTTP with an SSE response envelope. One worker
+ * process hosts one hub; each execution registers a session with its own
+ * per-execution bearer token, tool allowlist and call budget. The token is
+ * useless after the session closes, and session metadata from OpenCode is never
+ * treated as authentication.
+ *
+ * The hub is a trusted boundary: it returns no stack traces, configuration or
+ * credentials to the model, and only exposes explicitly registered tools.
+ */
+const MAX_BODY_BYTES = 1_000_000;
+const DEFAULT_MAX_CALLS = 40;
+const DEFAULT_PORT = 4091;
+const MCP_PATH = '/mcp';
+
+export interface ToolBridgeSession {
+  token: string;
+  emailBlocks: EmailBlock[];
+  calls: number;
+  close(): void;
+}
+
+export interface ToolBridgeHub {
+  url: string;
+  open(options?: { token?: string; tools?: string[]; maxCalls?: number }): ToolBridgeSession;
+  close(): Promise<void>;
+}
+
+export interface ToolBridge extends ToolBridgeSession {
+  url: string;
+}
+
+interface JsonRpcRequest {
+  jsonrpc?: unknown;
+  id?: unknown;
+  method?: unknown;
+  params?: unknown;
+}
+
+interface Session {
+  token: string;
+  allowed: Set<string>;
+  maxCalls: number;
+  calls: number;
+  emailBlocks: EmailBlock[];
+  definitions: Array<{ name: string; description: string; inputSchema: unknown }>;
+  context: ToolContext;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function safeEqual(value: string, expected: string): boolean {
+  const left = Buffer.from(value);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function tokenFrom(request: IncomingMessage): string | undefined {
+  const header = request.headers.authorization;
+  return typeof header === 'string' && header.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
+}
+
+function sse(response: ServerResponse, payload: unknown): void {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+  });
+  response.end(`event: message\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+async function readBody(request: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > MAX_BODY_BYTES) throw new Error('request body too large');
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function createSession(options: { token?: string; tools?: string[]; maxCalls?: number }): Session {
+  const allowed = new Set(options.tools ?? ['compose_email', 'add_email_block']);
+  const emailBlocks: EmailBlock[] = [];
+  return {
+    token: options.token ?? randomBytes(32).toString('base64url'),
+    allowed,
+    maxCalls: options.maxCalls ?? DEFAULT_MAX_CALLS,
+    calls: 0,
+    emailBlocks,
+    definitions: toolDefinitions([...allowed]).map((definition) => ({
+      name: definition.name,
+      description: definition.description,
+      inputSchema: definition.parameters,
+    })),
+    // Email tools only read `emailBlocks`; the rest of the context is inert and
+    // unreachable through this allowlist.
+    context: {
+      emailBlocks,
+      memoryOps: [],
+      recommendationOps: [],
+      visited: new Set<string>(),
+      queries: [],
+      pageVisits: 0,
+    } as unknown as ToolContext,
+  };
+}
+
+export async function createToolBridgeHub(options: { host?: string; port?: number } = {}): Promise<ToolBridgeHub> {
+  const sessions = new Map<string, Session>();
+  const streams = new Set<ServerResponse>();
+  const server: Server = createServer((request, response) => {
+    void handle(request, response).catch(() => {
+      if (!response.headersSent) response.writeHead(500).end();
+      else response.end();
+    });
+  });
+
+  async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    if (new URL(request.url ?? '/', 'http://bridge.invalid').pathname !== MCP_PATH) {
+      response.writeHead(404).end();
+      return;
+    }
+    const token = tokenFrom(request);
+    const session = token ? sessions.get(token) : undefined;
+    if (!token || !session || !safeEqual(token, session.token)) {
+      response.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
+      return;
+    }
+    if (request.method === 'DELETE') {
+      response.writeHead(204).end();
+      return;
+    }
+    if (request.method === 'GET') {
+      response.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      // Flush immediately: the client waits for the stream headers before it
+      // considers the MCP transport established.
+      response.flushHeaders();
+      streams.add(response);
+      response.on('close', () => streams.delete(response));
+      return;
+    }
+    if (request.method !== 'POST') {
+      response.writeHead(405).end();
+      return;
+    }
+
+    let message: JsonRpcRequest;
+    try {
+      const parsed = JSON.parse(await readBody(request));
+      const record = asRecord(parsed);
+      if (!record) throw new Error('not an object');
+      message = record;
+    } catch {
+      response.writeHead(400, { 'content-type': 'application/json' }).end(
+        JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }),
+      );
+      return;
+    }
+
+    const id = message.id ?? null;
+    const method = typeof message.method === 'string' ? message.method : '';
+    if (method.startsWith('notifications/')) {
+      response.writeHead(202).end();
+      return;
+    }
+    if (method === 'initialize') {
+      sse(response, {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          protocolVersion: '2025-06-18',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'agent-tasks-tools', version: '0.1.0' },
+        },
+      });
+      return;
+    }
+    if (method === 'ping') {
+      sse(response, { jsonrpc: '2.0', id, result: {} });
+      return;
+    }
+    if (method === 'tools/list') {
+      sse(response, { jsonrpc: '2.0', id, result: { tools: session.definitions } });
+      return;
+    }
+    if (method === 'tools/call') {
+      sse(response, { jsonrpc: '2.0', id, result: await callTool(session, message.params) });
+      return;
+    }
+    sse(response, { jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } });
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(options.port ?? DEFAULT_PORT, options.host ?? '0.0.0.0', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address() as AddressInfo;
+  const host = address.address === '::' || address.address === '0.0.0.0' ? '127.0.0.1' : address.address;
+
+  return {
+    url: `http://${host}:${address.port}${MCP_PATH}`,
+    open(sessionOptions = {}) {
+      const session = createSession(sessionOptions);
+      sessions.set(session.token, session);
+      return {
+        token: session.token,
+        emailBlocks: session.emailBlocks,
+        get calls() {
+          return session.calls;
+        },
+        close() {
+          sessions.delete(session.token);
+        },
+      };
+    },
+    async close() {
+      for (const stream of streams) stream.destroy();
+      streams.clear();
+      sessions.clear();
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    },
+  };
+}
+
+/** Convenience wrapper for one isolated session (tests, single-execution hosts). */
+export async function startToolBridge(options: { token?: string; tools?: string[]; maxCalls?: number; host?: string; port?: number } = {}): Promise<ToolBridge> {
+  const hub = await createToolBridgeHub({ host: options.host, port: options.port });
+  const session = hub.open(options);
+  return {
+    token: session.token,
+    emailBlocks: session.emailBlocks,
+    get calls() {
+      return session.calls;
+    },
+    url: hub.url,
+    async close() {
+      session.close();
+      await hub.close();
+    },
+  };
+}
+
+async function callTool(session: Session, params: unknown): Promise<unknown> {
+  const record = asRecord(params);
+  const name = typeof record?.name === 'string' ? record.name : '';
+  if (!session.allowed.has(name)) {
+    return { content: [{ type: 'text', text: `tool not allowed: ${name || '(missing)'}` }], isError: true };
+  }
+  if (session.calls >= session.maxCalls) {
+    return { content: [{ type: 'text', text: `tool call budget exhausted (${session.maxCalls})` }], isError: true };
+  }
+  session.calls += 1;
+  const tool = findTool(name);
+  if (!tool) return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true };
+  try {
+    const outcome = await tool.run(record?.arguments ?? {}, session.context);
+    return {
+      content: [{ type: 'text', text: outcome.ok ? outcome.content : `error: ${outcome.content}` }],
+      isError: !outcome.ok,
+    };
+  } catch {
+    return { content: [{ type: 'text', text: 'tool execution failed' }], isError: true };
+  }
+}

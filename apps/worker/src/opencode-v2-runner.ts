@@ -20,8 +20,8 @@ const MESSAGE_POLL_MS = 100;
 export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; directory: string; model: OpenCodeV2Model; store?: OpenCodeSessionStore }) {
   return async (options: RunAgentOptions, lease?: OpenCodeExecutionLease): Promise<AgentRunResult> => {
     if (options.model !== config.model.id) throw new Error('OpenCode spike model does not match the task model');
-    if (options.allowWebResearch || options.memoryEnabled || options.memoryContext || options.emailNotification) {
-      throw new Error('OpenCode spike only supports text-only tasks without memory or email');
+    if (options.allowWebResearch || options.memoryEnabled || options.memoryContext) {
+      throw new Error('OpenCode spike only supports tasks without web research or memory');
     }
     const timeoutSignal = AbortSignal.timeout(options.limits.maxDurationSec * 1_000);
     const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
