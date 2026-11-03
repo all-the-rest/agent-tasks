@@ -177,6 +177,13 @@ Model discovery calls `GET {baseUrl}/models`. If the endpoint has no models rout
 declare models in `config.models` through the API (the UI edits only the base URL);
 otherwise refresh fails with `unavailable`.
 
+**Upgrading from the env-seeded setup.** Older releases created the Go provider from
+`OPENCODE_GO_*` at startup. That seeding is gone; an existing provider row, its
+encrypted credential and its catalog keep working unchanged, and nothing seeds a
+duplicate. Delete the obsolete `OPENCODE_GO_*` variables from the host `.env` after
+the upgrade and manage the connection in **Admin → Providers** from then on. New
+installs start with no provider at all.
+
 ### Register it through the API
 
 `POST /api/admin/providers` with this body:
