@@ -247,8 +247,11 @@ jobs:
       - name: Verify parallel workers and crash recovery
         run: |
           # Only this check needs slow executions; keep the E2E suite fast by
-          # recreating the fake runtime with the delay just for this step.
-          FAKE_RUNTIME_DELAY_MS=20000 docker compose up -d --no-deps --wait opencode-test-provisioner
+          # recreating the fake runtime with the delay just for this step. Export
+          # it for both Compose invocations: the scale-up below re-renders and
+          # recreates the provisioner, and must not reset the delay to zero.
+          export FAKE_RUNTIME_DELAY_MS=20000
+          docker compose up -d --no-deps --wait opencode-test-provisioner
           # Keep the images built above instead of re-pulling published :latest.
           docker compose up -d --pull never --scale worker=2
           for attempt in $(seq 1 60); do
