@@ -5,6 +5,7 @@ const baseUrl = new URL(process.env.OPENCODE_PROVISIONER_URL ?? process.env.PROV
 const token = process.env.OPENCODE_PROVISIONER_TOKEN ?? '';
 const provisionerContainer = process.env.PROVISIONER_CONTAINER_NAME ?? 'agent-tasks-opencode-provisioner';
 const fakeApiKey = 'agent-tasks-provisioner-smoke-fake-key-never-used';
+const rotatedApiKey = 'agent-tasks-provisioner-smoke-rotated-key-never-used';
 const fakeHeader = 'agent-tasks-provisioner-smoke-fake-header-never-used';
 const runtimes = [];
 
@@ -33,7 +34,7 @@ async function responseJson(url, init) {
   return { response, body };
 }
 
-async function openRuntime(lease) {
+async function openRuntime(lease, apiKey = fakeApiKey) {
   const input = {
     lease: { ...lease, workerId: 'opencode-provisioner-smoke' },
     providerKind: 'openai-compatible',
@@ -45,7 +46,7 @@ async function openRuntime(lease) {
       timeoutMs: 30_000,
     },
     model: { providerID: 'agent_tasks', id: 'smoke-model' },
-    apiKey: fakeApiKey,
+    ...(apiKey === null ? {} : { apiKey }),
     systemPrompt: 'Provisioner lifecycle smoke test. Do not call tools.',
     maxAgentSteps: 4,
     maxOutputBytes: 8_192,
@@ -187,15 +188,28 @@ try {
 
   const firstSession = await createSession(first);
   pass('OpenCode session creation succeeds through the authenticated provisioner');
+  const mcpStatus = await runtimeRequest(first, 'api/mcp');
+  assert(mcpStatus.ok, 'MCP status is reachable through the authenticated runtime proxy');
+  const mcpMutation = await runtimeRequest(first, 'api/mcp', { method: 'POST', body: '{}' });
+  assert(mcpMutation.status === 404, 'MCP mutation is not exposed through the runtime proxy');
   const firstMembers = inspectJson(['network', 'inspect', '--format', '{{json .Containers}}', firstNetwork]);
   assert(Object.values(firstMembers).some((entry) => entry.Name === provisionerContainer), 'provisioner is attached for runtime proxy calls');
   await releaseRuntime(first);
   const releasedMembers = inspectJson(['network', 'inspect', '--format', '{{json .Containers}}', firstNetwork]);
   assert(!Object.values(releasedMembers).some((entry) => entry.Name === provisionerContainer), 'release detaches the provisioner from the execution network');
 
-  const recovered = await openRuntime(firstLease);
+  const recovered = await openRuntime(firstLease, rotatedApiKey);
+  const rotatedKey = docker(['exec', firstContainer, 'cat', '/run/agent-tasks/AGENT_TASKS_API_KEY']);
+  const rotatedConfig = docker(['exec', firstContainer, 'cat', '/etc/opencode/opencode.json']);
+  assert(rotatedKey === rotatedApiKey && !rotatedConfig.includes(fakeApiKey) && !rotatedConfig.includes(rotatedApiKey), 'recreated runtime receives the rotated key without persisting either key in config');
   const recoveredMessages = await runtimeRequest(recovered, `api/session/${encodeURIComponent(firstSession)}/message`);
   assert(recoveredMessages.ok, 'the OpenCode session survives container recreation for the same execution');
+
+  await releaseRuntime(recovered);
+  await openRuntime(firstLease, null);
+  const revokedKey = docker(['exec', firstContainer, 'cat', '/run/agent-tasks/AGENT_TASKS_API_KEY']);
+  const revokedConfig = docker(['exec', firstContainer, 'cat', '/etc/opencode/opencode.json']);
+  assert(revokedKey === '' && !revokedConfig.includes('AGENT_TASKS_API_KEY'), 'recreated runtime receives no provider key after revocation');
 
   const secondLease = { executionId: randomUUID(), ownerId: randomUUID() };
   const second = await openRuntime(secondLease);

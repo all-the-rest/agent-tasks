@@ -15,12 +15,15 @@ describe('HTTP OpenCode provisioner client', () => {
       lease: { executionId: '123e4567-e89b-42d3-a456-426614174000', ownerId: '123e4567-e89b-42d3-a456-426614174001', workerId: 'worker' },
       providerKind: 'openai-compatible', providerContext: { apiKey: 'owner-key', config: { baseUrl: 'https://llm.example/v1' } },
       model: 'model', systemPrompt: 'task policy', maxAgentSteps: 8, maxOutputBytes: 8192,
+      toolBridge: { token: 'bridge-token', tools: ['compose_email'] },
     } as never);
     const [url, request] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(url.pathname).toBe('/v1/runtimes/open');
     expect(new Headers(request.headers).get('authorization')).toBe(`Bearer ${'t'.repeat(64)}`);
     expect(JSON.parse(String(request.body))).toMatchObject({ apiKey: 'owner-key', provider: { baseUrl: 'https://llm.example/v1' }, systemPrompt: 'task policy', maxAgentSteps: 8, maxOutputBytes: 8192 });
     expect(JSON.parse(String(request.body)).providerKind).toBe('openai-compatible');
+    expect(JSON.parse(String(request.body)).model).toEqual({ id: 'model' });
+    expect(JSON.parse(String(request.body)).toolBridge).toEqual({ token: 'bridge-token', tools: ['compose_email'] });
     expect(runtime.directory).toBe('/workspace');
     await runtime.client.createSession({ directory: runtime.directory });
     expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get('x-provisioner-token')).toBe('t'.repeat(64));

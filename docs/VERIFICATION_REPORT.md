@@ -58,13 +58,13 @@ Current verification for this change:
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm -r typecheck` | passed (10 workspace projects) |
-| `pnpm test:unit` | **258 passed, 3 skipped**, 36 files passed / 1 skipped |
-| `pnpm test:integration` | **88 passed**, 13 files |
+| `pnpm test:unit` | **260 passed, 3 skipped**, 36 files passed / 1 skipped |
+| `pnpm test:integration` | **89 passed**, 13 files |
 | `pnpm --filter @agent-tasks/web test` | **45 passed**, 10 files (includes e-mail block preview and sanitizer) |
 | `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
-| `services/opencode-provisioner` unit tests | **6 passed** |
+| `services/opencode-provisioner` unit tests | **8 passed** |
 | `pnpm test:screenshots:acceptance` (admin provider page) | **2 passed**: empty, filled, error and rotated states in en + de; the 8 PNGs are committed under `docs/verification/admin-providers/` (`tests/acceptance/admin-providers.spec.ts`) |
-| `scripts/verify-opencode-provisioner.mjs` in the rebuilt provisioner container | all lifecycle/isolation checks passed (fake credentials only) |
+| `scripts/verify-opencode-provisioner.mjs` against the rebuilt provisioner and OpenCode 2.2.5 container | lifecycle/isolation checks passed, including authenticated MCP status, rejected MCP mutation, and rotated/removed test-key delivery to recreated runtimes (fake credentials; no model inference or provider-side revocation) |
 | `docker compose config -q` + `scripts/check-compose-parity.mjs` | passed |
 | `ratchet check` | **11/11 gates passed** |
 

@@ -30,12 +30,13 @@ export class HttpOpenCodeProvisioner implements IsolatedOpenCodeProvisioner {
         body: JSON.stringify({
           lease: input.lease,
           providerKind: input.providerKind,
-          model: input.model,
+          model: { id: input.model },
           provider: input.providerContext.config,
           apiKey: input.providerContext.apiKey,
           systemPrompt: input.systemPrompt,
           maxAgentSteps: input.maxAgentSteps,
           maxOutputBytes: input.maxOutputBytes,
+          ...(input.toolBridge ? { toolBridge: input.toolBridge } : {}),
         }),
         signal: input.signal ?? AbortSignal.timeout(30_000),
       });
