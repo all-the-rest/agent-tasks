@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { taskEndConditionSchema } from '@agent-tasks/shared';
 import type { TaskInput } from './types';
 import { schedulePayload } from './schedule';
 
@@ -33,6 +34,11 @@ export const taskFormSchema = z
     model: z.string().min(1, 'validation.modelRequired'),
     enabled: z.boolean(),
     schedule: scheduleFormSchema,
+    endCondition: z.object({
+      type: z.enum(['never', 'on_date', 'after_runs']),
+      date: z.string().optional(),
+      runs: z.number().int().optional(),
+    }),
     allowWebResearch: z.boolean(),
     notification: z.enum(['none', 'email']),
     memorySettings: z.object({
@@ -61,11 +67,29 @@ export const taskFormSchema = z
     if (schedule.preset === 'custom' && !schedule.cron?.trim()) {
       ctx.addIssue({ code: 'custom', path: ['schedule', 'cron'], message: 'validation.cronRequired' });
     }
+
+    const { endCondition } = value;
+    const parsedEndCondition =
+      endCondition.type === 'never'
+        ? taskEndConditionSchema.safeParse({ type: endCondition.type })
+        : endCondition.type === 'on_date'
+          ? taskEndConditionSchema.safeParse({ type: endCondition.type, date: endCondition.date })
+          : taskEndConditionSchema.safeParse({ type: endCondition.type, runs: endCondition.runs });
+    if (!parsedEndCondition.success) {
+      const field = endCondition.type === 'on_date' ? 'date' : 'runs';
+      ctx.addIssue({ code: 'custom', path: ['endCondition', field], message: 'validation.endConditionInvalid' });
+    }
   });
 
 export type TaskFormValues = z.infer<typeof taskFormSchema>;
 
 export function toTaskInput(values: TaskFormValues): TaskInput {
+  const endCondition =
+    values.endCondition.type === 'never'
+      ? { type: 'never' as const }
+      : values.endCondition.type === 'on_date'
+        ? { type: 'on_date' as const, date: values.endCondition.date ?? '' }
+        : { type: 'after_runs' as const, runs: values.endCondition.runs ?? 0 };
   return {
     title: values.title.trim(),
     description: values.description.trim() || undefined,
@@ -75,6 +99,7 @@ export function toTaskInput(values: TaskFormValues): TaskInput {
     model: values.model,
     enabled: values.enabled,
     schedule: schedulePayload(values.schedule),
+    endCondition,
     allowWebResearch: values.allowWebResearch,
     notification: values.notification,
     memorySettings: values.memorySettings,

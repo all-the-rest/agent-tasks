@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENT_RUNTIME_LIMITS,
   systemSettingsSchema,
+  taskEndConditionSchema,
   taskInputSchema,
   taskUpdateSchema,
   userPreferencesUpdateSchema,
@@ -19,7 +20,7 @@ const createBody = {
 describe('PATCH schemas do not apply create defaults', () => {
   it('still fills defaults for a create body', () => {
     const created = taskInputSchema.parse(createBody);
-    expect(created).toMatchObject({ enabled: true, allowWebResearch: true, notification: 'none' });
+    expect(created).toMatchObject({ enabled: true, allowWebResearch: true, notification: 'none', endCondition: { type: 'never' } });
     expect(created).not.toHaveProperty('limits');
   });
 
@@ -29,6 +30,7 @@ describe('PATCH schemas do not apply create defaults', () => {
     expect('enabled' in update).toBe(false);
     expect('allowWebResearch' in update).toBe(false);
     expect('notification' in update).toBe(false);
+    expect('endCondition' in update).toBe(false);
     expect('limits' in update).toBe(false);
   });
 
@@ -53,6 +55,26 @@ describe('PATCH schemas do not apply create defaults', () => {
   it('leaves omitted preference fields absent on update', () => {
     expect(userPreferencesUpdateSchema.parse({ theme: 'dark' })).toEqual({ theme: 'dark' });
     expect(userPreferencesUpdateSchema.parse({})).toEqual({});
+  });
+});
+
+describe('task end condition validation', () => {
+  it('accepts never, a real calendar date, and a positive scheduled run count', () => {
+    expect(taskEndConditionSchema.parse({ type: 'never' })).toEqual({ type: 'never' });
+    expect(taskEndConditionSchema.parse({ type: 'on_date', date: '2026-11-03' })).toEqual({
+      type: 'on_date',
+      date: '2026-11-03',
+    });
+    expect(taskEndConditionSchema.parse({ type: 'after_runs', runs: 2 })).toEqual({
+      type: 'after_runs',
+      runs: 2,
+    });
+  });
+
+  it('rejects malformed dates, zero runs, and mismatched fields', () => {
+    expect(taskEndConditionSchema.safeParse({ type: 'on_date', date: '2026-02-30' }).success).toBe(false);
+    expect(taskEndConditionSchema.safeParse({ type: 'after_runs', runs: 0 }).success).toBe(false);
+    expect(taskEndConditionSchema.safeParse({ type: 'unknown' }).success).toBe(false);
   });
 });
 

@@ -376,6 +376,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Run-now semantics | manual trigger, never moves `next_run_at`; rejected while a run is queued/running | `tasks.ts:222-253` |
 | Execution actions | list by status, detail, cancel, retry, Markdown and JSON export | `tasks.ts:316-426` |
 | Notifications | e-mail on completion, opt-in per task | `schemas.ts:108`, `executor.ts:372-380` |
+| End conditions | `never / on_date / after_runs`; date includes the selected local day; run cap counts scheduled bookings, not manual runs or retries | `packages/shared/src/task-end-condition.ts`, `apps/worker/src/scheduling.ts`, `packages/database/drizzle/0005_deep_madripoor.sql` |
 | Per-run caps | duration, steps, pages, output bytes, tool calls, search queries; admin may lower | `packages/shared/src/limits.ts:3-24` |
 | Task memory policy | `off / suggest / auto` + `contextBytes` per task | `schema.ts:207-212` |
 | Multi-user | owner-scoped reads/writes, roles, invites, audit log | `apps/api/src/routes/*.ts`, `schema.ts:494` |
@@ -389,7 +390,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Reference behaviour | Ours | Note |
 | --- | --- | --- |
 | Dedicated scheduled surface in the nav | ✅ | *Tasks* page, not an inbox yet |
-| Filter active / paused / completed | ❌ | Only a title search; task state is just `enabled`. `GET /api/tasks` already types a `status` param but ignores it (`tasks.ts:57-66`) |
+| Filter active / paused / completed | ❌ | Only a title search; completed state is now tracked and shown, but no status filter exists. `GET /api/tasks` already types a `status` param but ignores it (`tasks.ts:57-66`) |
 | Unread marker on new runs | ❌ | Executions page is a log with status tabs |
 | Composer-first creation | ❌ | `TaskFormPage` is a form with *Task / Schedule / Behaviour* sections |
 | One-click suggestions | ❌ | Empty state only links to "create your first task" |
@@ -404,7 +405,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Time windows, exact time under custom | ✅+ | Both visible at once |
 | Multi-weekday / multi-day-of-month | ✅+ | Reference has single day per preset |
 | Advanced recurrence (RRULE vs cron) | 🟡 | Five-field cron, no RRULE; equivalent for our cases |
-| End condition (never / date / after N) | ❌ | Only "once" stops by itself |
+| End condition (never / date / after N) | ✅ | Date is inclusive in the task timezone; after N counts scheduled bookings, excluding manual runs and retries. Reaching a condition records completion and stops booking. |
 | Destination: this chat vs new chat | ❌ | Every run is standalone; there is no chat concept |
 | Per-task model/reasoning effort | 🟡 | Model is pinned; variants exist (`model#high`), no explicit effort UI |
 | Per-task sandbox/permission profile | 🟡 | Browser isolation is deployment-wide; web research is a per-task switch; the per-task `limits` column is stored but not enforced (global settings win) |
@@ -460,7 +461,7 @@ Kept deliberately, per §5:
 | 1 | **Inbox with unread + active/paused/completed filter** | Runs are currently a log, not something you review | M — needs `archived`/state model, `read_at`, list query |
 | 2 | **Prompt-first creation with a confirmed draft** | The form asks for provider/model/schedule before the user has said what they want | M — composer + draft object + confirm step |
 | 3 | **Destination choice** | Every run looks the same; no "continue this thread" | L — needs a conversation concept |
-| 4 | **End conditions (date / after N runs)** | Long-running monitors never stop | S — two fields + scheduler check |
+| 4 | **End conditions (date / after N runs)** | Long-running monitors never stop | ✅ Shipped in #20; after N counts scheduled bookings, while manual runs and retries remain independent |
 | 5 | **Monitoring diff + "nothing to report"** | The core of a monitoring task; we would e-mail noise | M — compare with previous run, suppress notification |
 | 6 | **Notification channels** (push, per-feature, only-on-change) | E-mail-only limits the product to inbox-checkers | M — channel abstraction + settings page |
 | 7 | **Share snapshot** | No way to hand a task to a colleague without credentials | S/M — snapshot table, public read route, adopt flow |
@@ -470,8 +471,8 @@ Kept deliberately, per §5:
 
 ## 9. Suggested delivery slices (ordered by size and dependency; §8.4 ranks by value)
 
-1. **End conditions** — smallest real gap; date and "after N runs", evaluated by
-   the scheduler before booking.
+1. ✅ **End conditions shipped in #20** — date and "after N runs" are evaluated
+   by the scheduler before booking; date is inclusive in the task timezone.
 2. **Monitoring diff + quiet runs** — store the previous report, compare, and make
    "nothing changed" a first-class result that suppresses e-mail.
 3. **Inbox** — task state (`active / paused / completed`), unread runs, status
@@ -502,10 +503,10 @@ Kept deliberately, per §5:
 
 **Open — the work in §9**
 
-- [ ] Task state: active / paused / completed, with a filter on the list
+- [ ] Task state: active / paused / completed, with a filter on the list (completed is tracked and displayed; the filter remains open)
 - [ ] Unread runs and an inbox-style review surface
 - [ ] Prompt-first creation with a confirmable draft
-- [ ] End condition: never / on a date / after N runs
+- [x] End condition: never / on a date / after N scheduled bookings (manual runs and retries do not count)
 - [ ] "Nothing to report" outcome that suppresses notification
 - [ ] Notification channels beyond e-mail, with per-feature settings
 - [ ] Share snapshot with copy-on-adopt and revoke

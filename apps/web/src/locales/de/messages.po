@@ -1615,6 +1615,9 @@ msgstr "Webrecherche erlauben"
 msgid "tasks.basicSection"
 msgstr "Aufgabe"
 
+msgid "tasks.completed"
+msgstr "Abgeschlossen"
+
 msgid "tasks.count"
 msgstr "{count} Aufgaben"
 
@@ -1680,6 +1683,27 @@ msgstr "Aktiv"
 
 msgid "tasks.enabledHelp"
 msgstr "Inaktive Aufgaben behalten ihren Zeitplan, werden aber nie ausgeführt."
+
+msgid "tasks.endAfterRuns"
+msgstr "Nach einer Anzahl geplanter Läufe"
+
+msgid "tasks.endAfterRunsSummary"
+msgstr "Nach {count} geplanten Läufen beenden"
+
+msgid "tasks.endCondition"
+msgstr "Endbedingung"
+
+msgid "tasks.endDate"
+msgstr "Enddatum"
+
+msgid "tasks.endNever"
+msgstr "Nie"
+
+msgid "tasks.endOnDate"
+msgstr "An einem Datum"
+
+msgid "tasks.endRuns"
+msgstr "Anzahl geplanter Läufe"
 
 msgid "tasks.executionsTitle"
 msgstr "Ausführungen"
@@ -1905,6 +1929,9 @@ msgstr "Die Beschreibung darf höchstens 2000 Zeichen lang sein."
 
 msgid "validation.emailInvalid"
 msgstr "Gib eine gültige E-Mail-Adresse ein."
+
+msgid "validation.endConditionInvalid"
+msgstr "Gib ein gültiges Enddatum oder eine gültige Laufanzahl ein."
 
 msgid "validation.instructionsMax"
 msgstr "Die Anweisungen dürfen höchstens 8000 Zeichen lang sein."

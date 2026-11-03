@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { claimExecution, recoverStaleExecutions, scheduleDueExecutions } from '../../apps/worker/src/scheduling';
 import { createHarness } from '../helpers/harness';
@@ -11,13 +12,20 @@ let taskId: string;
 
 const schedule = { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 };
 const limits = { maxDurationSec: 60, maxAgentSteps: 3, maxPageVisits: 2, maxOutputBytes: 10000, maxToolCalls: 5, maxSearchQueries: 1 };
+type TestSchedule = { preset: string; timezone: string; hour: number; minute: number; runAt?: string; cron?: string };
 
-async function insertTask(nextRunAt: Date, enabled = true, taskOwnerId = ownerId): Promise<string> {
+async function insertTask(
+  nextRunAt: Date,
+  enabled = true,
+  taskOwnerId = ownerId,
+  endCondition: { type: 'never' } | { type: 'on_date'; date: string } | { type: 'after_runs'; runs: number } = { type: 'never' },
+  taskSchedule: TestSchedule = schedule,
+): Promise<string> {
   const id = randomUUID();
   await harness.db.pool.query(
-    `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, next_run_at)
-     values ($1,$2,'Scheduled task','Research something with sources.',$3,'mock-researcher',$4,$5,'Europe/Vienna',$6,true,'none',$7)`,
-    [id, taskOwnerId, providerId, enabled, JSON.stringify(schedule), JSON.stringify(limits), nextRunAt.toISOString()],
+    `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, end_condition, timezone, limits, allow_web_research, notification, next_run_at)
+     values ($1,$2,'Scheduled task','Research something with sources.',$3,'mock-researcher',$4,$5,$6,'Europe/Vienna',$7,true,'none',$8)`,
+    [id, taskOwnerId, providerId, enabled, JSON.stringify(taskSchedule), JSON.stringify(endCondition), JSON.stringify(limits), nextRunAt.toISOString()],
   );
   return id;
 }
@@ -63,10 +71,292 @@ describe('scheduler', () => {
     expect(rows.rows[0].count).toBe(1);
   });
 
+  it('enforces an after-runs limit exactly once across concurrent scheduler ticks', async () => {
+    const now = new Date('2026-11-03T06:00:00.000Z');
+    const id = await insertTask(new Date('2026-11-03T05:30:00.000Z'), true, ownerId, { type: 'after_runs', runs: 1 });
+    const [first, second] = await Promise.all([
+      scheduleDueExecutions(harness.db.db, now),
+      scheduleDueExecutions(harness.db.db, now),
+    ]);
+
+    expect([...first, ...second].filter((run) => run.taskId === id)).toHaveLength(1);
+    const task = await harness.db.pool.query<{ enabled: boolean; next_run_at: Date | null; scheduled_run_count: number; completed_at: Date | null }>(
+      'select enabled, next_run_at, scheduled_run_count, completed_at from tasks where id = $1',
+      [id],
+    );
+    expect(task.rows[0]).toMatchObject({ enabled: false, next_run_at: null, scheduled_run_count: 1 });
+    expect(task.rows[0]?.completed_at).toBeInstanceOf(Date);
+    const executions = await harness.db.pool.query<{ count: number }>(
+      "select count(*)::int as count from executions where task_id = $1 and trigger = 'schedule'",
+      [id],
+    );
+    expect(executions.rows[0]?.count).toBe(1);
+  });
+
   it('ignores paused tasks', async () => {
     await insertTask(new Date(Date.now() - 30_000), false);
     const created = await scheduleDueExecutions(harness.db.db);
     expect(created).toHaveLength(0);
+  });
+
+  it('counts only scheduled bookings and completes at the configured run cap', async () => {
+    const now = new Date('2026-11-03T06:00:00.000Z');
+    const id = await insertTask(new Date('2026-11-02T05:30:00.000Z'), true, ownerId, { type: 'after_runs', runs: 2 });
+    await harness.db.pool.query(
+      `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id)
+       values ($1,$2,$3,'manual','completed','manual','mock-researcher',$4),
+              ($5,$2,$3,'retry','completed','retry','mock-researcher',$4)`,
+      [randomUUID(), id, ownerId, providerId, randomUUID()],
+    );
+
+    const first = await scheduleDueExecutions(harness.db.db, now);
+    expect(first.filter((run) => run.taskId === id)).toHaveLength(1);
+    const afterFirst = await harness.db.pool.query<{ enabled: boolean; scheduled_run_count: number; completed_at: Date | null }>(
+      'select enabled, scheduled_run_count, completed_at from tasks where id = $1',
+      [id],
+    );
+    expect(afterFirst.rows[0]).toMatchObject({ enabled: true, scheduled_run_count: 1, completed_at: null });
+
+    const second = await scheduleDueExecutions(harness.db.db, now);
+    expect(second.filter((run) => run.taskId === id)).toHaveLength(1);
+    const afterSecond = await harness.db.pool.query<{ enabled: boolean; scheduled_run_count: number; completed_at: Date | null }>(
+      'select enabled, scheduled_run_count, completed_at from tasks where id = $1',
+      [id],
+    );
+    expect(afterSecond.rows[0]?.enabled).toBe(false);
+    expect(afterSecond.rows[0]?.scheduled_run_count).toBe(2);
+    expect(afterSecond.rows[0]?.completed_at).toBeInstanceOf(Date);
+    expect(await scheduleDueExecutions(harness.db.db, now)).toHaveLength(0);
+    const executions = await harness.db.pool.query<{ trigger: string }>('select trigger from executions where task_id = $1', [id]);
+    expect(executions.rows.map((row) => row.trigger).sort()).toEqual(['manual', 'retry', 'schedule', 'schedule']);
+  });
+
+  it('completes a one-off schedule after its only occurrence when the run cap cannot be reached', async () => {
+    const occurrence = new Date('2026-11-03T05:30:00.000Z');
+    const now = new Date('2026-11-03T06:00:00.000Z');
+    const id = await insertTask(occurrence, true, ownerId, { type: 'after_runs', runs: 3 }, {
+      preset: 'once',
+      timezone: 'Europe/Vienna',
+      hour: 6,
+      minute: 30,
+      runAt: occurrence.toISOString(),
+    });
+
+    const created = await scheduleDueExecutions(harness.db.db, now);
+    expect(created.filter((run) => run.taskId === id)).toHaveLength(1);
+    const task = await harness.db.pool.query<{ enabled: boolean; next_run_at: Date | null; scheduled_run_count: number; completed_at: Date | null }>(
+      'select enabled, next_run_at, scheduled_run_count, completed_at from tasks where id = $1',
+      [id],
+    );
+    expect(task.rows[0]).toMatchObject({ enabled: false, next_run_at: null, scheduled_run_count: 1 });
+    expect(task.rows[0]?.completed_at).toBeInstanceOf(Date);
+  });
+
+  it('includes occurrences on the selected local end date, then completes without booking later dates', async () => {
+    const id = await insertTask(
+      new Date('2026-11-03T05:30:00.000Z'),
+      true,
+      ownerId,
+      { type: 'on_date', date: '2026-11-03' },
+    );
+    const onEndDate = await scheduleDueExecutions(harness.db.db, new Date('2026-11-03T06:00:00.000Z'));
+    expect(onEndDate.filter((run) => run.taskId === id)).toHaveLength(1);
+    const afterBooking = await harness.db.pool.query<{ enabled: boolean; scheduled_run_count: number; completed_at: Date | null }>(
+      'select enabled, scheduled_run_count, completed_at from tasks where id = $1',
+      [id],
+    );
+    expect(afterBooking.rows[0]).toMatchObject({ enabled: true, scheduled_run_count: 1, completed_at: null });
+
+    const afterEndDate = await scheduleDueExecutions(harness.db.db, new Date('2026-11-04T00:30:00.000Z'));
+    expect(afterEndDate.filter((run) => run.taskId === id)).toHaveLength(0);
+    const completed = await harness.db.pool.query<{ enabled: boolean; scheduled_run_count: number; completed_at: Date | null }>(
+      'select enabled, scheduled_run_count, completed_at from tasks where id = $1',
+      [id],
+    );
+    expect(completed.rows[0]?.enabled).toBe(false);
+    expect(completed.rows[0]?.scheduled_run_count).toBe(1);
+    expect(completed.rows[0]?.completed_at).toBeInstanceOf(Date);
+    const executions = await harness.db.pool.query('select id from executions where task_id = $1', [id]);
+    expect(executions.rows).toHaveLength(1);
+  });
+
+  it.each([
+    {
+      name: 'daily',
+      taskSchedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
+    },
+    {
+      name: 'custom cron',
+      taskSchedule: { preset: 'custom', timezone: 'Europe/Vienna', hour: 6, minute: 30, cron: '30 6 * * *' },
+    },
+  ])('catches up every overdue $name occurrence within the inclusive local end date', async ({ taskSchedule }) => {
+    const occurrences = [new Date('2026-11-02T05:30:00.000Z'), new Date('2026-11-03T05:30:00.000Z')];
+    // 00:30 UTC on Nov 4 is 01:30 in Vienna; both prior local occurrences are inside Nov 3's inclusive window.
+    const now = new Date('2026-11-04T00:30:00.000Z');
+    const id = await insertTask(occurrences[0] as Date, true, ownerId, { type: 'on_date', date: '2026-11-03' }, taskSchedule);
+
+    const first = await scheduleDueExecutions(harness.db.db, now);
+    expect(first.filter((run) => run.taskId === id).map((run) => run.occurrence)).toEqual([occurrences[0]]);
+    const afterFirst = await harness.db.pool.query<{ enabled: boolean; scheduled_run_count: number; completed_at: Date | null; next_run_at: Date | null }>(
+      'select enabled, scheduled_run_count, completed_at, next_run_at from tasks where id = $1',
+      [id],
+    );
+    expect(afterFirst.rows[0]).toMatchObject({ enabled: true, scheduled_run_count: 1, completed_at: null, next_run_at: occurrences[1] });
+
+    const second = await scheduleDueExecutions(harness.db.db, now);
+    expect(second.filter((run) => run.taskId === id).map((run) => run.occurrence)).toEqual([occurrences[1]]);
+    const completed = await harness.db.pool.query<{ enabled: boolean; scheduled_run_count: number; completed_at: Date | null; next_run_at: Date | null }>(
+      'select enabled, scheduled_run_count, completed_at, next_run_at from tasks where id = $1',
+      [id],
+    );
+    expect(completed.rows[0]).toMatchObject({ enabled: false, scheduled_run_count: 2, next_run_at: null });
+    expect(completed.rows[0]?.completed_at).toBeInstanceOf(Date);
+    const executions = await harness.db.pool.query<{ scheduled_for: Date }>(
+      "select scheduled_for from executions where task_id = $1 and trigger = 'schedule' order by scheduled_for",
+      [id],
+    );
+    expect(executions.rows.map((row) => row.scheduled_for)).toEqual(occurrences);
+  });
+
+  it('catches up overdue date-bounded occurrences without duplicates across concurrent scheduler ticks', async () => {
+    const occurrences = [new Date('2026-11-02T05:30:00.000Z'), new Date('2026-11-03T05:30:00.000Z')];
+    const now = new Date('2026-11-04T00:30:00.000Z');
+    const id = await insertTask(occurrences[0] as Date, true, ownerId, { type: 'on_date', date: '2026-11-03' });
+    const booked: Date[] = [];
+
+    for (let round = 0; round < 3; round += 1) {
+      const [first, second] = await Promise.all([
+        scheduleDueExecutions(harness.db.db, now),
+        scheduleDueExecutions(harness.db.db, now),
+      ]);
+      booked.push(...[...first, ...second].filter((run) => run.taskId === id).map((run) => run.occurrence));
+    }
+
+    expect(booked.sort((left, right) => left.getTime() - right.getTime())).toEqual(occurrences);
+    const task = await harness.db.pool.query<{ enabled: boolean; scheduled_run_count: number; completed_at: Date | null; next_run_at: Date | null }>(
+      'select enabled, scheduled_run_count, completed_at, next_run_at from tasks where id = $1',
+      [id],
+    );
+    expect(task.rows[0]).toMatchObject({ enabled: false, scheduled_run_count: 2, next_run_at: null });
+    expect(task.rows[0]?.completed_at).toBeInstanceOf(Date);
+    const executions = await harness.db.pool.query<{ scheduled_for: Date }>(
+      "select scheduled_for from executions where task_id = $1 and trigger = 'schedule' order by scheduled_for",
+      [id],
+    );
+    expect(executions.rows.map((row) => row.scheduled_for)).toEqual(occurrences);
+  });
+
+  it('completes a paused task after its local end date without booking its overdue occurrence', async () => {
+    const id = await insertTask(
+      new Date('2026-11-03T05:30:00.000Z'),
+      false,
+      ownerId,
+      { type: 'on_date', date: '2026-11-03' },
+    );
+    // 23:30 UTC is already Nov 4 in Europe/Vienna, so the Nov 3 local end date has passed.
+    const created = await scheduleDueExecutions(harness.db.db, new Date('2026-11-03T23:30:00.000Z'));
+    expect(created.filter((run) => run.taskId === id)).toHaveLength(0);
+
+    const task = await harness.db.pool.query<{ enabled: boolean; next_run_at: Date | null; scheduled_run_count: number; completed_at: Date | null }>(
+      'select enabled, next_run_at, scheduled_run_count, completed_at from tasks where id = $1',
+      [id],
+    );
+    expect(task.rows[0]).toMatchObject({ enabled: false, next_run_at: null, scheduled_run_count: 0 });
+    expect(task.rows[0]?.completed_at).toBeInstanceOf(Date);
+    const executions = await harness.db.pool.query<{ count: number }>(
+      'select count(*)::int as count from executions where task_id = $1',
+      [id],
+    );
+    expect(executions.rows[0]?.count).toBe(0);
+  });
+
+  it('backfills scheduled counts and precisely completes exhausted one-off tasks in the migration', async () => {
+    const client = await harness.db.pool.connect();
+    const schemaName = `end_condition_migration_${randomUUID().replaceAll('-', '')}`;
+    try {
+      await client.query('begin');
+      await client.query(`create schema "${schemaName}"`);
+      await client.query(`set local search_path to "${schemaName}"`);
+      await client.query(`create table tasks (
+        id uuid primary key,
+        owner_id text not null,
+        schedule jsonb not null,
+        enabled boolean not null,
+        next_run_at timestamptz
+      )`);
+      await client.query(`create table executions (
+        task_id uuid not null,
+        owner_id text not null,
+        trigger text not null,
+        scheduled_for timestamptz,
+        created_at timestamptz not null
+      )`);
+
+      const taskWithHistory = randomUUID();
+      const taskWithoutScheduledHistory = randomUUID();
+      const exhaustedOnce = randomUUID();
+      const futureOnce = randomUUID();
+      const pausedOnce = randomUUID();
+      const wrongOwnerOnce = randomUUID();
+      const exhaustedRunAt = new Date(Date.now() - 60_000);
+      const futureRunAt = new Date(Date.now() + 60 * 60_000);
+      const bookedAt = new Date();
+      const dailySchedule = { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 };
+      const onceSchedule = (runAt: Date) => ({
+        preset: 'once',
+        timezone: 'Europe/Vienna',
+        hour: 6,
+        minute: 30,
+        runAt: runAt.toISOString(),
+      });
+      const insertFixtureTask = (id: string, owner: string, fixtureSchedule: object, enabled: boolean, nextRunAt: Date | null) =>
+        client.query(
+          'insert into tasks (id, owner_id, schedule, enabled, next_run_at) values ($1, $2, $3, $4, $5)',
+          [id, owner, JSON.stringify(fixtureSchedule), enabled, nextRunAt?.toISOString() ?? null],
+        );
+      await insertFixtureTask(taskWithHistory, 'owner-a', dailySchedule, true, null);
+      await insertFixtureTask(taskWithoutScheduledHistory, 'owner-b', dailySchedule, true, null);
+      await insertFixtureTask(exhaustedOnce, 'owner-a', onceSchedule(exhaustedRunAt), true, null);
+      await insertFixtureTask(futureOnce, 'owner-a', onceSchedule(futureRunAt), true, futureRunAt);
+      await insertFixtureTask(pausedOnce, 'owner-a', onceSchedule(exhaustedRunAt), false, null);
+      await insertFixtureTask(wrongOwnerOnce, 'owner-b', onceSchedule(exhaustedRunAt), true, null);
+      await client.query(
+        `insert into executions (task_id, owner_id, trigger, scheduled_for, created_at)
+         values ($1, 'owner-a', 'schedule', null, $7), ($1, 'owner-a', 'schedule', null, $7),
+                ($1, 'owner-a', 'manual', null, $7), ($1, 'owner-a', 'retry', null, $7),
+                ($1, 'owner-b', 'schedule', null, $7),
+                ($2, 'owner-b', 'manual', null, $7), ($2, 'owner-b', 'retry', null, $7),
+                ($3, 'owner-a', 'schedule', $4, $5),
+                ($6, 'owner-a', 'schedule', $4, $5)`,
+        [taskWithHistory, taskWithoutScheduledHistory, exhaustedOnce, exhaustedRunAt.toISOString(), bookedAt.toISOString(), wrongOwnerOnce, bookedAt.toISOString()],
+      );
+
+      const migration = await readFile(new URL('../../packages/database/drizzle/0005_deep_madripoor.sql', import.meta.url), 'utf8');
+      for (const statement of migration.split('--> statement-breakpoint').map((part) => part.trim()).filter(Boolean)) {
+        await client.query(statement);
+      }
+
+      const rows = await client.query<{
+        id: string;
+        scheduled_run_count: number;
+        end_condition: { type: string };
+        enabled: boolean;
+        completed_at: Date | null;
+      }>(
+        'select id, scheduled_run_count, end_condition, enabled, completed_at from tasks order by id',
+      );
+      const byId = new Map(rows.rows.map((row) => [row.id, row]));
+      expect(byId.get(taskWithHistory)).toMatchObject({ scheduled_run_count: 2, enabled: true, completed_at: null, end_condition: { type: 'never' } });
+      expect(byId.get(taskWithoutScheduledHistory)).toMatchObject({ scheduled_run_count: 0, enabled: true, completed_at: null, end_condition: { type: 'never' } });
+      expect(byId.get(exhaustedOnce)).toMatchObject({ scheduled_run_count: 1, enabled: false, end_condition: { type: 'never' } });
+      expect(byId.get(exhaustedOnce)?.completed_at?.toISOString()).toBe(bookedAt.toISOString());
+      expect(byId.get(futureOnce)).toMatchObject({ scheduled_run_count: 0, enabled: true, completed_at: null });
+      expect(byId.get(pausedOnce)).toMatchObject({ scheduled_run_count: 0, enabled: false, completed_at: null });
+      expect(byId.get(wrongOwnerOnce)).toMatchObject({ scheduled_run_count: 0, enabled: true, completed_at: null });
+    } finally {
+      await client.query('rollback').catch(() => undefined);
+      client.release();
+    }
   });
 
   it('rejects a second execution for the same occurrence at the database level', async () => {

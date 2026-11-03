@@ -25,6 +25,14 @@ describe('translations (Lingui catalogs)', () => {
     expect(rendered).toContain('1,204');
   });
 
+  it('translates end-condition validation errors in English and German', () => {
+    const { result } = renderHook(() => useTranslation());
+    expect(result.current.t('validation.endConditionInvalid')).toBe('Enter a valid end date or number of runs.');
+
+    act(() => setLanguage('de'));
+    expect(result.current.t('validation.endConditionInvalid')).toBe('Gib ein gültiges Enddatum oder eine gültige Laufanzahl ein.');
+  });
+
   it('falls back to the id when a key is unknown instead of throwing', () => {
     const { result } = renderHook(() => useTranslation());
     expect(result.current.t('does.not.exist')).toBe('does.not.exist');

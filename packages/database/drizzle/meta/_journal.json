@@ -36,6 +36,13 @@
       "when": 1793708705541,
       "tag": "0004_plain_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793727294005,
+      "tag": "0005_deep_madripoor",
+      "breakpoints": true
     }
   ]
 }

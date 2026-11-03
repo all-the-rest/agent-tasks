@@ -5,6 +5,9 @@ import { executions, providerCredentials, providers, tasks } from '@agent-tasks/
 import {
   AppError,
   AGENT_RUNTIME_LIMITS,
+  isAfterTaskEndDate,
+  isTaskEndConditionReached,
+  monthlyDays,
   nextOccurrence,
   scheduleSchema,
   taskInputSchema,
@@ -21,6 +24,28 @@ function parseSchedule(input: unknown): ParsedSchedule {
   const parsed = scheduleSchema.safeParse(input);
   if (!parsed.success) throw AppError.badRequest('invalid schedule', parsed.error.issues);
   return parsed.data;
+}
+
+function scheduleIdentity(schedule: ParsedSchedule): string {
+  const common = { preset: schedule.preset, timezone: schedule.timezone };
+  switch (schedule.preset) {
+    case 'once':
+      return JSON.stringify({ ...common, runAt: schedule.runAt });
+    case 'daily':
+      return JSON.stringify({ ...common, hour: schedule.hour, minute: schedule.minute });
+    case 'weekdays':
+    case 'weekly':
+      return JSON.stringify({
+        ...common,
+        hour: schedule.hour,
+        minute: schedule.minute,
+        weekdays: [...(schedule.weekdays ?? [])].sort((a, b) => a - b),
+      });
+    case 'monthly':
+      return JSON.stringify({ ...common, hour: schedule.hour, minute: schedule.minute, daysOfMonth: monthlyDays(schedule) });
+    case 'custom':
+      return JSON.stringify({ ...common, cron: schedule.cron?.trim() });
+  }
 }
 
 function omitTaskLimits<T extends { limits: unknown }>(task: T): Omit<T, 'limits'>;
@@ -76,8 +101,15 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     if (!parsed.success) throw AppError.badRequest('invalid task', parsed.error.issues);
     const provider = await assertProviderUsable(context, me.id, parsed.data.providerId);
     const schedule = parsed.data.schedule;
-    const nextRunAt = nextOccurrence(schedule);
-    if (parsed.data.enabled && !nextRunAt) throw AppError.badRequest('the schedule has no future occurrence');
+    const now = new Date();
+    const endConditionReached = isTaskEndConditionReached(parsed.data.endCondition, {
+      timezone: schedule.timezone,
+      scheduledRunCount: 0,
+      now,
+    });
+    const enabled = parsed.data.enabled && !endConditionReached;
+    const nextRunAt = enabled ? nextOccurrence(schedule, now) : null;
+    if (enabled && !nextRunAt) throw AppError.badRequest('the schedule has no future occurrence');
     const id = randomUUID();
     const [created] = await db
       .insert(tasks)
@@ -90,8 +122,11 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         systemInstructions: parsed.data.systemInstructions ?? null,
         providerId: parsed.data.providerId,
         model: parsed.data.model,
-        enabled: parsed.data.enabled,
+        enabled,
         schedule,
+        endCondition: parsed.data.endCondition,
+        scheduledRunCount: 0,
+        completedAt: endConditionReached ? now : null,
         timezone: schedule.timezone,
         // Keep fixed limits in the legacy column for compatibility. The worker now
         // passes these fixed bounds directly instead of administrator-configurable values.
@@ -99,7 +134,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         allowWebResearch: parsed.data.allowWebResearch,
         notification: parsed.data.notification,
         memorySettings: parsed.data.memorySettings,
-        nextRunAt: parsed.data.enabled ? nextRunAt : null,
+        nextRunAt,
       })
       .returning();
     await context.audit({
@@ -132,44 +167,94 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const parsed = taskUpdateSchema.safeParse(request.body);
     if (!parsed.success) throw AppError.badRequest('invalid task', parsed.error.issues);
     const taskId = requireUuid(request.params.id, 'task');
-    const rows = await db
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
-      .limit(1);
-    if (!rows[0]) throw AppError.notFound('task');
     if (parsed.data.providerId) await assertProviderUsable(context, me.id, parsed.data.providerId);
-    const schedule = parsed.data.schedule ? parseSchedule(parsed.data.schedule) : null;
-    const enabled = parsed.data.enabled ?? rows[0].enabled;
-    const scheduleChanged = schedule !== null;
-    const enabledChanged = parsed.data.enabled !== undefined && parsed.data.enabled !== rows[0].enabled;
-    // Only a real schedule/enabled change may move nextRunAt. A title-only PATCH must
-    // not resume a paused task or re-book an existing occurrence.
-    const nextRunAt = !enabled
-      ? null
-      : scheduleChanged || enabledChanged
-        ? nextOccurrence(schedule ?? scheduleSchema.parse(rows[0].schedule))
-        : undefined;
+    const updated = await db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
+        .limit(1)
+        .for('update');
+      const current = rows[0];
+      if (!current) throw AppError.notFound('task');
 
-    const [updated] = await db
-      .update(tasks)
-      .set({
-        ...(parsed.data.title ? { title: parsed.data.title } : {}),
-        ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
-        ...(parsed.data.prompt ? { prompt: parsed.data.prompt } : {}),
-        ...(parsed.data.systemInstructions !== undefined ? { systemInstructions: parsed.data.systemInstructions } : {}),
-        ...(parsed.data.providerId ? { providerId: parsed.data.providerId } : {}),
-        ...(parsed.data.model ? { model: parsed.data.model } : {}),
-        ...(parsed.data.allowWebResearch !== undefined ? { allowWebResearch: parsed.data.allowWebResearch } : {}),
-        ...(parsed.data.notification ? { notification: parsed.data.notification } : {}),
-        ...(parsed.data.memorySettings ? { memorySettings: parsed.data.memorySettings } : {}),
-        ...(schedule ? { schedule, timezone: schedule.timezone } : {}),
-        enabled,
-        ...(nextRunAt !== undefined ? { nextRunAt } : {}),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(tasks.id, request.params.id), eq(tasks.ownerId, me.id)))
-      .returning();
+      const schedule = parsed.data.schedule ? parseSchedule(parsed.data.schedule) : null;
+      const currentSchedule = scheduleSchema.parse(current.schedule);
+      const effectiveSchedule = schedule ?? currentSchedule;
+      const endCondition = parsed.data.endCondition ?? current.endCondition;
+      const scheduleChanged = schedule !== null && scheduleIdentity(schedule) !== scheduleIdentity(currentSchedule);
+      const endConditionChanged =
+        parsed.data.endCondition !== undefined &&
+        (parsed.data.endCondition.type !== current.endCondition.type ||
+          (parsed.data.endCondition.type === 'on_date' &&
+            current.endCondition.type === 'on_date' &&
+            parsed.data.endCondition.date !== current.endCondition.date) ||
+          (parsed.data.endCondition.type === 'after_runs' &&
+            current.endCondition.type === 'after_runs' &&
+            parsed.data.endCondition.runs !== current.endCondition.runs));
+      const enabledChanged = parsed.data.enabled !== undefined && parsed.data.enabled !== current.enabled;
+      const now = new Date();
+      const endConditionReached = isTaskEndConditionReached(endCondition, {
+        timezone: effectiveSchedule.timezone,
+        scheduledRunCount: current.scheduledRunCount,
+        now,
+      });
+      // Re-resolve one-off occurrence exhaustion when a schedule or enabled state
+      // changes, and when editing the end condition of an already completed task.
+      const resolveOccurrence = scheduleChanged || enabledChanged || (endConditionChanged && current.completedAt !== null);
+      const resolvedNextRunAt = resolveOccurrence ? nextOccurrence(effectiveSchedule, now) : undefined;
+      const scheduleExhausted = resolveOccurrence && resolvedNextRunAt === null;
+      const requestedEnabled = parsed.data.enabled ?? current.enabled;
+      const pendingOccurrence = resolveOccurrence ? resolvedNextRunAt : current.nextRunAt;
+      // An expired date condition must not discard a scheduled occurrence that
+      // is still inside its inclusive local-date window. The scheduler will
+      // catch it up; paused or explicitly disabled tasks still complete here.
+      const dateCatchUpPending =
+        endCondition.type === 'on_date' &&
+        endConditionReached &&
+        current.enabled &&
+        requestedEnabled &&
+        current.completedAt === null &&
+        pendingOccurrence !== null &&
+        pendingOccurrence !== undefined &&
+        !isAfterTaskEndDate(endCondition, effectiveSchedule.timezone, pendingOccurrence);
+      const completeFromEndCondition = endConditionReached && !dateCatchUpPending;
+      const enabled = completeFromEndCondition || scheduleExhausted ? false : requestedEnabled;
+      // A title-only PATCH must not resume a paused task or re-book an existing occurrence.
+      const nextRunAt = !enabled
+        ? null
+        : resolveOccurrence
+          ? resolvedNextRunAt
+          : undefined;
+      const completedAt = completeFromEndCondition || scheduleExhausted
+        ? current.completedAt ?? now
+        : current.completedAt && (scheduleChanged || endConditionChanged || enabledChanged)
+          ? null
+          : current.completedAt;
+
+      const [row] = await tx
+        .update(tasks)
+        .set({
+          ...(parsed.data.title ? { title: parsed.data.title } : {}),
+          ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+          ...(parsed.data.prompt ? { prompt: parsed.data.prompt } : {}),
+          ...(parsed.data.systemInstructions !== undefined ? { systemInstructions: parsed.data.systemInstructions } : {}),
+          ...(parsed.data.providerId ? { providerId: parsed.data.providerId } : {}),
+          ...(parsed.data.model ? { model: parsed.data.model } : {}),
+          ...(parsed.data.allowWebResearch !== undefined ? { allowWebResearch: parsed.data.allowWebResearch } : {}),
+          ...(parsed.data.notification ? { notification: parsed.data.notification } : {}),
+          ...(parsed.data.memorySettings ? { memorySettings: parsed.data.memorySettings } : {}),
+          ...(schedule ? { schedule, timezone: schedule.timezone } : {}),
+          ...(parsed.data.endCondition !== undefined ? { endCondition } : {}),
+          enabled,
+          completedAt,
+          ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+          updatedAt: now,
+        })
+        .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
+        .returning();
+      return row;
+    });
     await context.audit({ actorId: me.id, action: AUDIT_ACTIONS.taskUpdated, targetType: 'task', targetId: request.params.id });
     return omitTaskLimits(updated);
   });
@@ -202,19 +287,36 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
   app.post<{ Params: { id: string } }>('/api/tasks/:id/resume', async (request) => {
     const me = await requireUser(context, request);
     const taskId = requireUuid(request.params.id, 'task');
-    const rows = await db
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
-      .limit(1);
-    const task = rows[0];
-    if (!task) throw AppError.notFound('task');
-    const next = nextOccurrence(scheduleSchema.parse(task.schedule));
-    const [updated] = await db
-      .update(tasks)
-      .set({ enabled: true, nextRunAt: next, updatedAt: new Date() })
-      .where(and(eq(tasks.id, task.id), eq(tasks.ownerId, me.id)))
-      .returning();
+    const updated = await db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
+        .limit(1)
+        .for('update');
+      const task = rows[0];
+      if (!task) throw AppError.notFound('task');
+      const now = new Date();
+      const schedule = scheduleSchema.parse(task.schedule);
+      const reached = isTaskEndConditionReached(task.endCondition, {
+        timezone: schedule.timezone,
+        scheduledRunCount: task.scheduledRunCount,
+        now,
+      });
+      const next = reached ? null : nextOccurrence(schedule, now);
+      const completed = reached || next === null;
+      const [row] = await tx
+        .update(tasks)
+        .set({
+          enabled: !completed,
+          nextRunAt: completed ? null : next,
+          completedAt: completed ? task.completedAt ?? now : null,
+          updatedAt: now,
+        })
+        .where(and(eq(tasks.id, task.id), eq(tasks.ownerId, me.id)))
+        .returning();
+      return row;
+    });
     return omitTaskLimits(updated);
   });
 
@@ -270,6 +372,8 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         limits: AGENT_RUNTIME_LIMITS,
         title: `${task.title} (copy)`,
         enabled: false,
+        scheduledRunCount: 0,
+        completedAt: null,
         nextRunAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),

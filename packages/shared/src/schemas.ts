@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { memorySettingsSchema, DEFAULT_MEMORY_SETTINGS } from './memory.js';
 import { emailBlocksSchema } from './email-blocks.js';
 import { scheduleSchema } from './schedule.js';
+import { taskEndConditionSchema } from './task-end-condition.js';
 import { EXECUTION_STATUSES, REPORT_CONFIDENCE, ROLES } from './status.js';
 
 export const idSchema = z.string().uuid();
@@ -111,6 +112,7 @@ export const taskInputSchema = z.object({
   model: z.string().min(1).max(120),
   enabled: z.boolean().default(true),
   schedule: scheduleSchema,
+  endCondition: taskEndConditionSchema.default({ type: 'never' }),
   allowWebResearch: z.boolean().default(true),
   notification: z.enum(['none', 'email']).default('none'),
   memorySettings: memorySettingsSchema.default(DEFAULT_MEMORY_SETTINGS),
