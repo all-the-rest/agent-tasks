@@ -202,8 +202,6 @@ jobs:
             echo "ALLOW_REGISTRATION=false"
             # The suite plus the bootstrap check sign in several times per minute.
             echo "RATE_LIMIT_SIGNIN_MAX=100"
-            echo "OPENCODE_GO_API_KEY=sk-e2e-opencode-go-test"
-            echo "OPENCODE_GO_MODEL=opencode-go-heavy"
             echo "SMTP_URL=smtp://mailpit:1025"
             echo "E2E_BASE_URL=http://localhost:8080"
           } >> "$GITHUB_ENV"
