@@ -6,6 +6,7 @@ import { QUEUE_EXECUTION, QUEUE_RECOVERY, QUEUE_TICK, createBoss, executionWorkO
 import { recoverStaleExecutions, resendQueuedExecutions, scheduleDueExecutions } from './scheduling.js';
 import { OpenCodeSessionStore } from './opencode-session-store.js';
 import { createIsolatedOpenCodeRunner } from './opencode-isolated-runtime.js';
+import { createToolBridgeHub } from './opencode-tool-bridge.js';
 import { HttpOpenCodeProvisioner } from './http-opencode-provisioner.js';
 
 const env = loadWorkerEnv();
@@ -15,10 +16,17 @@ if (env.OPENCODE_RUNTIME_ENABLED === '1' && !env.OPENCODE_PROVISIONER_TOKEN) {
 }
 const database = createDatabase(env.DATABASE_URL, { max: 4 });
 const boss = await createBoss(env.DATABASE_URL);
+// One hub per worker process; each execution registers its own token and budget.
+// The provisioner proxies the runtime's MCP traffic to this port on the internal
+// network, so it is never published.
+const toolBridgeHub = env.OPENCODE_RUNTIME_ENABLED === '1'
+  ? await createToolBridgeHub({ port: 4091 })
+  : undefined;
 const openCodeRunner = env.OPENCODE_RUNTIME_ENABLED === '1'
   ? createIsolatedOpenCodeRunner(
       new HttpOpenCodeProvisioner(env.OPENCODE_PROVISIONER_URL, env.OPENCODE_PROVISIONER_TOKEN!),
       new OpenCodeSessionStore(database.db),
+      toolBridgeHub,
     )
   : undefined;
 const executor = new Executor({ db: database.db, env, boss, workerId, openCodeRunner });
@@ -89,6 +97,7 @@ const shutdown = async (signal: string): Promise<void> => {
   if (drained.settled) log('shutdown_drained', { signal, activeAtStart, pending: 0 });
   else log('shutdown_grace_expired', { signal, activeAtStart, pending: drained.pending });
   await boss.stop({ graceful: true });
+  await toolBridgeHub?.close();
   await database.close();
   process.exit(0);
 };

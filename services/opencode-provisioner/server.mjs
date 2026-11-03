@@ -118,7 +118,17 @@ export function runtimeConfig(input, providerBaseUrl) {
     update: 'disable',
     model: `agent_tasks/${model.id}`,
     plugins: [],
-    mcp: { servers: {} },
+    mcp: {
+      servers: input.toolBridge ? {
+        agent_tasks_tools: {
+          type: 'remote',
+          url: `http://${NETWORK_ALIAS}:${API_PORT}/mcp`,
+          headers: { authorization: `Bearer ${input.toolBridge.token}` },
+          codemode: false,
+          timeout: { startup: 10_000, catalog: 10_000, execution: 60_000 },
+        },
+      } : {},
+    },
     default_agent: 'agent-tasks',
     agents: {
       'agent-tasks': {
@@ -398,13 +408,39 @@ function validateInput(value) {
     || typeof value.systemPrompt !== 'string' || value.systemPrompt.length > 65_536
     || !Number.isInteger(value.maxAgentSteps) || value.maxAgentSteps < 1 || value.maxAgentSteps > 60
     || !Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > MAX_REQUEST_BYTES
-    || typeof value.apiKey !== 'undefined' && (typeof value.apiKey !== 'string' || value.apiKey.length > 8_192)) {
+    || typeof value.apiKey !== 'undefined' && (typeof value.apiKey !== 'string' || value.apiKey.length > 8_192)
+    || typeof value.toolBridge !== 'undefined' && (!value.toolBridge || typeof value.toolBridge !== 'object'
+      || typeof value.toolBridge.token !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(value.toolBridge.token))) {
     throw new Error('Invalid isolated runtime request');
   }
   if (!Array.isArray(value.provider.models) || !value.provider.models.some((model) => model?.id === value.model.id)) {
     throw new Error('Task model is not configured on its provider');
   }
   return value;
+}
+
+async function proxyToolBridge(request, response) {
+  const target = process.env.TOOL_BRIDGE_URL ?? 'http://worker:4091/mcp';
+  const headers = {};
+  for (const name of ['authorization', 'content-type', 'accept', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id']) {
+    const value = request.headers[name];
+    if (typeof value === 'string') headers[name] = value;
+  }
+  const body = request.method === 'POST'
+    ? JSON.stringify(await readJson(request, MAX_REQUEST_BYTES))
+    : undefined;
+  const upstream = await globalThis.fetch(target, {
+    method: request.method,
+    headers,
+    body,
+    signal: globalThis.AbortSignal.timeout(request.method === 'GET' ? 10 * 60_000 : 60_000),
+  });
+  response.writeHead(upstream.status, {
+    'content-type': upstream.headers.get('content-type') ?? 'application/json',
+    'cache-control': 'no-store',
+  });
+  response.flushHeaders();
+  await streamBounded(upstream.body, response, MAX_PROXY_RESPONSE_BYTES);
 }
 
 async function proxyRuntime(request, response, state, token) {
@@ -545,6 +581,12 @@ export function createProvisionerServer({ token = process.env.OPENCODE_PROVISION
       try {
         const url = new URL(request.url ?? '/', 'http://provisioner.invalid');
         if (request.method === 'GET' && url.pathname === '/healthz') return send(response, 200, { ok: true });
+        // The per-execution runtime reaches the worker's MCP bridge through this
+        // proxy; the bearer token is the only credential and the worker decides
+        // whether the session is still alive.
+        if (url.pathname === '/mcp' && ['GET', 'POST', 'DELETE'].includes(request.method)) {
+          return await proxyToolBridge(request, response);
+        }
         if (request.method === 'POST' && url.pathname === '/v1/runtimes/open') {
           if (!authenticated(request, token)) return send(response, 401, { error: 'unauthorized' });
           const input = validateInput(await readJson(request));

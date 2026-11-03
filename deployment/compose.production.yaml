@@ -173,6 +173,8 @@ services:
       OPENCODE_RUNTIME_TTL_SECONDS: ${OPENCODE_RUNTIME_TTL_SECONDS:-2592000}
       PROVISIONER_CONTAINER_NAME: ${COMPOSE_PROJECT_NAME:-agent-tasks}-opencode-provisioner
       PROVISIONER_PUBLIC_URL: http://opencode-provisioner:4090
+      # Worker-hosted MCP bridge; the runtime reaches it only through this proxy.
+      TOOL_BRIDGE_URL: http://worker:4091/mcp
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [opencode-runtime, opencode-egress]

@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { createServer } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runtimeConfig, providerRequestHeaders, createProvisionerServer } from '../server.mjs';
 
@@ -52,6 +53,51 @@ describe('isolated OpenCode provisioner service', () => {
     expect(JSON.stringify(config)).not.toContain(input.apiKey);
     expect(JSON.stringify(config)).not.toContain('must-not-persist-header');
     expect(JSON.stringify(config)).not.toContain('egress-token');
+  });
+
+  it('registers the worker MCP bridge only when the execution has a tool token', () => {
+    const bridgeToken = 'b'.repeat(43);
+    const config = runtimeConfig({ ...input, toolBridge: { token: bridgeToken } }, 'http://opencode-provisioner:4090/provider');
+    expect(config.mcp.servers).toEqual({
+      agent_tasks_tools: {
+        type: 'remote',
+        url: 'http://opencode-provisioner:4090/mcp',
+        headers: { authorization: `Bearer ${bridgeToken}` },
+        codemode: false,
+        timeout: { startup: 10_000, catalog: 10_000, execution: 60_000 },
+      },
+    });
+    expect(JSON.stringify(config)).not.toContain(input.apiKey);
+  });
+
+  it('proxies MCP requests to the worker bridge and preserves the bearer token', async () => {
+    let received: { authorization?: string; body?: string } = {};
+    const upstream = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        received = { authorization: request.headers.authorization, body: Buffer.concat(chunks).toString() };
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.end('event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n');
+      });
+    });
+    const upstreamUrl = await listen(upstream);
+    const previous = process.env.TOOL_BRIDGE_URL;
+    process.env.TOOL_BRIDGE_URL = upstreamUrl;
+    try {
+      const baseUrl = await listen(createProvisionerServer({ token, provision: vi.fn() }));
+      const response = await globalThis.fetch(`${baseUrl}/mcp`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer execution-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(response.status).toBe(200);
+      expect(received.authorization).toBe('Bearer execution-token');
+      expect(received.body).toContain('tools/list');
+    } finally {
+      if (previous === undefined) delete process.env.TOOL_BRIDGE_URL;
+      else process.env.TOOL_BRIDGE_URL = previous;
+    }
   });
 
   it('forwards only configured provider headers and never leaks the runtime egress capability', () => {
