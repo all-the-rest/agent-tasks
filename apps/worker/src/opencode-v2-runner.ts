@@ -61,14 +61,20 @@ export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; direc
       if (typeof response !== 'object' || response === null || !('data' in response) || !Array.isArray(response.data)) {
         throw new Error('Invalid OpenCode messages response');
       }
-      for (const message of response.data) {
-        if (typeof message !== 'object' || message === null || message.type !== 'assistant' || !message.finish) continue;
-        if (message.finish !== 'stop' || message.error || !Array.isArray(message.content)) {
-          throw new Error('OpenCode execution did not complete successfully');
-        }
-        return await resultFromMessage(message, options, config);
-      }
-      return undefined;
+      const assistants = response.data.filter(
+        (message: unknown): message is AssistantMessage => typeof message === 'object' && message !== null && 'type' in message && message.type === 'assistant',
+      );
+      // OpenCode emits one assistant message per model turn (a tool-calling turn
+      // then the final answer). Only `stop` is terminal; tool-call turns mean the
+      // run is still in progress, and any other finish is a failure.
+      const failed = assistants.find(
+        (message) => message.error || (typeof message.finish === 'string' && !['stop', 'tool-calls', 'tool_calls'].includes(message.finish)),
+      );
+      if (failed) throw new Error('OpenCode execution did not complete successfully');
+      const terminal = assistants.find((message) => message.finish === 'stop');
+      if (!terminal) return undefined;
+      if (!Array.isArray(terminal.content)) throw new Error('OpenCode execution did not complete successfully');
+      return await resultFromMessage(terminal, assistants, options, config);
     };
 
     try {
@@ -114,6 +120,7 @@ type AssistantMessage = {
 
 async function resultFromMessage(
   message: AssistantMessage,
+  assistants: AssistantMessage[],
   options: RunAgentOptions,
   config: { model: OpenCodeV2Model },
 ): Promise<AgentRunResult> {
@@ -135,12 +142,23 @@ async function resultFromMessage(
     resultPreview: markdown.slice(0, 300),
   };
   await options.onStep?.(step);
-  const tokens: Record<string, unknown> = typeof message.tokens === 'object' && message.tokens !== null
-    ? (message.tokens as Record<string, unknown>)
-    : {};
-  const promptTokens = tokenCount(tokens.input);
-  const completionTokens = tokenCount(tokens.output) + tokenCount(tokens.reasoning);
-  const cost = typeof message.cost === 'number' && Number.isFinite(message.cost) && message.cost >= 0 ? message.cost : undefined;
+  // A tool-using run returns one assistant message per model turn. The final
+  // message carries the answer, but every turn consumed tokens and allowance,
+  // so usage must be summed over the whole session response.
+  const totals = assistants.reduce(
+    (accumulator, assistant) => {
+      const turnTokens: Record<string, unknown> = typeof assistant.tokens === 'object' && assistant.tokens !== null
+        ? (assistant.tokens as Record<string, unknown>)
+        : {};
+      accumulator.promptTokens += tokenCount(turnTokens.input);
+      accumulator.completionTokens += tokenCount(turnTokens.output) + tokenCount(turnTokens.reasoning);
+      if (typeof assistant.cost === 'number' && Number.isFinite(assistant.cost) && assistant.cost >= 0) {
+        accumulator.allowanceUsd += assistant.cost;
+      }
+      return accumulator;
+    },
+    { promptTokens: 0, completionTokens: 0, allowanceUsd: 0 },
+  );
   return {
     markdown,
     summary: markdown.replace(/\s+/g, ' ').trim().slice(0, 400),
@@ -148,10 +166,10 @@ async function resultFromMessage(
     uncertainty: [],
     steps: [step],
     usage: {
-      ...(promptTokens > 0 ? { promptTokens } : {}),
-      ...(completionTokens > 0 ? { completionTokens } : {}),
-      ...(promptTokens + completionTokens > 0 ? { totalTokens: promptTokens + completionTokens } : {}),
-      ...(cost !== undefined ? { allowanceUsd: cost } : {}),
+      ...(totals.promptTokens > 0 ? { promptTokens: totals.promptTokens } : {}),
+      ...(totals.completionTokens > 0 ? { completionTokens: totals.completionTokens } : {}),
+      ...(totals.promptTokens + totals.completionTokens > 0 ? { totalTokens: totals.promptTokens + totals.completionTokens } : {}),
+      ...(totals.allowanceUsd > 0 ? { allowanceUsd: totals.allowanceUsd } : {}),
     },
     emailBlocks: [],
     memoryOps: [],

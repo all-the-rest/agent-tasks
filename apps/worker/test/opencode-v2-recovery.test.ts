@@ -63,6 +63,25 @@ describe('OpenCode runner recovery', () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
+  it('sums usage across tool-calling turns and keeps the final answer', async () => {
+    const intermediate = {
+      type: 'assistant',
+      finish: 'tool_calls',
+      content: [{ type: 'tool_call' }],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3, reasoning: 1 },
+      cost: 0.25,
+    };
+    const final = { ...completed, tokens: { input: 5, output: 2, reasoning: 1 }, cost: 0.5 };
+    const client = clientWith((path) => {
+      if (path.endsWith('/message')) return new Response(JSON.stringify({ data: [intermediate, final] }));
+      return new Response(JSON.stringify({ data: {} }));
+    });
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(options(), lease);
+    expect(result.markdown).toBe('durable answer');
+    expect(result.usage).toEqual({ promptTokens: 25, completionTokens: 7, totalTokens: 32, allowanceUsd: 0.75 });
+  });
+
   it('treats a 409 prompt replay as accepted and waits for the durable message', async () => {
     let messages = 0;
     const client = clientWith((path) => {
