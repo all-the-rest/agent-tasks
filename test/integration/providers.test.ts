@@ -149,6 +149,38 @@ describe('provider routes', () => {
     expect(patch.json().error.code).toBe('bad_request');
   });
 
+  it('refuses loopback, metadata and plain-http public provider endpoints', async () => {
+    const rejected = [
+      'http://127.0.0.1:8080/v1',
+      'http://169.254.169.254/latest/meta-data',
+      'http://[::1]:8080/v1',
+      'http://opencode.ai/inference/go/openai/v1',
+      'ftp://opencode.ai/v1',
+      'https://user:secret@opencode.ai/v1',
+    ];
+    for (const baseUrl of rejected) {
+      const response = await harness.app.inject({
+        method: 'POST',
+        url: '/api/admin/providers',
+        headers: { cookie: adminCookie },
+        payload: { name: `Rejected ${baseUrl}`, kind: 'openai-compatible', config: { baseUrl } },
+      });
+      expect(response.statusCode, `${baseUrl}: ${response.body}`).toBe(400);
+      expect(response.body).not.toContain('secret');
+    }
+
+    // The public Go endpoint and internal single-label services stay valid.
+    for (const baseUrl of ['https://opencode.ai/inference/go/openai/v1', 'http://mock:8080/v1']) {
+      const response = await harness.app.inject({
+        method: 'POST',
+        url: '/api/admin/providers',
+        headers: { cookie: adminCookie },
+        payload: { name: `Accepted ${baseUrl}`, kind: 'openai-compatible', config: { baseUrl } },
+      });
+      expect(response.statusCode, `${baseUrl}: ${response.body}`).toBe(201);
+    }
+  });
+
   it('preserves the stored header secret when the redacted config is patched back', async () => {
     const created = await harness.app.inject({
       method: 'POST',
