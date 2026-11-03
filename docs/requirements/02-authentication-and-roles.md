@@ -4,12 +4,12 @@ _Labels: security_
 
 ## Goal
 
-Secure, invite-only authentication with exactly two roles and no default credentials.
+Secure authentication with exactly two roles, no default credentials, and invite-only onboarding by default.
 
 ## Acceptance criteria
 
 - [x] Better Auth with email/password, minimum password length 12
-- [x] Public registration disabled; onboarding only through single-use invitations (7 days)
+- [x] Public registration disabled by default; onboarding through single-use invitations (7 days), with public registration available as an administrator-controlled option
 - [x] First-admin bootstrap with a deployment-provided `SETUP_TOKEN`, refused once an admin exists
 - [x] Session revocation: sign-out is effective on the next request (no cookie session cache)
 - [x] TOTP MFA with backup codes, verified before activation
@@ -21,6 +21,6 @@ Secure, invite-only authentication with exactly two roles and no default credent
 
 ## Evidence
 
-- `test/integration/auth.test.ts` (10 tests): setup token, single admin, logout, indistinguishable
-  401s, blocked direct sign-up, invite reuse, CSRF, real TOTP flow, 429.
+- `test/integration/auth.test.ts`: setup token, single admin, logout, indistinguishable
+  401s, default invite-only sign-up, registration toggle, invite reuse, CSRF, real TOTP flow, 429.
 - `apps/api/src/auth.ts`, `apps/api/src/app.ts`, `apps/api/src/routes/setup.ts`.

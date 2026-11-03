@@ -27,8 +27,7 @@ export function createAuth({ db, env, mailer }: AuthDeps) {
     }),
     emailAndPassword: {
       enabled: true,
-      // Public registration stays closed; accounts are created from a single-use invite
-      // (the HTTP bridge in app.ts refuses /sign-up/email without a valid invite token).
+      // The HTTP bridge in app.ts enforces the registration setting and invite tokens.
       disableSignUp: false,
       minPasswordLength: 12,
       maxPasswordLength: 200,
