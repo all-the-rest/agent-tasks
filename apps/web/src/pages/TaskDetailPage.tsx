@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
 import { describeSchedule } from '../lib/describe';
@@ -28,11 +28,14 @@ export function TaskDetailPage() {
   const { showToast } = useToast();
 
   const task = useQuery({ queryKey: ['task', id], queryFn: () => api.tasks.get(id), enabled: Boolean(id) });
-  const executions = useQuery({
+  const executions = useInfiniteQuery({
     queryKey: ['task-executions', id],
-    queryFn: () => api.tasks.executions(id),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => api.tasks.executionsPage(id, { cursor: pageParam ?? undefined }),
+    getNextPageParam: (page) => page.nextCursor ?? null,
     enabled: Boolean(id),
   });
+  const executionRows = executions.data?.pages.flatMap((page) => page.items) ?? [];
   const [tab, setTab] = useState<Tab>('overview');
   const suggestions = useQuery({
     queryKey: ['task-suggestions', id],
@@ -222,49 +225,72 @@ export function TaskDetailPage() {
           <section className="card border border-base-300 bg-base-100 shadow-sm">
             <div className="card-body p-5">
               <h2 className="card-title text-base">{t('tasks.executionsTitle')}</h2>
-              {executions.isLoading ? (
+              {executions.isPending ? (
                 <Spinner />
-              ) : executions.isError ? (
+              ) : executions.isError && !executions.data ? (
                 <ErrorAlert
                   message={t('errors.loadFailed')}
                   onRetry={() => {
                     void executions.refetch();
                   }}
                 />
-              ) : !executions.data || executions.data.length === 0 ? (
+              ) : executionRows.length === 0 ? (
                 <p className="py-4 text-sm opacity-60">{t('tasks.noExecutions')}</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="table table-sm">
-                    <thead>
-                      <tr>
-                        <th scope="col">{t('executions.execution')}</th>
-                        <th scope="col">{t('common.status')}</th>
-                        <th scope="col" className="hidden sm:table-cell">{t('executions.startedAt')}</th>
-                        <th scope="col" className="text-right">{t('executions.duration')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {executions.data.map((execution) => (
-                        <tr key={execution.id}>
-                          <td>
-                            <Link to={`/executions/${execution.id}`} className="link-hover font-mono text-xs">
-                              {execution.id.slice(0, 8)}
-                            </Link>
-                            <span className="ml-2 text-xs opacity-60">{t(`trigger.${execution.trigger}`)}</span>
-                          </td>
-                          <td><StatusBadge status={execution.status} /></td>
-                          <td className="hidden whitespace-nowrap text-xs opacity-70 sm:table-cell">
-                            {formatDate(execution.startedAt, i18n.language)}
-                          </td>
-                          <td className="whitespace-nowrap text-right text-xs opacity-70">
-                            {formatDuration(execution.durationMs)}
-                          </td>
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="table table-sm">
+                      <thead>
+                        <tr>
+                          <th scope="col">{t('executions.execution')}</th>
+                          <th scope="col">{t('common.status')}</th>
+                          <th scope="col" className="hidden sm:table-cell">{t('executions.startedAt')}</th>
+                          <th scope="col" className="text-right">{t('executions.duration')}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {executionRows.map((execution) => (
+                          <tr key={execution.id}>
+                            <td>
+                              <Link to={`/executions/${execution.id}`} className="link-hover font-mono text-xs">
+                                {execution.id.slice(0, 8)}
+                              </Link>
+                              <span className="ml-2 text-xs opacity-60">{t(`trigger.${execution.trigger}`)}</span>
+                              {execution.status === 'completed' && !execution.readAt ? (
+                                <span className="badge badge-warning badge-xs ml-2">{t('tasks.unread')}</span>
+                              ) : null}
+                            </td>
+                            <td><StatusBadge status={execution.status} /></td>
+                            <td className="hidden whitespace-nowrap text-xs opacity-70 sm:table-cell">
+                              {formatDate(execution.startedAt, i18n.language)}
+                            </td>
+                            <td className="whitespace-nowrap text-right text-xs opacity-70">
+                              {formatDuration(execution.durationMs)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {executions.isFetchNextPageError ? (
+                    <div className="mt-3">
+                      <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void executions.fetchNextPage()} />
+                    </div>
+                  ) : null}
+                  {executions.hasNextPage ? (
+                    <div className="mt-3 flex justify-center" aria-live="polite">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline"
+                        disabled={executions.isFetchingNextPage}
+                        aria-busy={executions.isFetchingNextPage}
+                        onClick={() => void executions.fetchNextPage()}
+                      >
+                        {executions.isFetchingNextPage ? t('tasks.loadingMoreRuns') : t('tasks.loadMoreRuns')}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </section>
@@ -317,7 +343,7 @@ export function TaskDetailPage() {
         </div>
       </div>
 
-      {executions.data && executions.data.length === 0 ? (
+      {executions.data && executionRows.length === 0 ? (
         <div className="mt-5">
           <EmptyState title={t('tasks.noExecutions')} description={t('executions.emptyHint')} />
         </div>

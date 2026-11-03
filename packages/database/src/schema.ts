@@ -249,6 +249,8 @@ export const executions = pgTable(
     error: text('error'),
     report: jsonb('report'),
     usage: jsonb('usage'),
+    /** Null until this completed result is explicitly marked read by its owner. */
+    readAt: timestamp('read_at', { withTimezone: true, mode: 'date' }),
     cancelRequested: boolean('cancel_requested').notNull().default(false),
     workerId: text('worker_id'),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true, mode: 'date' }),
@@ -258,6 +260,9 @@ export const executions = pgTable(
     index('executions_task_idx').on(table.taskId, table.createdAt),
     index('executions_owner_idx').on(table.ownerId, table.createdAt),
     index('executions_status_idx').on(table.status),
+    index('executions_unread_owner_task_idx')
+      .on(table.ownerId, table.taskId)
+      .where(sql`${table.status} = 'completed' and ${table.readAt} is null`),
     // One execution per scheduled occurrence — the durable exactly-once-per-occurrence guard.
     uniqueIndex('executions_occurrence_unique').on(table.taskId, table.scheduledFor),
   ],

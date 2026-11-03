@@ -826,6 +826,12 @@ msgstr "Nach Status filtern"
 msgid "executions.finishedAt"
 msgstr "Beendet"
 
+msgid "executions.markRead"
+msgstr "Als gelesen markieren"
+
+msgid "executions.markedReadMsg"
+msgstr "Ausführung als gelesen markiert."
+
 msgid "executions.noFailures"
 msgstr "Keine aktuellen Fehler."
 
@@ -1708,6 +1714,9 @@ msgstr "Anzahl geplanter Läufe"
 msgid "tasks.executionsTitle"
 msgstr "Ausführungen"
 
+msgid "tasks.filterStatus"
+msgstr "Nach Status filtern"
+
 msgid "tasks.formInvalid"
 msgstr "Bitte korrigiere die markierten Felder."
 
@@ -1716,6 +1725,18 @@ msgstr "Stunde"
 
 msgid "tasks.lastRun"
 msgstr "Letzter Lauf"
+
+msgid "tasks.loadMoreRuns"
+msgstr "Weitere Läufe laden"
+
+msgid "tasks.loadMoreTasks"
+msgstr "Weitere Aufgaben laden"
+
+msgid "tasks.loadingMoreRuns"
+msgstr "Weitere Läufe werden geladen…"
+
+msgid "tasks.loadingMoreTasks"
+msgstr "Weitere Aufgaben werden geladen…"
 
 msgid "tasks.minute"
 msgstr "Minute"
@@ -1737,6 +1758,9 @@ msgstr "Dieser Anbieter hat keine Modelle. Aktualisiere die Modellliste im Verwa
 
 msgid "tasks.noProviders"
 msgstr "Es sind keine Anbieter konfiguriert. Bitte einen Administrator darum bitten."
+
+msgid "tasks.noTasksForStatus"
+msgstr "Keine Aufgaben mit diesem Status"
 
 msgid "tasks.notification"
 msgstr "Benachrichtigung"
@@ -1840,6 +1864,15 @@ msgstr "Modell auswählen"
 msgid "tasks.selectProvider"
 msgstr "Anbieter auswählen"
 
+msgid "tasks.status.active"
+msgstr "Aktiv"
+
+msgid "tasks.status.completed"
+msgstr "Abgeschlossen"
+
+msgid "tasks.status.paused"
+msgstr "Pausiert"
+
 msgid "tasks.subtitle"
 msgstr "Geplante Rechercheaufgaben und ihre Grenzen."
 
@@ -1884,6 +1917,12 @@ msgstr "Titel"
 
 msgid "tasks.titlePlaceholder"
 msgstr "Wöchentliches Wettbewerbs-Briefing"
+
+msgid "tasks.unread"
+msgstr "Ungelesen"
+
+msgid "tasks.unreadRuns"
+msgstr "{count, plural, one {# ungelesener Lauf} other {# ungelesene Läufe}}"
 
 msgid "tasks.useLocalTimezone"
 msgstr "Meine Zeitzone verwenden ({timezone})"

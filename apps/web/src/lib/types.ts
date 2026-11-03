@@ -26,6 +26,7 @@ export type SchedulePreset = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly
 export type Locale = 'en' | 'de';
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type Notification = 'none' | 'email';
+export type TaskStatus = 'active' | 'paused' | 'completed';
 export type TaskEndCondition = SharedTaskEndCondition;
 
 export interface TaskSchedule {
@@ -62,6 +63,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   scheduleDescription?: string;
+  status?: TaskStatus;
+  unreadCount?: number;
 }
 
 export interface TaskInput {
@@ -257,6 +260,7 @@ export interface ExecutionSummary {
   durationMs: number | null;
   error: string | null;
   scheduledFor?: string | null;
+  readAt?: string | null;
 }
 
 export interface Dashboard {

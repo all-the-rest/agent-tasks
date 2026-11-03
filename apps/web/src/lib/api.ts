@@ -23,6 +23,7 @@ import type {
   SystemSettings,
   Task,
   TaskInput,
+  TaskStatus,
 } from './types';
 
 export class ApiError extends Error {
@@ -37,6 +38,11 @@ export class ApiError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+export interface CursorPage<T> {
+  items: T[];
+  nextCursor: string | null;
 }
 
 interface RequestOptions {
@@ -178,7 +184,14 @@ export const api = {
   dashboard: () => get<Dashboard>('/api/dashboard'),
 
   tasks: {
-    list: () => get<Task[]>('/api/tasks'),
+    list: (status?: TaskStatus) => get<Task[]>(`/api/tasks${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    listPage: (params: { status?: TaskStatus; cursor?: string; limit?: number } = {}) => {
+      const query = new URLSearchParams({ pagination: 'cursor' });
+      if (params.status) query.set('status', params.status);
+      if (params.cursor) query.set('cursor', params.cursor);
+      if (params.limit) query.set('limit', String(params.limit));
+      return get<CursorPage<Task>>(`/api/tasks?${query.toString()}`);
+    },
     get: (id: string) => get<Task>(`/api/tasks/${id}`),
     create: (input: TaskInput) => post<Task>('/api/tasks', input),
     update: (id: string, input: Partial<TaskInput>) => patch<Task>(`/api/tasks/${id}`, input),
@@ -186,6 +199,12 @@ export const api = {
     action: (id: string, action: 'pause' | 'resume' | 'run' | 'duplicate') =>
       post<Task | { executionId?: string }>(`/api/tasks/${id}/${action}`),
     executions: (id: string) => get<ExecutionSummary[]>(`/api/tasks/${id}/executions`),
+    executionsPage: (id: string, params: { cursor?: string; limit?: number } = {}) => {
+      const query = new URLSearchParams({ pagination: 'cursor' });
+      if (params.cursor) query.set('cursor', params.cursor);
+      if (params.limit) query.set('limit', String(params.limit));
+      return get<CursorPage<ExecutionSummary & { createdAt: string }>>(`/api/tasks/${id}/executions?${query.toString()}`);
+    },
     memoryChanges: (id: string) => get<MemoryChange[]>(`/api/tasks/${id}/memory-changes`),
     memorySuggestions: (id: string) => get<MemorySuggestion[]>(`/api/tasks/${id}/memory-suggestions`),
     recommendationEvents: (id: string) => get<RecommendationEvent[]>(`/api/tasks/${id}/recommendation-events`),
@@ -247,6 +266,7 @@ export const api = {
       return get<ExecutionSummary[]>(`/api/executions${suffix ? `?${suffix}` : ''}`);
     },
     get: (id: string) => get<Execution>(`/api/executions/${id}`),
+    markRead: (id: string) => post<{ readAt: string }>(`/api/executions/${id}/read`),
     cancel: (id: string) => post<{ ok: boolean }>(`/api/executions/${id}/cancel`),
     retry: (id: string) => post<{ executionId: string }>(`/api/executions/${id}/retry`),
     memory: (id: string) =>
