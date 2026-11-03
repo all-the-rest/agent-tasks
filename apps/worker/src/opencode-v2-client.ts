@@ -32,10 +32,6 @@ export class OpenCodeV2Error extends Error {
   }
 }
 
-const sessionPermissions = [
-  { action: '*', resource: '*', effect: 'deny' },
-] as const;
-
 function object(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -71,9 +67,11 @@ export class OpenCodeV2Client {
   }
 
   async createSession(input: { directory: string; model?: OpenCodeV2Model }, signal?: AbortSignal): Promise<OpenCodeV2Session> {
+    // Do not send session-level permissions: an unconditional deny here
+    // overrides the agent's explicit MCP tool allow and hides every tool.
+    // The provider-side agent config is the single permission boundary.
     const body: Record<string, unknown> = {
       location: { directory: input.directory },
-      permissions: sessionPermissions,
     };
     if (input.model) body.model = input.model;
     const response = await this.json('api/session', { method: 'POST', body: JSON.stringify(body), signal });
@@ -102,6 +100,11 @@ export class OpenCodeV2Client {
 
   async getMessages(sessionId: string, signal?: AbortSignal): Promise<unknown> {
     return this.json(`api/session/${encodeURIComponent(sessionId)}/message`, { signal });
+  }
+
+  /** Global MCP connection state; used to wait before the first prompt. */
+  async getMcpStatus(signal?: AbortSignal): Promise<unknown> {
+    return this.json('api/mcp', { signal });
   }
 
   async interrupt(sessionId: string, signal?: AbortSignal): Promise<unknown> {

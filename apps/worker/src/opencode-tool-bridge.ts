@@ -48,6 +48,7 @@ interface JsonRpcRequest {
 }
 
 interface Session {
+  id: string;
   token: string;
   allowed: Set<string>;
   maxCalls: number;
@@ -99,6 +100,7 @@ function createSession(options: { token?: string; tools?: string[]; maxCalls?: n
   const allowed = new Set(options.tools ?? ['compose_email', 'add_email_block']);
   const emailBlocks: EmailBlock[] = [];
   return {
+    id: `mcp_${randomBytes(16).toString('hex')}`,
     token: options.token ?? randomBytes(32).toString('base64url'),
     allowed,
     maxCalls: options.maxCalls ?? DEFAULT_MAX_CALLS,
@@ -124,7 +126,6 @@ function createSession(options: { token?: string; tools?: string[]; maxCalls?: n
 
 export async function createToolBridgeHub(options: { host?: string; port?: number } = {}): Promise<ToolBridgeHub> {
   const sessions = new Map<string, Session>();
-  const streams = new Set<ServerResponse>();
   const server: Server = createServer((request, response) => {
     void handle(request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500).end();
@@ -143,21 +144,18 @@ export async function createToolBridgeHub(options: { host?: string; port?: numbe
       response.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
       return;
     }
+    // The MCP HTTP transport correlates a session across requests with this
+    // header; omitting it makes some clients treat the transport as stateless.
+    response.setHeader('mcp-session-id', session.id);
     if (request.method === 'DELETE') {
       response.writeHead(204).end();
       return;
     }
     if (request.method === 'GET') {
-      response.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        connection: 'keep-alive',
-      });
-      // Flush immediately: the client waits for the stream headers before it
-      // considers the MCP transport established.
-      response.flushHeaders();
-      streams.add(response);
-      response.on('close', () => streams.delete(response));
+      // OpenCode 2.2.5 tolerates an unsupported server-initiated stream and
+      // still imports the catalog from POST responses. Keeping an empty SSE
+      // stream open instead can stall that import.
+      response.writeHead(405, { allow: 'POST, DELETE' }).end();
       return;
     }
     if (request.method !== 'POST') {
@@ -189,7 +187,9 @@ export async function createToolBridgeHub(options: { host?: string; port?: numbe
         jsonrpc: '2.0',
         id,
         result: {
-          protocolVersion: '2025-06-18',
+          // OpenCode 2.2.5 negotiates this revision; a newer value connects but
+          // may leave the tool catalog empty.
+          protocolVersion: '2024-11-05',
           capabilities: { tools: {} },
           serverInfo: { name: 'agent-tasks-tools', version: '0.1.0' },
         },
@@ -238,8 +238,6 @@ export async function createToolBridgeHub(options: { host?: string; port?: numbe
       };
     },
     async close() {
-      for (const stream of streams) stream.destroy();
-      streams.clear();
       sessions.clear();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     },

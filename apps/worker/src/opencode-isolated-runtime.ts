@@ -24,7 +24,7 @@ export interface IsolatedOpenCodeProvisioner {
     maxAgentSteps: number;
     maxOutputBytes: number;
     /** Present when the execution may call worker-hosted MCP tools. */
-    toolBridge?: { token: string };
+    toolBridge?: { token: string; tools: string[] };
     signal?: AbortSignal;
   }): Promise<{
     client: OpenCodeV2Client;
@@ -74,7 +74,7 @@ export function createIsolatedOpenCodeRunner(
         systemPrompt,
         maxAgentSteps: options.limits.maxAgentSteps,
         maxOutputBytes: options.limits.maxOutputBytes,
-        ...(bridge ? { toolBridge: { token: bridge.token } } : {}),
+        ...(bridge ? { toolBridge: { token: bridge.token, tools } } : {}),
         signal: options.signal,
       });
     } catch {
@@ -84,7 +84,7 @@ export function createIsolatedOpenCodeRunner(
       throw new Error('Unable to open isolated OpenCode runtime');
     }
     try {
-      const result = await createOpenCodeV2Runner({ ...runtime, store })(options, lease);
+      const result = await createOpenCodeV2Runner({ ...runtime, store, requiresMcp: Boolean(bridge) })(options, lease);
       return bridge ? { ...result, emailBlocks: bridge.emailBlocks } : result;
     } finally {
       bridge?.close();

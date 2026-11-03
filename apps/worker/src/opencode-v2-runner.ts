@@ -17,7 +17,7 @@ const MESSAGE_POLL_MS = 100;
  * replayed prompts are rejected by OpenCode with HTTP 409, and a completed
  * assistant message is the only terminal state we accept.
  */
-export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; directory: string; model: OpenCodeV2Model; store?: OpenCodeSessionStore }) {
+export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; directory: string; model: OpenCodeV2Model; store?: OpenCodeSessionStore; requiresMcp?: boolean }) {
   return async (options: RunAgentOptions, lease?: OpenCodeExecutionLease): Promise<AgentRunResult> => {
     if (options.model !== config.model.id) throw new Error('OpenCode spike model does not match the task model');
     if (options.allowWebResearch || options.memoryEnabled || options.memoryContext) {
@@ -27,6 +27,28 @@ export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; direc
     const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
     const cancellation = (): AgentCancelledError => new AgentCancelledError(timeoutSignal.aborted ? 'timeout' : 'cancelled');
     if (signal.aborted) throw cancellation();
+    // OpenCode connects MCP servers lazily and snapshots the tool catalog when a
+    // session is created. Wait for the bridge before creating the session, or the
+    // model never sees the tool.
+    if (config.requiresMcp) {
+      const deadline = Date.now() + 15_000;
+      for (;;) {
+        if (signal.aborted) throw cancellation();
+        const status = await config.client.getMcpStatus(signal).catch(() => undefined);
+        const servers = status && typeof status === 'object' && 'data' in status ? status.data : undefined;
+        const connected = Array.isArray(servers) && servers.some((server: unknown) => {
+          const state = typeof server === 'object' && server !== null && 'status' in server ? server.status : undefined;
+          return typeof state === 'object' && state !== null && 'status' in state && state.status === 'connected';
+        });
+        if (connected) {
+          // `connected` precedes the catalog import; give tools/list a moment to land.
+          await delay(250, undefined, { signal }).catch(() => { throw cancellation(); });
+          break;
+        }
+        if (Date.now() >= deadline) throw new Error('OpenCode MCP bridge did not connect');
+        await delay(MESSAGE_POLL_MS, undefined, { signal }).catch(() => { throw cancellation(); });
+      }
+    }
     if (config.store && !lease) throw new Error('OpenCode execution lease required');
     let mapping = config.store && lease ? await config.store.access(lease) : null;
     if (!mapping) {

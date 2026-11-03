@@ -89,6 +89,33 @@ describe('OpenCode runner recovery', () => {
       .rejects.toThrow('rejected the prompt without a durable message');
   });
 
+  it('waits for the MCP bridge to connect before dispatching', async () => {
+    let statusReads = 0;
+    let messageReads = 0;
+    const prompt = vi.fn();
+    const client = clientWith((path) => {
+      if (path === '/api/mcp') {
+        statusReads += 1;
+        return new Response(JSON.stringify({ data: [{ name: 'agent_tasks_tools', status: { status: statusReads === 1 ? 'connecting' : 'connected' } }] }));
+      }
+      if (path.endsWith('/message')) {
+        messageReads += 1;
+        return new Response(JSON.stringify({ data: messageReads === 1 ? [] : [completed] }));
+      }
+      if (path.endsWith('/prompt')) {
+        prompt();
+        return new Response(JSON.stringify({ data: {} }));
+      }
+      return new Response(JSON.stringify({ data: {} }));
+    });
+    const result = await createOpenCodeV2Runner({
+      client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store(), requiresMcp: true,
+    })(options(), lease);
+    expect(result.markdown).toBe('durable answer');
+    expect(statusReads).toBe(2);
+    expect(prompt).toHaveBeenCalled();
+  });
+
   it('interrupts the session and reports cancellation', async () => {
     const controller = new AbortController();
     const interrupt = vi.fn(async () => new Response(JSON.stringify({ data: {} })));
