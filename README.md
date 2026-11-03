@@ -50,6 +50,11 @@ live in one admin area.
 
 ![Providers](docs/images/admin-providers.png)
 
+The provider card lists the discovered model catalog: mark the default model for
+new tasks, hide models from the task editor, run a health check (the badge keeps
+the last result and time) and jump to the audit log. The interface is bilingual —
+[Providers in German](docs/images/admin-providers.de.png).
+
 ![Admin settings](docs/images/admin-settings.png)
 
 ## What you can do

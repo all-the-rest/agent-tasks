@@ -162,6 +162,15 @@ shared or per-user key, refresh models and run a health check. This is the only
 place a provider is configured: the deployment environment never seeds one and
 never carries an inference key.
 
+The card lists the discovered catalog. Mark one model as the default for new
+tasks, hide models the task editor should not offer, and read the last health
+result with its timestamp; **Audit log** shows who changed the connection. The
+default and hidden choices are stored in the provider config, so a later model
+refresh keeps them. The key itself is never shown again — the dialog only offers
+to set or rotate it.
+
+German UI: [Anbieter](images/admin-providers.de.png).
+
 ### Instance settings
 
 ![Admin settings](images/admin-settings.png)

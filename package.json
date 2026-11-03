@@ -19,6 +19,7 @@
     "test:integration": "vitest run --project integration",
     "test:e2e": "playwright test",
     "test:screenshots": "playwright test -c playwright.screenshots.config.ts",
+    "test:screenshots:acceptance": "playwright test -c playwright.acceptance.config.ts",
     "test:all": "pnpm test:unit && pnpm test:integration",
     "db:generate": "pnpm --filter @agent-tasks/database generate",
     "db:migrate": "pnpm --filter @agent-tasks/database migrate",
