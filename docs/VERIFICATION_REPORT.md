@@ -58,9 +58,9 @@ Current verification for this change:
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm -r typecheck` | passed (10 workspace projects) |
-| `pnpm test:unit` | **255 passed, 3 skipped**, 36 files passed / 1 skipped |
-| `pnpm test:integration` | **85 passed**, 13 files |
-| `pnpm --filter @agent-tasks/web test` | **43 passed**, 10 files (includes e-mail block preview and sanitizer) |
+| `pnpm test:unit` | **258 passed, 3 skipped**, 36 files passed / 1 skipped |
+| `pnpm test:integration` | **88 passed**, 13 files |
+| `pnpm --filter @agent-tasks/web test` | **45 passed**, 10 files (includes e-mail block preview and sanitizer) |
 | `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
 | `services/opencode-provisioner` unit tests | **6 passed** |
 | `scripts/verify-opencode-provisioner.mjs` in the rebuilt provisioner container | all lifecycle/isolation checks passed (fake credentials only) |
