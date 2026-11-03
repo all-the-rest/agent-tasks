@@ -135,6 +135,12 @@ export function runtimeConfig(input, providerBaseUrl) {
       } : {},
     },
     default_agent: 'agent-tasks',
+    // The proven OpenCode 2.2.5 configuration: the provider and the MCP server
+    // need explicit policy allows before the agent's tool allow is effective.
+    policies: [
+      { action: 'provider.use', resource: 'agent_tasks', effect: 'allow' },
+      ...(input.toolBridge ? [{ action: 'mcp.use', resource: 'agent_tasks_tools', effect: 'allow' }] : []),
+    ],
     agents: {
       'agent-tasks': {
         description: 'Agent Tasks execution with only the bridged tools allowed.',

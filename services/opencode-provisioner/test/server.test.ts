@@ -50,6 +50,7 @@ describe('isolated OpenCode provisioner service', () => {
       },
     });
     expect(config.agents['agent-tasks'].permissions).toEqual([{ action: '*', resource: '*', effect: 'deny' }]);
+    expect(config.policies).toEqual([{ action: 'provider.use', resource: 'agent_tasks', effect: 'allow' }]);
     expect(config.plugins).toEqual([]);
     expect(config.mcp.servers).toEqual({});
     expect(JSON.stringify(config)).not.toContain(input.apiKey);
@@ -75,6 +76,10 @@ describe('isolated OpenCode provisioner service', () => {
       { action: '*', resource: '*', effect: 'deny' },
       { action: 'agent_tasks_tools_compose_email', resource: '*', effect: 'allow' },
       { action: 'agent_tasks_tools_add_email_block', resource: '*', effect: 'allow' },
+    ]);
+    expect(config.policies).toEqual([
+      { action: 'provider.use', resource: 'agent_tasks', effect: 'allow' },
+      { action: 'mcp.use', resource: 'agent_tasks_tools', effect: 'allow' },
     ]);
     expect(JSON.stringify(config)).not.toContain(input.apiKey);
   });
