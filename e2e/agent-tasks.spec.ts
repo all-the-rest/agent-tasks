@@ -494,16 +494,20 @@ test('pauses and resumes the task and the list reflects both states', async ({ a
   await expect(row).toBeVisible();
 
   await row.getByRole('button', { name: 'Pause', exact: true }).click();
-  await expect(row.getByText('Disabled', { exact: true })).toBeVisible();
+  await expect(row).not.toBeVisible();
+  await page.locator('#task-status-filter').selectOption('paused');
+  await expect(row.getByText('Paused', { exact: true })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
 
   await row.getByRole('button', { name: 'Resume', exact: true }).click();
-  await expect(row.getByText('Enabled', { exact: true })).toBeVisible();
+  await expect(row).not.toBeVisible();
+  await page.locator('#task-status-filter').selectOption('active');
+  await expect(row.getByText('Active', { exact: true })).toBeVisible();
 
   // The state must survive a reload: it is server state, not only a cache.
   await page.reload();
   const reloaded = page.getByRole('row').filter({ hasText: task.title });
-  await expect(reloaded.getByText('Enabled', { exact: true })).toBeVisible();
+  await expect(reloaded.getByText('Active', { exact: true })).toBeVisible();
 });
 
 test('runs the task now and opens the execution without a JS error', async ({ admin, cleanup }) => {
