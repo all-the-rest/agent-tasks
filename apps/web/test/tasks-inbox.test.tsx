@@ -7,7 +7,8 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { ToastProvider } from '../src/components/ui';
 import { setLanguage } from '../src/i18n';
 import { api } from '../src/lib/api';
-import type { ExecutionSummary, Task } from '../src/lib/types';
+import { AuthProvider } from '../src/lib/auth';
+import type { ExecutionSummary, SessionUser, Task } from '../src/lib/types';
 import { TaskDetailPage } from '../src/pages/TaskDetailPage';
 import { TasksPage } from '../src/pages/TasksPage';
 
@@ -43,11 +44,13 @@ function renderTasks() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <ToastProvider>
-          <TasksPage />
-        </ToastProvider>
-      </MemoryRouter>
+      <AuthProvider>
+        <MemoryRouter>
+          <ToastProvider>
+            <TasksPage />
+          </ToastProvider>
+        </MemoryRouter>
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -85,6 +88,11 @@ function makeExecution(id: string, readAt: string | null): ExecutionSummary & { 
 
 beforeEach(() => {
   setLanguage('en');
+  const owner: SessionUser = { id: 'owner-1', email: 'owner@example.test', name: 'Owner', role: 'USER' };
+  vi.spyOn(api.auth, 'session').mockResolvedValue({
+    user: owner,
+    session: { id: 'session-owner-1', expiresAt: '2026-12-31T00:00:00.000Z' },
+  });
 });
 
 afterEach(() => {

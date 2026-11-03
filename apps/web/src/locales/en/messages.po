@@ -1618,11 +1618,20 @@ msgstr "Behaviour"
 msgid "tasks.allowWebResearch"
 msgstr "Allow web research"
 
+msgid "tasks.backToPrompt"
+msgstr "Back to prompt"
+
 msgid "tasks.basicSection"
 msgstr "Task"
 
 msgid "tasks.completed"
 msgstr "Completed"
+
+msgid "tasks.confirmCreate"
+msgstr "Review and create task"
+
+msgid "tasks.continueToDetails"
+msgstr "Continue to task details"
 
 msgid "tasks.count"
 msgstr "{count} tasks"
@@ -1800,6 +1809,18 @@ msgstr "Weekly"
 
 msgid "tasks.prompt"
 msgstr "Prompt"
+
+msgid "tasks.promptComposerHelp"
+msgstr "Describe the outcome you want. You can review the prompt and set the schedule before anything is created."
+
+msgid "tasks.promptComposerLabel"
+msgstr "What should this task do?"
+
+msgid "tasks.promptComposerTitle"
+msgstr "Start with the task"
+
+msgid "tasks.promptDraftReview"
+msgstr "Review and adjust this prompt and the task settings below. Nothing is created until you confirm."
 
 msgid "tasks.promptHelp"
 msgstr "What should the agent research and report? Be specific about the desired outcome."

@@ -1618,11 +1618,20 @@ msgstr "Verhalten"
 msgid "tasks.allowWebResearch"
 msgstr "Webrecherche erlauben"
 
+msgid "tasks.backToPrompt"
+msgstr "Zurück zum Prompt"
+
 msgid "tasks.basicSection"
 msgstr "Aufgabe"
 
 msgid "tasks.completed"
 msgstr "Abgeschlossen"
+
+msgid "tasks.confirmCreate"
+msgstr "Prüfen und Aufgabe anlegen"
+
+msgid "tasks.continueToDetails"
+msgstr "Weiter zu den Aufgabendetails"
 
 msgid "tasks.count"
 msgstr "{count} Aufgaben"
@@ -1800,6 +1809,18 @@ msgstr "Wöchentlich"
 
 msgid "tasks.prompt"
 msgstr "Prompt"
+
+msgid "tasks.promptComposerHelp"
+msgstr "Beschreibe das gewünschte Ergebnis. Du kannst den Prompt prüfen und den Zeitplan festlegen, bevor etwas angelegt wird."
+
+msgid "tasks.promptComposerLabel"
+msgstr "Was soll diese Aufgabe erledigen?"
+
+msgid "tasks.promptComposerTitle"
+msgstr "Beginne mit deiner Aufgabe"
+
+msgid "tasks.promptDraftReview"
+msgstr "Prüfe und bearbeite den Prompt und die Aufgabeneinstellungen. Erst nach deiner Bestätigung wird die Aufgabe angelegt."
 
 msgid "tasks.promptHelp"
 msgstr "Was soll der Agent recherchieren und berichten? Beschreibe das gewünschte Ergebnis möglichst genau."

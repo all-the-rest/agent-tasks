@@ -1,10 +1,18 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useNavigationType } from 'react-router';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { describeSchedule } from '../lib/describe';
 import { formatRelative } from '../lib/format';
+import {
+  currentTaskPromptDraft,
+  rememberTaskPromptDraft,
+  TASK_PROMPT_MAX_LENGTH,
+  taskPromptDraftFromState,
+  taskPromptDraftState,
+} from '../lib/task-prompt-draft';
 import {
   ConfirmDialog,
   EmptyState,
@@ -24,10 +32,24 @@ const taskStatusClass: Record<TaskStatus, string> = {
 };
 
 export function TasksPage() {
+  const { user } = useAuth();
+  const ownerId = user?.id ?? null;
+  return <TasksPageForOwner key={ownerId ?? 'signed-out'} ownerId={ownerId} />;
+}
+
+function TasksPageForOwner({ ownerId }: { ownerId: string | null }) {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navigationType = useNavigationType();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('active');
+  const [promptDraft, setPromptDraft] = useState(
+    () => ownerId
+      ? currentTaskPromptDraft(ownerId) ?? taskPromptDraftFromState(location.state, ownerId)
+      : '',
+  );
   const tasks = useInfiniteQuery({
     queryKey: ['tasks', taskStatus],
     initialPageParam: null as string | null,
@@ -39,6 +61,20 @@ export function TasksPage() {
   const [toDelete, setToDelete] = useState<Task | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // A browser Back POP returns to the original list history entry. Refresh its
+    // owner-scoped history-state snapshot with edits made in the review form.
+    if (
+      !ownerId ||
+      navigationType !== 'POP' ||
+      taskPromptDraftFromState(location.state, ownerId) === promptDraft
+    ) return;
+    navigate(`${location.pathname}${location.search}${location.hash}`, {
+      replace: true,
+      state: promptDraft ? taskPromptDraftState(ownerId, promptDraft) : null,
+    });
+  }, [location.hash, location.pathname, location.search, location.state, navigate, navigationType, ownerId, promptDraft]);
 
   const invalidate = async () => {
     await Promise.all([
@@ -107,6 +143,60 @@ export function TasksPage() {
           </Link>
         }
       />
+
+      <section className="mb-5 rounded-box border border-base-300 bg-base-100 shadow-sm" aria-labelledby="task-prompt-composer-title">
+        <div className="card-body gap-3 p-5">
+          <div>
+            <h2 id="task-prompt-composer-title" className="card-title text-base">
+              {t('tasks.promptComposerTitle')}
+            </h2>
+            <p id="task-prompt-composer-help" className="mt-1 text-sm opacity-70">
+              {t('tasks.promptComposerHelp')}
+            </p>
+          </div>
+          <form
+            className="flex flex-col items-start gap-3 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const prompt = promptDraft.trim();
+              if (!prompt || !ownerId) return;
+              // Keep the list entry clean so successful creation cannot revive this
+              // draft. The review entry rehydrates memory after reload; the POP
+              // effect below then copies the latest edit onto the list entry.
+              navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: null });
+              navigate('/tasks/new', { state: taskPromptDraftState(ownerId, prompt) });
+            }}
+          >
+            <div className="w-full flex-1">
+              <label className="label pb-1 text-sm font-medium" htmlFor="task-prompt-composer">
+                {t('tasks.promptComposerLabel')}
+              </label>
+              <textarea
+                id="task-prompt-composer"
+                className="textarea min-h-24 w-full"
+                rows={3}
+                maxLength={TASK_PROMPT_MAX_LENGTH}
+                aria-describedby="task-prompt-composer-help"
+                value={promptDraft}
+                onChange={(event) => {
+                  const nextPrompt = event.target.value;
+                  setPromptDraft(nextPrompt);
+                  if (ownerId) {
+                    rememberTaskPromptDraft(ownerId, nextPrompt);
+                    navigate(`${location.pathname}${location.search}${location.hash}`, {
+                      replace: true,
+                      state: taskPromptDraftState(ownerId, nextPrompt),
+                    });
+                  }
+                }}
+              />
+            </div>
+            <button type="submit" className="btn btn-primary mt-6 w-full sm:w-auto" disabled={!promptDraft.trim()}>
+              {t('tasks.continueToDetails')}
+            </button>
+          </form>
+        </div>
+      </section>
 
       {actionError ? (
         <div className="mb-4">
