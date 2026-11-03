@@ -49,3 +49,25 @@ export function buildProviderUpdateConfig(
 export function providerConfigNeedsUpdate(config: Record<string, unknown>, baseUrl: string): boolean {
   return providerBaseUrl(config) !== (baseUrl.trim() || DEFAULT_OLLAMA_BASE_URL);
 }
+
+/**
+ * The model a new task should start on: the admin-selected default when it is
+ * still in the catalog, otherwise the first offered model. The task form keeps
+ * the choice as an ordinary value, so changing the default never rewrites an
+ * existing task.
+ */
+export function preferredModelId(provider: {
+  defaultModel?: string;
+  models: Array<{ id: string }>;
+}): string {
+  if (provider.defaultModel && provider.models.some((model) => model.id === provider.defaultModel)) {
+    return provider.defaultModel;
+  }
+  return provider.models[0]?.id ?? '';
+}
+
+/** Hidden models stay in the admin catalog but are not offered in the task editor. */
+export function disabledModelIds(config: Record<string, unknown>): string[] {
+  const value = config.disabledModels;
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+}

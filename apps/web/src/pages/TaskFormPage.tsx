@@ -20,6 +20,7 @@ import {
 } from '../lib/schedule';
 import type { TimePreset } from '../lib/schedule';
 import { describeSchedule } from '../lib/describe';
+import { preferredModelId } from '../lib/provider-config';
 import { taskFormSchema, toTaskInput } from '../lib/task-schema';
 import type { TaskFormValues } from '../lib/task-schema';
 import type { Task } from '../lib/types';
@@ -152,7 +153,7 @@ export function TaskFormPage() {
     const preferred = providers.data.find((provider) => provider.isDefault) ?? providers.data[0];
     if (!preferred) return;
     setValue('providerId', preferred.id, { shouldValidate: true });
-    setValue('model', preferred.models[0]?.id ?? '', { shouldValidate: true });
+    setValue('model', preferredModelId(preferred), { shouldValidate: true });
   }, [providerId, providers.data, setValue]);
 
   const save = useMutation({
@@ -524,7 +525,7 @@ export function TaskFormPage() {
                   onChange={(event) => {
                     const next = providers.data?.find((provider) => provider.id === event.target.value);
                     setValue('providerId', event.target.value, { shouldValidate: true });
-                    setValue('model', next?.models[0]?.id ?? '', { shouldValidate: true });
+                    setValue('model', next ? preferredModelId(next) : '', { shouldValidate: true });
                   }}
                 >
                   <option value="">{t('tasks.selectProvider')}</option>

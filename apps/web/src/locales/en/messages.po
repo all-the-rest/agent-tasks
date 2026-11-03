@@ -49,6 +49,9 @@ msgstr "Allowed browser ports"
 msgid "admin.byStatus"
 msgstr "Executions by status"
 
+msgid "admin.checkedAt"
+msgstr "Checked {time}"
+
 msgid "admin.copyLink"
 msgstr "Copy link"
 
@@ -66,6 +69,9 @@ msgstr "Shared credential for {name}"
 
 msgid "admin.defaultModel"
 msgstr "Default model"
+
+msgid "admin.defaultModelBadge"
+msgstr "default"
 
 msgid "admin.defaultProvider"
 msgstr "Default provider"
@@ -100,8 +106,17 @@ msgstr "Health check"
 msgid "admin.healthFail"
 msgstr "Provider health check failed."
 
+msgid "admin.healthFailShort"
+msgstr "unreachable"
+
 msgid "admin.healthOk"
 msgstr "Provider is reachable."
+
+msgid "admin.healthOkShort"
+msgstr "reachable"
+
+msgid "admin.hideModel"
+msgstr "Hide"
 
 msgid "admin.invitations"
 msgstr "Invitations"
@@ -168,6 +183,12 @@ msgstr "No models yet. Store the shared credential, then refresh models."
 
 msgid "admin.modelContext"
 msgstr "{count} ctx"
+
+msgid "admin.modelHidden"
+msgstr "hidden"
+
+msgid "admin.modelPolicySaved"
+msgstr "Model catalog updated."
 
 msgid "admin.modelSupportsTools"
 msgstr "tools"
@@ -286,6 +307,9 @@ msgstr "Search base URL"
 msgid "admin.searchProvider"
 msgstr "Search provider"
 
+msgid "admin.setDefaultModel"
+msgstr "Set default"
+
 msgid "admin.settings"
 msgstr "System settings"
 
@@ -303,6 +327,9 @@ msgstr "System settings"
 
 msgid "admin.sharedCredential"
 msgstr "Shared key"
+
+msgid "admin.showModel"
+msgstr "Show"
 
 msgid "admin.smtpFrom"
 msgstr "SMTP sender address"
@@ -333,6 +360,9 @@ msgstr "Users"
 
 msgid "admin.usersCount"
 msgstr "Users"
+
+msgid "admin.viewAudit"
+msgstr "Audit log"
 
 msgid "app.name"
 msgstr "Agent Tasks"

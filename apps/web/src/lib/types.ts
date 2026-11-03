@@ -225,6 +225,8 @@ export interface Provider {
   kind: string;
   isDefault: boolean;
   baseUrl?: string;
+  /** Catalog model the admin preselected for new tasks. */
+  defaultModel?: string;
   hasCredential: boolean;
   hasPersonalCredential: boolean;
   models: ProviderModel[];

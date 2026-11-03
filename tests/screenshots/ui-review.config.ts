@@ -222,6 +222,15 @@ export const uiReviewConfig: UiReviewConfig = {
   expectedTitle: 'Agent Tasks',
   routes: [
     {
+      name: 'admin-providers',
+      path: '/admin/providers',
+      states: ['filled'],
+      auth: 'admin',
+      seeds: { filled: providerSeed },
+      nav: [{ kind: 'click', scope: 'complementary', role: 'link', href: '/admin/providers' }],
+      note: 'Omitted empty state: the shared admin already stores the fixture provider; the capture shows the catalog, default-model and hidden-model controls.',
+    },
+    {
       name: 'admin-settings',
       path: '/admin',
       states: ['filled'],

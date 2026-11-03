@@ -21,6 +21,8 @@ const SAFE_CONFIG_KEYS = [
   'enabled',
   'codexHome',
   'binary',
+  'defaultModel',
+  'disabledModels',
 ] as const;
 
 const REDACTED_HEADER_VALUE = '***';
@@ -98,6 +100,7 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
     const models = await db.select().from(providerModels);
     return rows.map((provider) => {
       const config = provider.config as Record<string, unknown>;
+      const disabledModels = Array.isArray(config.disabledModels) ? config.disabledModels.filter((id): id is string => typeof id === 'string') : [];
       return {
         id: provider.id,
         name: provider.name,
@@ -105,10 +108,12 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
         isDefault: provider.isDefault,
         // Only non-secret, browser-safe configuration leaves the server.
         baseUrl: typeof config.baseUrl === 'string' ? config.baseUrl : undefined,
+        // Preselected catalog model for new tasks (admin choice, not a secret).
+        defaultModel: typeof config.defaultModel === 'string' ? config.defaultModel : undefined,
         hasCredential: credentials.some((credential) => credential.providerId === provider.id && (credential.ownerId === null || credential.ownerId === me.id)),
         hasPersonalCredential: credentials.some((credential) => credential.providerId === provider.id && credential.ownerId === me.id),
         models: models
-          .filter((model) => model.providerId === provider.id)
+          .filter((model) => model.providerId === provider.id && !disabledModels.includes(model.modelId))
           .map((model) => ({ id: model.modelId, label: model.label, supportsTools: model.supportsTools, contextLength: model.contextLength })),
       };
     });
@@ -215,7 +220,22 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
       })
       .where(eq(providers.id, provider.id))
       .returning();
-    await context.audit({ actorId: admin.id, action: AUDIT_ACTIONS.providerUpdated, targetType: 'provider', targetId: provider.id });
+    await context.audit({
+      actorId: admin.id,
+      action: AUDIT_ACTIONS.providerUpdated,
+      targetType: 'provider',
+      targetId: provider.id,
+      // Record which fields changed, never their values: the config may carry
+      // headers, and an audit row is readable by every admin.
+      metadata: {
+        fields: [
+          ...(request.body?.name ? ['name'] : []),
+          ...(request.body?.enabled !== undefined ? ['enabled'] : []),
+          ...(request.body?.isDefault !== undefined ? ['isDefault'] : []),
+          ...(config ? ['config'] : []),
+        ],
+      },
+    });
     return updated ? adminProviderView(updated) : updated;
   });
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   REDACTED_HEADER_VALUE,
   buildProviderUpdateConfig,
+  disabledModelIds,
+  preferredModelId,
   providerBaseUrl,
   providerConfigNeedsUpdate,
   providerHeaderNames,
@@ -35,5 +37,19 @@ describe('provider config editing', () => {
   it('normalises an empty base URL to the Ollama default', () => {
     expect(buildProviderUpdateConfig({}, '   ').baseUrl).toBe('http://ollama:11434');
     expect(providerBaseUrl({})).toBe('');
+  });
+
+  it('preselects the admin default model and falls back to the first offered one', () => {
+    const models = [{ id: 'model-a' }, { id: 'model-b' }];
+    expect(preferredModelId({ defaultModel: 'model-b', models })).toBe('model-b');
+    expect(preferredModelId({ models })).toBe('model-a');
+    // A stale default (removed from the catalog) must not produce an invalid task.
+    expect(preferredModelId({ defaultModel: 'gone', models })).toBe('model-a');
+    expect(preferredModelId({ models: [] })).toBe('');
+  });
+
+  it('reads hidden models defensively', () => {
+    expect(disabledModelIds({ disabledModels: ['model-b', 3] })).toEqual(['model-b']);
+    expect(disabledModelIds({})).toEqual([]);
   });
 });

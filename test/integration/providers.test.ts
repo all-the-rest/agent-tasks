@@ -183,8 +183,61 @@ describe('provider routes', () => {
     expect(stored.rows[0]?.config.headers).toEqual({ authorization: 'Bearer secret' });
   });
 
-  it('updates a shared credential instead of inserting a duplicate', async () => {
-    const first = await harness.app.inject({
+  it('keeps the admin default model and hidden models, and hides them from the task editor', async () => {
+    const created = await harness.app.inject({
+      method: 'POST',
+      url: '/api/admin/providers',
+      headers: { cookie: adminCookie },
+      payload: {
+        name: 'Catalog policy provider',
+        kind: 'openai-compatible',
+        config: {
+          baseUrl: 'http://mock:8080/v1',
+          defaultModel: 'model-b',
+          disabledModels: ['model-c'],
+        },
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = created.json().id as string;
+    expect(created.json().config.defaultModel).toBe('model-b');
+    expect(created.json().config.disabledModels).toEqual(['model-c']);
+
+    // The catalog table is what the task editor sees; disabling lives in config so
+    // a later refresh does not lose the administrator's choice.
+    await harness.db.pool.query(
+      `insert into provider_models (provider_id, model_id, label, supports_tools) values ($1,'model-a','Model A',true), ($1,'model-b','Model B',true), ($1,'model-c','Model C',false)`,
+      [id],
+    );
+
+    const adminList = await harness.app.inject({ method: 'GET', url: '/api/admin/providers', headers: { cookie: adminCookie } });
+    const adminView = adminList.json().find((row: { id: string }) => row.id === id);
+    expect(adminView.config.defaultModel).toBe('model-b');
+    expect(adminView.config.disabledModels).toEqual(['model-c']);
+
+    const userList = await harness.app.inject({ method: 'GET', url: '/api/providers', headers: { cookie: aliceCookie } });
+    const userView = userList.json().find((row: { id: string }) => row.id === id);
+    expect(userView.defaultModel).toBe('model-b');
+    expect(userView.models.map((model: { id: string }) => model.id)).toEqual(['model-a', 'model-b']);
+  });
+
+  it('records which provider fields changed without their values', async () => {
+    const patched = await harness.app.inject({
+      method: 'PATCH',
+      url: `/api/admin/providers/${providerId}`,
+      headers: { cookie: adminCookie },
+      payload: { name: 'Route test provider renamed', enabled: false },
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+
+    const audit = await harness.db.pool.query<{ metadata: { fields?: string[] } }>(
+      `select metadata from audit_logs where action = 'provider.updated' and target_id = $1 order by created_at desc limit 1`,
+      [providerId],
+    );
+    expect(audit.rows[0]?.metadata.fields).toEqual(['name', 'enabled']);
+  });
+
+  it('updates a shared credential instead of inserting a duplicate', async () => {    const first = await harness.app.inject({
       method: 'POST',
       url: `/api/admin/providers/${providerId}/credentials`,
       headers: { cookie: adminCookie },

@@ -52,12 +52,20 @@ export const compatibleConfigSchema = z.object({
   stream: z.boolean().default(true),
   /** Declared models, used when the endpoint cannot be probed or `supportsTools` must be pinned. */
   models: z.array(providerModelConfigSchema).max(200).default([]),
+  /** Catalog model preselected for new tasks; an admin choice, never a secret. */
+  defaultModel: z.string().trim().min(1).max(200).optional(),
+  /** Catalog models an administrator hid from the task editor. */
+  disabledModels: z.array(z.string().trim().min(1).max(200)).max(200).default([]),
 });
 export type CompatibleConfig = z.infer<typeof compatibleConfigSchema>;
 
 export const ollamaConfigSchema = z.object({
   baseUrl: z.string().url().max(500).default('http://ollama:11434'),
   timeoutMs: z.number().int().min(1_000).max(600_000).default(300_000),
+  /** Catalog model preselected for new tasks; an admin choice, never a secret. */
+  defaultModel: z.string().trim().min(1).max(200).optional(),
+  /** Catalog models an administrator hid from the task editor. */
+  disabledModels: z.array(z.string().trim().min(1).max(200)).max(200).default([]),
   /** Models without tool-calling support are refused rather than silently degraded. */
   requireToolSupport: z.boolean().default(true),
 });
