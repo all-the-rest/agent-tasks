@@ -1,40 +1,43 @@
 # Verification report
 
-## OpenCode Go spike and migration decision — 2026-11-03
+## OpenCode Go migration — 2026-11-03
 
-**Decision: NO-GO for production cutover.** OpenCode Go remains the target, but
-authentication, centrally managed web configuration, secure credential storage,
-production isolation, and product-parity gates are not all met. Keep
-`OPENCODE_RUNTIME_ENABLED` unset or `0`; continue to use the existing runtime.
+**Decision: GO for the isolated runtime foundation; production cutover stays
+gated.** Keep `OPENCODE_RUNTIME_ENABLED` unset or `0` until a real OpenCode Go
+credential proves the remaining gates.
 
-OpenCode 2.2.5's `GET /api/integration` lists `opencode-go` with `key` and `env`
-methods, not OAuth. The separate `opencode` device-OAuth integration is not
-OpenCode Go. A pinned server accepted a test key through
-`POST /api/integration/opencode-go/connect/key` (`204`), but stores credentials in
-its SQLite credential database; `GET /api/credential` can return those secrets.
-Never expose OpenCode Connect or credential endpoints directly to a browser.
-The required admin-only Agent Tasks UI/BFF flow, shared Go credential source,
-approved central model catalog, and rotation/removal behavior are not implemented.
-The existing Compose/bootstrap environment variables are not the intended product
-configuration model.
+What is now implemented and tested:
 
-The pinned OpenCode 2.2.5 image and experimental per-execution provisioner were
-built. `scripts/verify-opencode-provisioner.mjs` passed in the provisioner
-container with fake API key/header values. It verified that persistent config
-contains no fake credentials and only references runtime environment variables;
-secret files are owner-only (`0600`, uid/gid 10001), and OpenCode config/state
-directories are owner-only writable tmpfs (`0700`). It also verified the pinned
-binary, authenticated session creation, release/network detachment, session
-survival after container recreation for the same execution, cross-execution
-session denial, rejection of a different execution credential, and distinct
-internal Docker networks. The smoke sends **no prompt** to OpenCode Go or any live
-provider and does not validate real Go credentials.
+- **Configuration.** The shared OpenCode Go connection and model catalog are
+  written only through the admin API/UI. The `OPENCODE_GO_*` environment seed was
+  removed; a fresh deployment starts with zero providers until an admin configures
+  one. The admin provider card shows the discovered catalog and offers the official
+  endpoint preset.
+- **Isolation and egress.** `opencode` and `opencode-runtime` are internal
+  networks; only the provisioner joins `opencode-egress`. The runtime is never
+  published. The provisioner lifecycle smoke passes with fake credentials: private
+  per-execution network/volumes, non-root runtime, owner-only secrets, session
+  reuse after container recreation, cross-execution denial.
+- **Recovery.** The durable message ID is persisted before dispatch. Recovery
+  reads the finished assistant message first; otherwise it replays the same prompt
+  ID and treats HTTP 409 as already accepted. A first dispatch rejected without a
+  durable message fails closed. Steps are replaced by step number. Unit and
+  integration tests cover replay, recovery, fail-closed and cancellation.
+- **Tool bridge.** A worker-hosted MCP endpoint (JSON-RPC over SSE) exposes an
+  explicit allowlist with a per-execution bearer token and call budget. The
+  provisioner registers it and proxies `/mcp`. `compose_email` and
+  `add_email_block` reuse the validated DSL/block schema and feed the execution
+  result; the report page and report e-mail already render from that shape.
 
-The runtime is still a text-only prototype: tool/MCP, research/source, usage,
-memory, email, report parity, real Executor worker-restart recovery, and an
-idempotency/reconciliation contract for ambiguous prompt dispatch remain open.
-The V2 HTTP API is experimental. The prototype smoke is not a production security
-review or deployment proof.
+Still open before cutover:
+
+1. A real OpenCode Go credential and live model/allowance validation.
+2. Proof that OpenCode 2.2.5 offers the registered MCP tool to the model under the
+   runtime permission set and returns its result into the session.
+3. Research/sources and memory tools through the bridge with the same egress,
+   SSRF and memory-policy controls.
+4. A full OpenCode run producing sources, usage and e-mail blocks end-to-end.
+5. Shared-key rotation/revocation against the live provisioner.
 
 Current verification for this change:
 
@@ -42,17 +45,18 @@ Current verification for this change:
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm -r typecheck` | passed (10 workspace projects) |
-| `pnpm test:unit` | **234 passed, 1 skipped**, 34 files passed / 1 skipped |
-| Focused provisioner + worker Vitest tests | **10 passed** |
+| `pnpm test:unit` | **248 passed, 1 skipped**, 36 files passed / 1 skipped |
+| `pnpm test:integration` | **85 passed**, 13 files |
+| `services/opencode-provisioner` unit tests | **6 passed** |
 | `scripts/verify-opencode-provisioner.mjs` in the rebuilt provisioner container | all lifecycle/isolation checks passed (fake credentials only) |
-| OpenCode and provisioner Docker image builds | passed |
-| `ratchet check` | **not green**: `gates-untouched` sees one unpushed commit (`ece5517`) mixing CI gate and product changes; this predates the current working-tree changes and must be resolved before commit/push |
+| `docker compose config -q` + `scripts/check-compose-parity.mjs` | passed |
+| `ratchet check` | **11/11 gates passed** |
 
-The separate OpenCode 2.2.5 adapter live test also passed earlier against a fake
-OpenAI-compatible HTTP provider, including a prompt/response and a PostgreSQL-backed
-Executor run. That is adapter evidence, not a Go-account test or proof of the
-central credential flow. Never point the optional database test at production
-data; it creates test records and pg-boss infrastructure.
+The OpenCode 2.2.5 adapter live test also passed against a fake OpenAI-compatible
+HTTP provider, including a prompt/response, MCP registration and a PostgreSQL-backed
+Executor run. That is adapter evidence, not a Go-account test. Never point the
+optional database test at production data; it creates test records and pg-boss
+infrastructure.
 
 Scope: the implementation in this repository against the original brief
 ("Agent Tasks — self-hosted AI task scheduler"). Every row names the code that
@@ -674,12 +678,13 @@ in the same file still produced a finding.
   fallback link.
 - Unit tests cover the renderer, multipart content and HTML escaping.
 
-## Final verdict: READY for original scope; OpenCode migration NO-GO
+## Final verdict: READY for original scope; OpenCode foundation GO, cutover gated
 
-The overall `READY` verdict covers the original Agent Tasks scheduler scope; it
-does not approve an OpenCode cutover. Issue #16 remains **NO-GO** until its
-authentication, central-configuration, secret-handling, isolation, and product
-parity gates are met (see the OpenCode spike section above). The original-scope
+The overall `READY` verdict covers the original Agent Tasks scheduler scope. The
+OpenCode migration has a tested foundation (admin-only configuration, internal
+networks with one egress exit, per-execution isolation, idempotent recovery,
+worker-hosted MCP bridge) but its production cutover remains **gated** on a real
+Go credential and the open items listed above. The original-scope
 requirements are backed by executed evidence. The previously open
 Chromium sandbox is proven end to end: probe run 41226712667 starts Chromium with
 `sandbox=true` under the exact production posture (pwuser, `cap_drop: ALL` +
@@ -696,10 +701,11 @@ spam score 0 and 85.6 % HTML support with the same builder.
 Remaining limits are non-mandatory or environment-scoped for the original
 Agent Tasks scope, except for the separate OpenCode migration decision above:
 
-1. **OpenCode Go migration — NO-GO** — no real Go account/API key was used. The
-   OpenAI-compatible fake provider validates adapter behavior only; Go auth,
-   actual model/allowance behavior, the admin BFF Connect flow, and safe native
-   credential storage remain unverified or unimplemented.
+1. **OpenCode Go cutover — gated** — no real Go account/API key was used. The
+   OpenAI-compatible fake provider validates adapter behavior only; real Go auth,
+   model/allowance behavior, MCP tool visibility under the runtime permission set,
+   and research/memory parity remain unverified. The admin-only configuration,
+   isolation, recovery and e-mail bridge are implemented and tested.
 2. **Codex account-scoped execution** — optional and experimental, disabled by
    default, no account available.
 3. **Real internet SMTP delivery** — Mailpit + SpamAssassin only; SPF/DKIM/DMARC
