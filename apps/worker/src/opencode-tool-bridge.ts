@@ -3,8 +3,9 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { findTool, toolDefinitions } from '@agent-tasks/agent-runtime';
-import type { ToolContext } from '@agent-tasks/agent-runtime';
-import type { EmailBlock } from '@agent-tasks/shared';
+import type { AgentSource, ToolContext } from '@agent-tasks/agent-runtime';
+import type { BrowserRunnerClient, SearchProvider } from '@agent-tasks/browser-tools';
+import type { AgentMemoryOp, AgentRecommendationOp, EmailBlock } from '@agent-tasks/shared';
 
 /**
  * Worker-hosted MCP endpoint for OpenCode executions.
@@ -23,16 +24,39 @@ const DEFAULT_MAX_CALLS = 40;
 const DEFAULT_PORT = 4091;
 const MCP_PATH = '/mcp';
 
+export interface ToolBridgeContext {
+  browser: BrowserRunnerClient;
+  search: SearchProvider;
+  sessionId: string;
+  allowForms: boolean;
+  limits: { maxPageVisits: number; maxSearchQueries: number; maxOutputBytes: number };
+}
+
+export interface ToolBridgeOpenOptions {
+  token?: string;
+  tools?: string[];
+  maxCalls?: number;
+  /**
+   * Execution-scoped capabilities. Research tools require it; e-mail and memory
+   * tools work without it. Without a context the bridge refuses to offer a
+   * research tool rather than exposing a handler that cannot run.
+   */
+  context?: ToolBridgeContext;
+}
+
 export interface ToolBridgeSession {
   token: string;
   emailBlocks: EmailBlock[];
+  sources: AgentSource[];
+  memoryOps: AgentMemoryOp[];
+  recommendationOps: AgentRecommendationOp[];
   calls: number;
   close(): void;
 }
 
 export interface ToolBridgeHub {
   url: string;
-  open(options?: { token?: string; tools?: string[]; maxCalls?: number }): ToolBridgeSession;
+  open(options?: ToolBridgeOpenOptions): ToolBridgeSession;
   close(): Promise<void>;
 }
 
@@ -54,9 +78,26 @@ interface Session {
   maxCalls: number;
   calls: number;
   emailBlocks: EmailBlock[];
+  sources: AgentSource[];
+  memoryOps: AgentMemoryOp[];
+  recommendationOps: AgentRecommendationOp[];
   definitions: Array<{ name: string; description: string; inputSchema: unknown }>;
   context: ToolContext;
 }
+
+/** Tools that need the execution's browser/search capability. */
+const RESEARCH_TOOLS = new Set([
+  'search_web',
+  'open_url',
+  'extract_page_text',
+  'inspect_page',
+  'click_element',
+  'fill_form',
+  'navigate_back',
+  'get_page_title',
+  'get_current_url',
+  'extract_links',
+]);
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -96,9 +137,46 @@ async function readBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function createSession(options: { token?: string; tools?: string[]; maxCalls?: number }): Session {
+function createSession(options: ToolBridgeOpenOptions): Session {
   const allowed = new Set(options.tools ?? ['compose_email', 'add_email_block']);
+  if (!options.context) {
+    const missing = [...allowed].find((tool) => RESEARCH_TOOLS.has(tool));
+    if (missing) throw new Error(`tool ${missing} requires a tool context`);
+  }
   const emailBlocks: EmailBlock[] = [];
+  const sources: AgentSource[] = [];
+  const memoryOps: AgentMemoryOp[] = [];
+  const recommendationOps: AgentRecommendationOp[] = [];
+  // Collect validated tool output only. The worker persists these after a
+  // successful execution, exactly like the native runtime.
+  const context: ToolContext = options.context
+    ? {
+        browser: options.context.browser,
+        search: options.context.search,
+        sessionId: options.context.sessionId,
+        allowForms: options.context.allowForms,
+        visited: new Set<string>(),
+        pageVisits: 0,
+        queries: [],
+        emailBlocks,
+        memoryOps,
+        recommendationOps,
+        limits: options.context.limits,
+        onSource(source) {
+          // Deduplicate by URL: reopening a page must not create a second row.
+          const index = sources.findIndex((candidate) => candidate.url === source.url);
+          if (index >= 0) sources[index] = source;
+          else sources.push(source);
+        },
+      }
+    : ({
+        emailBlocks,
+        memoryOps,
+        recommendationOps,
+        visited: new Set<string>(),
+        queries: [],
+        pageVisits: 0,
+      } as unknown as ToolContext);
   return {
     id: `mcp_${randomBytes(16).toString('hex')}`,
     token: options.token ?? randomBytes(32).toString('base64url'),
@@ -106,21 +184,15 @@ function createSession(options: { token?: string; tools?: string[]; maxCalls?: n
     maxCalls: options.maxCalls ?? DEFAULT_MAX_CALLS,
     calls: 0,
     emailBlocks,
+    sources,
+    memoryOps,
+    recommendationOps,
     definitions: toolDefinitions([...allowed]).map((definition) => ({
       name: definition.name,
       description: definition.description,
       inputSchema: definition.parameters,
     })),
-    // Email tools only read `emailBlocks`; the rest of the context is inert and
-    // unreachable through this allowlist.
-    context: {
-      emailBlocks,
-      memoryOps: [],
-      recommendationOps: [],
-      visited: new Set<string>(),
-      queries: [],
-      pageVisits: 0,
-    } as unknown as ToolContext,
+    context,
   };
 }
 
@@ -229,6 +301,9 @@ export async function createToolBridgeHub(options: { host?: string; port?: numbe
       return {
         token: session.token,
         emailBlocks: session.emailBlocks,
+        sources: session.sources,
+        memoryOps: session.memoryOps,
+        recommendationOps: session.recommendationOps,
         get calls() {
           return session.calls;
         },
@@ -245,12 +320,15 @@ export async function createToolBridgeHub(options: { host?: string; port?: numbe
 }
 
 /** Convenience wrapper for one isolated session (tests, single-execution hosts). */
-export async function startToolBridge(options: { token?: string; tools?: string[]; maxCalls?: number; host?: string; port?: number } = {}): Promise<ToolBridge> {
+export async function startToolBridge(options: ToolBridgeOpenOptions & { host?: string; port?: number } = {}): Promise<ToolBridge> {
   const hub = await createToolBridgeHub({ host: options.host, port: options.port });
   const session = hub.open(options);
   return {
     token: session.token,
     emailBlocks: session.emailBlocks,
+    sources: session.sources,
+    memoryOps: session.memoryOps,
+    recommendationOps: session.recommendationOps,
     get calls() {
       return session.calls;
     },

@@ -1,5 +1,5 @@
 import { AgentCancelledError, buildSystemPrompt } from '@agent-tasks/agent-runtime';
-import type { RunAgentOptions } from '@agent-tasks/agent-runtime';
+import type { AgentSource, RunAgentOptions } from '@agent-tasks/agent-runtime';
 import type { ProviderContext } from '@agent-tasks/ai-providers';
 import type { OpenCodeExecutionLease, OpenCodeSessionStore } from './opencode-session-store.js';
 import type { ToolBridgeHub } from './opencode-tool-bridge.js';
@@ -41,28 +41,54 @@ export function createIsolatedOpenCodeRunner(
   toolBridgeHub?: ToolBridgeHub,
 ) {
   return async (options: RunAgentOptions, lease: OpenCodeExecutionLease) => {
-    // Reject unsupported work before provisioning or handing over credentials.
-    // Research and memory still need their own tool handlers; e-mail composition
-    // is already available through the worker-hosted MCP bridge.
-    if (options.allowWebResearch || options.memoryEnabled || options.memoryContext) {
-      throw new Error('OpenCode spike only supports tasks without web research or memory');
-    }
     if (options.signal?.aborted) throw new AgentCancelledError('cancelled');
     // Validate ownership and the current lease before passing a credential to the provisioner.
     await store.access(lease);
     if (options.signal?.aborted) throw new AgentCancelledError('cancelled');
-    const tools = options.emailNotification ? ['compose_email', 'add_email_block'] : [];
-    const bridge = tools.length > 0 ? toolBridgeHub?.open({ tools }) : undefined;
+    const tools: string[] = [];
+    if (options.emailNotification) tools.push('compose_email', 'add_email_block');
+    if (options.allowWebResearch) {
+      tools.push(
+        'search_web',
+        'open_url',
+        'extract_page_text',
+        'inspect_page',
+        'click_element',
+        'navigate_back',
+        'get_page_title',
+        'get_current_url',
+        'extract_links',
+        ...(options.allowForms ? ['fill_form'] : []),
+      );
+    }
+    if (options.memoryEnabled) tools.push('record_task_memory', 'track_recommendation');
+    if (tools.length > 0 && !toolBridgeHub) throw new Error('OpenCode tool bridge is not configured');
+    const bridge = tools.length > 0
+      ? toolBridgeHub!.open({
+          tools,
+          context: {
+            browser: options.browser,
+            search: options.search,
+            sessionId: options.sessionId,
+            allowForms: options.allowForms,
+            limits: {
+              maxPageVisits: options.limits.maxPageVisits,
+              maxSearchQueries: options.limits.maxSearchQueries,
+              maxOutputBytes: options.limits.maxOutputBytes,
+            },
+          },
+        })
+      : undefined;
     const systemPrompt = buildSystemPrompt({
       title: options.title,
       prompt: options.prompt,
       systemInstructions: options.systemInstructions,
       timezone: options.timezone,
       today: (options.now?.() ?? new Date()).toISOString().slice(0, 10),
-      allowWebResearch: false,
+      allowWebResearch: options.allowWebResearch,
       emailNotification: options.emailNotification === true,
       toolNames: tools,
-      memoryContext: null,
+      memoryContext: options.memoryContext ?? null,
     });
     let runtime: Awaited<ReturnType<IsolatedOpenCodeProvisioner['open']>>;
     try {
@@ -85,10 +111,33 @@ export function createIsolatedOpenCodeRunner(
     }
     try {
       const result = await createOpenCodeV2Runner({ ...runtime, store, requiresMcp: Boolean(bridge) })(options, lease);
-      return bridge ? { ...result, emailBlocks: bridge.emailBlocks } : result;
+      if (!bridge) return result;
+      // Structured output and research results come from validated tool calls.
+      // OpenCode only emits the final text, so the bridge is the source of truth
+      // for sources, e-mail blocks and memory proposals.
+      return {
+        ...result,
+        sources: mergeSources(result.sources, bridge.sources),
+        emailBlocks: bridge.emailBlocks.length > 0 ? bridge.emailBlocks : result.emailBlocks,
+        memoryOps: mergeByKey(result.memoryOps, bridge.memoryOps, (op) => op.semanticKey ?? op.content),
+        recommendationOps: mergeByKey(result.recommendationOps, bridge.recommendationOps, (op) => op.stableKey),
+      };
     } finally {
       bridge?.close();
       await runtime.release().catch(() => { throw new Error('Unable to release isolated OpenCode runtime'); });
     }
   };
+}
+
+/** Deduplicate by URL, keeping the newest retrieval. */
+function mergeSources(existing: AgentSource[], collected: AgentSource[]): AgentSource[] {
+  const merged = new Map<string, AgentSource>();
+  for (const source of [...existing, ...collected]) merged.set(source.url, source);
+  return [...merged.values()];
+}
+
+function mergeByKey<T>(existing: T[], collected: T[], keyOf: (item: T) => string): T[] {
+  const merged = new Map<string, T>();
+  for (const item of [...existing, ...collected]) merged.set(keyOf(item), item);
+  return [...merged.values()];
 }

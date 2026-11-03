@@ -32,10 +32,11 @@ What is now implemented and tested:
 Still open before cutover:
 
 1. A real OpenCode Go credential and live model/allowance validation.
-2. Research/sources and memory tools through the bridge with the same egress,
-   SSRF and memory-policy controls.
+2. A live Go run with research/sources and memory through the bridge under the
+   production egress proxy and SSRF controls (the local OpenCode 2.2.5 run already
+   retrieves and persists a source).
 3. A full OpenCode Go run producing sources and usage end-to-end (the local
-   OpenCode 2.2.5 run already produces e-mail blocks via the bridge).
+   OpenCode 2.2.5 run already produces e-mail blocks and a source via the bridge).
 4. Shared-key rotation/revocation against the live provisioner.
 
 Current verification for this change:
@@ -44,9 +45,9 @@ Current verification for this change:
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm -r typecheck` | passed (10 workspace projects) |
-| `pnpm test:unit` | **249 passed, 2 skipped**, 36 files passed / 1 skipped |
+| `pnpm test:unit` | **253 passed, 3 skipped**, 36 files passed / 1 skipped |
 | `pnpm test:integration` | **85 passed**, 13 files |
-| `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **2 passed**: final answer and `emailBlocks = [heading, paragraph]` |
+| `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
 | `services/opencode-provisioner` unit tests | **6 passed** |
 | `scripts/verify-opencode-provisioner.mjs` in the rebuilt provisioner container | all lifecycle/isolation checks passed (fake credentials only) |
 | `docker compose config -q` + `scripts/check-compose-parity.mjs` | passed |
@@ -56,9 +57,11 @@ The opt-in live test starts a real OpenCode 2.2.5 process against a fake
 OpenAI-compatible provider and the real worker MCP bridge. OpenCode offers
 `agent_tasks_tools_compose_email` to the model, the model calls it, and the
 execution result contains the validated heading and paragraph blocks. A second
-live case exercises a PostgreSQL-backed Executor run. That is adapter evidence,
-not a Go-account test. Never point the optional database test at production data;
-it creates test records and pg-boss infrastructure.
+live case opens a page through `agent_tasks_tools_open_url`; the Executor
+persists the returned source row (`execution_sources`) and the report. A third
+case exercises a PostgreSQL-backed Executor run. That is adapter evidence, not a
+Go-account test. Never point the optional database test at production data; it
+creates test records and pg-boss infrastructure.
 
 Scope: the implementation in this repository against the original brief
 ("Agent Tasks — self-hosted AI task scheduler"). Every row names the code that
@@ -705,9 +708,10 @@ Agent Tasks scope, except for the separate OpenCode migration decision above:
 
 1. **OpenCode Go cutover — gated** — no real Go account/API key was used. The
    OpenAI-compatible fake provider validates adapter behavior only; real Go auth,
-   model/allowance behavior, research/memory parity and the production-image MCP
-   run remain unverified. The admin-only configuration, isolation, recovery,
-   MCP tool visibility (live 2.2.5) and e-mail bridge are implemented and tested.
+   model/allowance behavior, the live egress/SSRF boundary and the
+   production-image MCP run remain unverified. The admin-only configuration,
+   isolation, recovery, MCP tool visibility (live 2.2.5), research/source
+   retrieval, memory proposals and e-mail bridge are implemented and tested.
 2. **Codex account-scoped execution** — optional and experimental, disabled by
    default, no account available.
 3. **Real internet SMTP delivery** — Mailpit + SpamAssassin only; SPF/DKIM/DMARC

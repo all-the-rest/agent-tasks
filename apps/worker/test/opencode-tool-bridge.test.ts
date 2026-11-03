@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserRunnerClient, SearchProvider } from '@agent-tasks/browser-tools';
 import { createToolBridgeHub, startToolBridge } from '../src/opencode-tool-bridge.js';
 import type { ToolBridge, ToolBridgeHub } from '../src/opencode-tool-bridge.js';
 
@@ -106,5 +107,47 @@ describe('OpenCode tool bridge', () => {
     });
     expect(response.status).toBe(405);
     expect(response.headers.get('allow')).toContain('POST');
+  });
+
+  it('collects verified sources and memory proposals from the research tools', async () => {
+    const browser = {
+      act: vi.fn(async () => ({ ok: true, url: 'https://example.com/report', title: 'Report', text: 'Verified text.' })),
+    } as unknown as BrowserRunnerClient;
+    const search = { search: vi.fn(async () => []) } as unknown as SearchProvider;
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['open_url', 'record_task_memory'],
+      context: {
+        browser,
+        search,
+        sessionId: 'browser-session',
+        allowForms: false,
+        limits: { maxPageVisits: 5, maxSearchQueries: 5, maxOutputBytes: 4_000 },
+      },
+    });
+
+    const opened = await rpc(bridge, {
+      jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'open_url', arguments: { url: 'https://example.com/report' } },
+    }) as { result: { isError: boolean } };
+    expect(opened.result.isError).toBe(false);
+    expect(browser.act).toHaveBeenCalledWith('browser-session', { action: 'open_url', url: 'https://example.com/report' });
+
+    const remembered = await rpc(bridge, {
+      jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'record_task_memory', arguments: { category: 'finding', content: 'Verified text.' } },
+    }) as { result: { isError: boolean } };
+    expect(remembered.result.isError).toBe(false);
+
+    expect(bridge.sources).toEqual([
+      expect.objectContaining({ url: 'https://example.com/report', title: 'Report', confidence: 'verified' }),
+    ]);
+    expect(bridge.memoryOps).toEqual([expect.objectContaining({ category: 'finding', content: 'Verified text.' })]);
+    expect(bridge.recommendationOps).toEqual([]);
+  });
+
+  it('refuses to register a research tool without an execution context', async () => {
+    hub = await createToolBridgeHub({ port: 0 });
+    expect(() => hub.open({ tools: ['search_web'] })).toThrow('requires a tool context');
+    expect(() => hub.open({ tools: ['compose_email'] })).not.toThrow();
   });
 });

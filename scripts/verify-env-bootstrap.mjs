@@ -82,17 +82,11 @@ check(login.status === 200, 'env admin can sign in', login);
 const me = await call('GET', '/api/me', undefined, 'admin');
 check(me.json?.user?.role === 'ADMIN', 'env admin has role ADMIN', me.json?.user?.role);
 
-// 5. The OpenCode Go provider was seeded with a shared credential.
+// 5. No provider is seeded from the environment: the admin UI/API is the only
+//    write path, so a fresh instance starts unconfigured.
 const providers = await call('GET', '/api/admin/providers', undefined, 'admin');
-const go = Array.isArray(providers.json) ? providers.json.find((provider) => provider.name === 'OpenCode Go') : undefined;
-check(Boolean(go), 'OpenCode Go provider exists');
-check(go?.kind === 'openai-compatible', 'OpenCode Go uses the OpenAI-compatible adapter');
-check(go?.sharedCredential === true, 'OpenCode Go has a shared credential');
-check(
-  String(go?.config?.baseUrl ?? '').includes('opencode.ai'),
-  'OpenCode Go base URL is configured',
-  go?.config?.baseUrl,
-);
+check(Array.isArray(providers.json), 'admin provider list is available');
+check(providers.json.length === 0, 'no inference provider is seeded from the environment');
 
 // 6. The setting is effective at runtime in both directions.
 const opened = await call('PUT', '/api/admin/settings', { allowRegistration: true }, 'admin');

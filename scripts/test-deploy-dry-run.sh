@@ -429,6 +429,7 @@ if [ "${DEPLOY_TEST_RENDER_COMPOSE:-0}" = 1 ]; then
     env_line ADMIN_PASSWORD "$admin_value"
     env_line RUNNER_SECCOMP_PATH "$remote/docker/seccomp-browser.json"
     env_line SEARXNG_SETTINGS_PATH "$remote/docker/searxng/settings.yml"
+    env_line OPENCODE_SERVER_PASSWORD "$runner_value"
   } > "$tmp/compose-test.env"
   printf 'server:\n  secret_key: compose-contract-test-key\n' > \
     "$remote/docker/searxng/settings.yml"

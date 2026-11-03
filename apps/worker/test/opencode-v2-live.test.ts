@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { createDatabase, executions, providerCredentials, providers } from '@agent-tasks/database';
+import { createDatabase, executions, executionSources, providerCredentials, providers } from '@agent-tasks/database';
 import { SecretBox } from '@agent-tasks/ai-providers';
 import { afterAll, describe, expect, it } from 'vitest';
 import { OpenCodeV2Client } from '../src/opencode-v2-client.js';
@@ -318,6 +318,213 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       }
       await hub.close();
       await new Promise<void>((resolve, reject) => chat.close((error) => error ? reject(error) : resolve()));
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('retrieves a source through the bridge and persists it for the execution', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'agent-tasks-opencode-research-'));
+    const config = join(workspace, 'config', 'opencode');
+    await mkdir(config, { recursive: true });
+    const chat = createServer();
+    let sawTool = false;
+    chat.on('request', (request, response) => {
+      if (request.method !== 'POST' || !request.url?.endsWith('/chat/completions')) {
+        response.writeHead(404).end();
+        return;
+      }
+      let raw = '';
+      request.on('data', (chunk: Buffer) => { raw += chunk.toString(); });
+      request.on('end', () => {
+        const body = JSON.parse(raw) as { model: string; tools?: Array<{ function?: { name?: string }; name?: string }>; messages?: Array<{ role?: string }> };
+        const names = (body.tools ?? []).map((tool) => tool.function?.name ?? tool.name);
+        const target = names.find((name) => typeof name === 'string' && name.endsWith('open_url'));
+        const hasToolResult = (body.messages ?? []).some((message) => message.role === 'tool');
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        const emit = (delta: object, finish: string | null = null) => response.write(
+          `data: ${JSON.stringify({ id: 'chatcmpl-research', object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`,
+        );
+        emit({ role: 'assistant', content: '' });
+        if (target && !hasToolResult) {
+          sawTool = true;
+          emit({ tool_calls: [{ index: 0, id: 'call_research_1', type: 'function', function: { name: target, arguments: JSON.stringify({ url: 'https://example.com/live-report' }) } }] }, 'tool_calls');
+        } else {
+          emit({ content: 'RESEARCH FINAL ANSWER' });
+          emit({}, 'stop');
+        }
+        response.end('data: [DONE]\n\n');
+      });
+    });
+    chat.listen(0, '127.0.0.1');
+    await once(chat, 'listening');
+    const chatAddress = chat.address();
+    if (!chatAddress || typeof chatAddress === 'string') throw new Error('chat port unavailable');
+
+    // The Executor creates a browser session when research is enabled. This stub
+    // owns the session; the bridge's open_url call uses the same fake capability.
+    const browserRunner = createServer((request, response) => {
+      request.resume();
+      request.on('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ sessionId: 'live-browser-session' }));
+      });
+    });
+    browserRunner.listen(0, '127.0.0.1');
+    await once(browserRunner, 'listening');
+    const runnerAddress = browserRunner.address();
+    if (!runnerAddress || typeof runnerAddress === 'string') throw new Error('runner port unavailable');
+
+    const reservation = createNetServer().listen(0, '127.0.0.1');
+    await once(reservation, 'listening');
+    const serverAddress = reservation.address();
+    if (!serverAddress || typeof serverAddress === 'string') throw new Error('server port unavailable');
+    await new Promise<void>((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));
+
+    const hub = await createToolBridgeHub({ port: 0 });
+    const session = hub.open({
+      tools: ['open_url'],
+      context: {
+        browser: {
+          act: async () => ({ ok: true, action: 'open_url', url: 'https://example.com/live-report', title: 'Live report', text: 'Research evidence.' }),
+        } as never,
+        search: { search: async () => [] },
+        sessionId: 'live-browser-session',
+        allowForms: false,
+        limits: { maxPageVisits: 5, maxSearchQueries: 5, maxOutputBytes: 8_192 },
+      },
+    });
+    let proc: ChildProcess | undefined;
+    try {
+      await writeFile(join(config, 'opencode.json'), JSON.stringify({
+        update: 'disable',
+        model: 'agent_tasks/mock-model',
+        plugins: [],
+        mcp: {
+          servers: {
+            agent_tasks_tools: {
+              type: 'remote',
+              url: hub.url,
+              headers: { authorization: `Bearer ${session.token}` },
+              codemode: false,
+              timeout: { startup: 10_000, catalog: 10_000, execution: 30_000 },
+            },
+          },
+        },
+        default_agent: 'agent-tasks',
+        policies: [
+          { action: 'mcp.use', resource: 'agent_tasks_tools', effect: 'allow' },
+          { action: 'provider.use', resource: 'agent_tasks', effect: 'allow' },
+        ],
+        agents: {
+          'agent-tasks': {
+            description: 'Live research test',
+            mode: 'primary',
+            steps: 10,
+            system: 'Open the page once, then answer.',
+            permissions: [
+              { action: '*', resource: '*', effect: 'deny' },
+              { action: 'agent_tasks_tools_open_url', resource: '*', effect: 'allow' },
+            ],
+          },
+        },
+        providers: {
+          agent_tasks: {
+            name: 'Mock',
+            package: '@opencode/ai/providers/openai-compatible',
+            settings: { baseURL: `http://127.0.0.1:${chatAddress.port}/v1`, apiKey: 'fake-key' },
+            models: { 'mock-model': { name: 'Mock Model', tool_call: true, limit: { context: 32_000, output: 1_024 } } },
+          },
+        },
+      }));
+      const password = 'local-test-only';
+      proc = spawn('opencode', ['serve', '--hostname', '127.0.0.1', '--port', String(serverAddress.port)], {
+        cwd: workspace,
+        env: { PATH: process.env.PATH, HOME: workspace, XDG_CONFIG_HOME: join(workspace, 'config'), XDG_DATA_HOME: join(workspace, 'data'), XDG_CACHE_HOME: join(workspace, 'cache'), OPENCODE_SERVER_PASSWORD: password },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let logs = '';
+      proc.stderr?.on('data', (data: Buffer) => { logs += data.toString(); });
+      const baseUrl = `http://127.0.0.1:${serverAddress.port}`;
+      let ready = false;
+      for (let attempt = 0; attempt < 150; attempt++) {
+        if (proc.exitCode !== null) throw new Error(`OpenCode exited: ${logs}`);
+        try {
+          if ((await fetch(`${baseUrl}/api/info`, { headers: { authorization: `Basic ${btoa(`opencode:${password}`)}` } })).ok) { ready = true; break; }
+        } catch { /* server is starting */ }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(ready, logs).toBe(true);
+
+      const client = new OpenCodeV2Client({ baseUrl, password });
+      const mappings = new Map<string, { sessionId: string; messageId: string; promptDispatched: boolean }>();
+      const store = {
+        access: async (lease: { executionId: string }, candidate?: { sessionId: string; messageId: string; promptDispatched: boolean }) => {
+          if (candidate && !mappings.has(lease.executionId)) mappings.set(lease.executionId, candidate);
+          return mappings.get(lease.executionId) ?? null;
+        },
+        claimPrompt: async () => true,
+      } as unknown as OpenCodeSessionStore;
+      const testHub = { url: hub.url, open: () => session, close: async () => undefined };
+      const openCodeRunner = createIsolatedOpenCodeRunner({
+        open: async () => ({ client, directory: workspace, model: { providerID: 'agent_tasks', id: 'mock-model' }, release: async () => undefined }),
+      }, store, testHub);
+
+      // The persistence seam captures the real insert the Executor performs.
+      const executionId = randomUUID();
+      const ownerId = 'live-research-owner';
+      const key = Buffer.alloc(32, 1).toString('base64');
+      const task = {
+        id: randomUUID(), ownerId, providerId: randomUUID(), title: 'Research task', prompt: 'Open the page.',
+        model: 'mock-model', timezone: 'UTC', allowWebResearch: true, notification: 'none', memorySettings: { mode: 'off' },
+      };
+      const provider = { id: task.providerId, name: 'Mock', kind: 'openai-compatible', enabled: true, config: { baseUrl: `http://127.0.0.1:${chatAddress.port}/v1`, models: [{ id: 'mock-model', supportsTools: true }] } };
+      const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+      const insertedSources: Array<Record<string, unknown>> = [];
+      const dialect = new PgDialect();
+      const execute = async (query: unknown) => {
+        const sql = typeof query === 'string' ? query : dialect.sqlToQuery(query as never).sql;
+        if (sql.includes('system_settings')) return { rows: [{ values: {} }] };
+        if (sql.includes('select owner_id, attempt')) return { rows: [{ owner_id: ownerId, attempt: 0, already_admitted_today: false }] };
+        if (sql.includes('pg_advisory_xact_lock') || sql.includes('update executions')) return { rows: [] };
+        if (sql.includes('prior_executions_today')) return { rows: [{ prior_executions_today: 0, other_running_for_owner: 0 }] };
+        if (sql.includes('select cancel_requested')) return { rows: [{ cancel_requested: false }] };
+        throw new Error(`unexpected SQL: ${sql}`);
+      };
+      const db = {
+        execute,
+        transaction: async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) => callback({ execute }),
+        select: () => ({ from: (table: unknown) => {
+          const value = table === providers ? [provider] : table === executions ? [{ execution: { id: executionId, ownerId, attempt: 0 }, task }] : table === providerCredentials ? [{ ownerId: null, ciphertext: new SecretBox(key).encrypt('fake-key') }] : [];
+          const chain = { innerJoin: () => chain, where: () => chain, limit: async () => value, then: (resolve: (value: unknown) => unknown, reject?: (error: unknown) => unknown) => Promise.resolve(value).then(resolve, reject) };
+          return chain;
+        } }),
+        update: (table: unknown) => ({ set: (values: Record<string, unknown>) => ({ where: async () => { updates.push({ table, values }); } }) }),
+        delete: () => ({ where: async () => undefined }),
+        insert: (table: unknown) => ({ values: async (rows: unknown) => { if (table === executionSources) insertedSources.push(...(rows as Array<Record<string, unknown>>)); } }),
+      };
+      const env = {
+        NODE_ENV: 'test', DATABASE_URL: 'postgres://unused', SECRETS_ENCRYPTION_KEY: key,
+        RUNNER_URL: `http://127.0.0.1:${runnerAddress.port}`, RUNNER_TOKEN: 'live-test-runner-token',
+        WORKER_CONCURRENCY: 1, CODEX_HOME_ROOT: workspace, CODEX_ISOLATED_RUNNER: '0', LOG_LEVEL: 'silent',
+        PUBLIC_BASE_URL: 'http://localhost:8080', OPENCODE_RUNTIME_ENABLED: '1',
+      } satisfies WorkerEnv;
+      const executor = new Executor({ db: db as never, env, boss: {} as never, workerId: 'live-research-worker', openCodeRunner });
+      await executor.handle(executionId);
+
+      expect(sawTool, logs).toBe(true);
+      expect(updates.find((update) => update.table === executions && update.values.status === 'completed')?.values.report)
+        .toMatchObject({ markdown: 'RESEARCH FINAL ANSWER', sources: [{ url: 'https://example.com/live-report', title: 'Live report', confidence: 'verified' }] });
+      expect(insertedSources).toEqual([
+        expect.objectContaining({ executionId, url: 'https://example.com/live-report', title: 'Live report', confidence: 'verified' }),
+      ]);
+    } finally {
+      if (proc && proc.exitCode === null) {
+        proc.kill('SIGTERM');
+        await Promise.race([once(proc, 'exit'), new Promise((resolve) => setTimeout(resolve, 5_000))]);
+      }
+      await hub.close();
+      await new Promise<void>((resolve, reject) => chat.close((error) => error ? reject(error) : resolve()));
+      await new Promise<void>((resolve, reject) => browserRunner.close((error) => error ? reject(error) : resolve()));
       await rm(workspace, { recursive: true, force: true });
     }
   }, 60_000);

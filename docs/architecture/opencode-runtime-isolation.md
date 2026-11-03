@@ -32,6 +32,11 @@ the existing runtime.
   `/mcp`; the runtime never reaches the worker directly. `compose_email` and
   `add_email_block` reuse the product's validated DSL and block schema, and the
   runner merges the resulting blocks into the execution result.
+- **Research and memory through the same boundary.** When the task allows it, the
+  bridge also offers `search_web`, `open_url`, the page-inspection tools,
+  `record_task_memory` and `track_recommendation`. It receives the execution's
+  browser and search capability, collects verified sources and validated memory
+  proposals, and the runner merges them into the result the Executor persists.
 - **MCP visibility, proven live.** OpenCode namespaces MCP tools as
   `agent_tasks_tools_<tool>`, lists them only when the model declares
   `tool_call: true`, and drops them if the session request carries a deny-all
@@ -49,12 +54,15 @@ the existing runtime.
 2. **MCP visibility in the deployed image.** Proven locally against OpenCode
    2.2.5 (tool offered, called, result persisted as validated blocks). Still to
    confirm inside the production runtime image during the live-credential run.
-3. **Research, sources and memory parity.** Web research and memory are still
-   rejected by the isolated runner. They need bridge tools with the same egress,
-   SSRF and memory-policy controls as `packages/agent-runtime`.
+3. **Research, sources and memory parity.** The bridge now offers the same
+   research and memory tools as `packages/agent-runtime` (`search_web`, `open_url`,
+   page inspection, `record_task_memory`, `track_recommendation`) and collects
+   their validated output. The opt-in live run opens a page and persists the
+   source. Still to confirm under the production egress proxy/SSRF controls.
 4. **Report parity with real sessions.** The report page, sanitized markdown and
-   report e-mail render from the durable result, but a full OpenCode run has not yet
-   produced sources, usage and blocks end-to-end.
+   report e-mail render from the durable result. A local OpenCode 2.2.5 run now
+   produces sources, usage and e-mail blocks end-to-end; a real Go run is still
+   needed.
 5. **Live secret handling.** The provisioner passes secrets through runtime-only
    files and environment variables, never persistent config or logs. Rotation and
    revocation of the shared key must be exercised against the live provisioner.

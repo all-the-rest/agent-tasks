@@ -9,9 +9,10 @@ import type { OpenCodeExecutionLease, OpenCodeSessionStore } from './opencode-se
 const MESSAGE_POLL_MS = 100;
 
 /**
- * Text-only OpenCode runner. The caller must supply a dedicated, isolated
- * OpenCode server. Tool calls, memory, e-mail and browser work are rejected
- * until the MCP bridge exists (see #23).
+ * OpenCode runner for a dedicated, isolated server. Structured output (sources,
+ * e-mail blocks, memory proposals) is produced by worker-hosted MCP tools and
+ * merged by the isolated-runtime wrapper; this runner only owns the session,
+ * prompt dispatch, recovery and durable-message parsing.
  *
  * Recovery is idempotent: the message ID is persisted before the first dispatch,
  * replayed prompts are rejected by OpenCode with HTTP 409, and a completed
@@ -20,9 +21,6 @@ const MESSAGE_POLL_MS = 100;
 export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; directory: string; model: OpenCodeV2Model; store?: OpenCodeSessionStore; requiresMcp?: boolean }) {
   return async (options: RunAgentOptions, lease?: OpenCodeExecutionLease): Promise<AgentRunResult> => {
     if (options.model !== config.model.id) throw new Error('OpenCode spike model does not match the task model');
-    if (options.allowWebResearch || options.memoryEnabled || options.memoryContext) {
-      throw new Error('OpenCode spike only supports tasks without web research or memory');
-    }
     const timeoutSignal = AbortSignal.timeout(options.limits.maxDurationSec * 1_000);
     const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
     const cancellation = (): AgentCancelledError => new AgentCancelledError(timeoutSignal.aborted ? 'timeout' : 'cancelled');
