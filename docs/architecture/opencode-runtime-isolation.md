@@ -32,17 +32,23 @@ the existing runtime.
   `/mcp`; the runtime never reaches the worker directly. `compose_email` and
   `add_email_block` reuse the product's validated DSL and block schema, and the
   runner merges the resulting blocks into the execution result.
+- **MCP visibility, proven live.** OpenCode namespaces MCP tools as
+  `agent_tasks_tools_<tool>`, lists them only when the model declares
+  `tool_call: true`, and drops them if the session request carries a deny-all
+  permission list. The runtime config therefore allows exactly the namespaced
+  tools after the wildcard deny, and the client no longer sends session
+  permissions. The opt-in live test starts a real OpenCode 2.2.5, waits for
+  `/api/mcp` to report `connected` before creating the session, calls
+  `agent_tasks_tools_compose_email` and asserts the validated blocks.
 
 ## Gates still open before cutover
 
 1. **Real Go credential.** Every live check so far used a fake OpenAI-compatible
    provider. The shared connection must be validated against a real OpenCode Go
    account, including model ids, context limits and allowance accounting.
-2. **MCP visibility in the deployed image.** The bridge speaks the protocol
-   (`initialize`, SSE, `tools/list`, `tools/call`), but OpenCode 2.2.5 must be shown
-   to offer the registered tool to the model under the runtime's permission set and
-   to return a tool result into the session. Until that is proven, e-mail parity is
-   not claimed.
+2. **MCP visibility in the deployed image.** Proven locally against OpenCode
+   2.2.5 (tool offered, called, result persisted as validated blocks). Still to
+   confirm inside the production runtime image during the live-credential run.
 3. **Research, sources and memory parity.** Web research and memory are still
    rejected by the isolated runner. They need bridge tools with the same egress,
    SSRF and memory-policy controls as `packages/agent-runtime`.
