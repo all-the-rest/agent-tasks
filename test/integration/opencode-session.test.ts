@@ -33,6 +33,7 @@ describe('OpenCode execution session recovery', () => {
     const id = randomUUID();
     const firstLease = { ...lease, executionId: id };
     await database.pool.query(`insert into executions (id, task_id, owner_id, task_title, status, trigger, worker_id, lease_expires_at) values ($1,$2,$3,'Task','running','manual',$4,now() + interval '2 minutes')`, [id, taskId, ownerId, lease.workerId]);
+    let messageReads = 0;
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
       const path = (url as URL).pathname;
       if (path === '/api/session') return new Response(JSON.stringify({ data: { id: 'ses_new' } }));
@@ -41,7 +42,11 @@ describe('OpenCode execution session recovery', () => {
         expect(mapping).toMatchObject({ sessionId: 'ses_new', promptDispatched: true });
         return new Response('{}');
       }
-      return new Response(JSON.stringify({ data: [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'Answer' }] }] }));
+      messageReads += 1;
+      // The runner reconciles before dispatching, so the first read is empty.
+      return new Response(JSON.stringify({
+        data: messageReads === 1 ? [] : [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'Answer' }] }],
+      }));
     });
     const client = new OpenCodeV2Client({ baseUrl: 'http://opencode.test', password: 'test', fetch: fetchMock });
     const runner = createOpenCodeV2Runner({ client, directory: '/isolated', model: { providerID: 'test', id: 'model' }, store: new OpenCodeSessionStore(database.db) });
@@ -50,7 +55,8 @@ describe('OpenCode execution session recovery', () => {
     await database.pool.query(`update executions set worker_id = 'opencode-worker-two' where id = $1`, [id]);
     expect((await runner(options, { ...firstLease, workerId: 'opencode-worker-two' })).markdown).toBe('Answer');
     expect(fetchMock.mock.calls.map(([url]) => (url as URL).pathname)).toEqual([
-      '/api/session', '/api/session/ses_new/prompt', '/api/session/ses_new/message', '/api/session/ses_new/message',
+      '/api/session', '/api/session/ses_new/message', '/api/session/ses_new/prompt',
+      '/api/session/ses_new/message', '/api/session/ses_new/message',
     ]);
   });
 

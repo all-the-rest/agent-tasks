@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import type { PgBoss } from 'pg-boss';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Database } from '@agent-tasks/database';
 import {
   applyTaskLearning,
@@ -261,6 +261,11 @@ export class Executor {
         search,
         signal: abort.signal,
         async onStep(step) {
+          // A reconciled replay must not duplicate durable steps: the step number is
+          // unique within an execution, so replace the row instead of appending.
+          await db
+            .delete(executionSteps)
+            .where(and(eq(executionSteps.executionId, executionId), eq(executionSteps.step, step.step)));
           await db.insert(executionSteps).values({
             id: randomUUID(),
             executionId,
