@@ -63,6 +63,7 @@ Current verification for this change:
 | `pnpm --filter @agent-tasks/web test` | **45 passed**, 10 files (includes e-mail block preview and sanitizer) |
 | `OPENCODE_LIVE_TEST=1` (real OpenCode 2.2.5 + MCP bridge) | **3 passed**: final answer, `emailBlocks = [heading, paragraph]`, and a retrieved source persisted through the Executor |
 | `services/opencode-provisioner` unit tests | **6 passed** |
+| `pnpm test:screenshots:acceptance` (admin provider page) | **2 passed**: empty, filled, error and rotated states in en + de; the 8 PNGs are committed under `docs/verification/admin-providers/` (`tests/acceptance/admin-providers.spec.ts`) |
 | `scripts/verify-opencode-provisioner.mjs` in the rebuilt provisioner container | all lifecycle/isolation checks passed (fake credentials only) |
 | `docker compose config -q` + `scripts/check-compose-parity.mjs` | passed |
 | `ratchet check` | **11/11 gates passed** |
