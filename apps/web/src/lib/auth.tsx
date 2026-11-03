@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { api } from './api';
 import type { SessionUser } from './types';
+import { setTaskPromptDraftOwner } from './task-prompt-draft';
 import { Spinner } from '../components/ui';
 
 interface AuthContextValue {
@@ -18,36 +19,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const updateUser = useCallback((nextUser: SessionUser | null) => {
+    setTaskPromptDraftOwner(nextUser?.id ?? null);
+    setUser(nextUser);
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       const session = await api.auth.session();
-      setUser(session?.user ?? null);
+      updateUser(session?.user ?? null);
       return session?.user ?? null;
     } catch {
-      setUser(null);
+      updateUser(null);
       return null;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [updateUser]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    const onUnauthorized = () => setUser(null);
+    const onUnauthorized = () => updateUser(null);
     window.addEventListener('agent-tasks:unauthorized', onUnauthorized);
     return () => window.removeEventListener('agent-tasks:unauthorized', onUnauthorized);
-  }, []);
+  }, [updateUser]);
 
   const signOut = useCallback(async () => {
     try {
       await api.auth.signOut();
     } finally {
-      setUser(null);
+      updateUser(null);
     }
-  }, []);
+  }, [updateUser]);
 
   const value = useMemo(
     () => ({ user, loading, refresh, signOut }),

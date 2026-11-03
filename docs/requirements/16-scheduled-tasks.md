@@ -392,7 +392,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Dedicated scheduled surface in the nav | ✅ | *Tasks* page now includes the inbox slice: status filters, per-task unread counts and run history with an explicit review action |
 | Filter active / paused / completed | ✅ | `GET /api/tasks?status=…`; status is derived from `completed_at` first, then `enabled` |
 | Unread marker on new runs | ✅ | Completed runs are unread by default; owners explicitly mark an individual execution read. Existing completed runs are backfilled as read |
-| Composer-first creation | ❌ | `TaskFormPage` is a form with *Task / Schedule / Behaviour* sections |
+| Composer-first creation | ✅ | The task-list composer carries a prompt in router history state to the existing form; the user reviews the draft and confirms there. The direct form remains available. |
 | One-click suggestions | ❌ | Empty state only links to "create your first task" |
 | Relative "next run" in the list | ✅ | Active tasks show a locale-aware relative next run; paused and completed tasks show no next run |
 
@@ -459,7 +459,7 @@ Kept deliberately, per §5:
 | Rank | Gap | Why it matters | Size |
 | --- | --- | --- | --- |
 | 1 | ✅ **Inbox slice shipped in #20** | Owner-scoped unread counts and explicit read markers, with active / paused / completed filtering and relative next-run text | Shipped using existing task and execution state; no separate archive state |
-| 2 | **Prompt-first creation with a confirmed draft** | The form asks for provider/model/schedule before the user has said what they want | M — composer + draft object + confirm step |
+| 2 | ✅ **Prompt-first creation shipped** | The form asks for provider/model/schedule before the user has said what they want | Prompt composer + private history-state draft + explicit form confirmation; direct form remains available |
 | 3 | **Destination choice** | Every run looks the same; no "continue this thread" | L — needs a conversation concept |
 | 4 | **End conditions (date / after N runs)** | Long-running monitors never stop | ✅ Shipped in #20; after N counts scheduled bookings, while manual runs and retries remain independent |
 | 5 | **Monitoring diff + "nothing to report"** | The core of a monitoring task; we would e-mail noise | M — compare with previous run, suppress notification |
@@ -479,8 +479,9 @@ Kept deliberately, per §5:
    owner-scoped unread runs, an explicit per-execution read action, status filter
    and relative next run. Reuses the executions table; existing completed runs
    are treated as already read.
-4. **Prompt-first creation** — composer on the tasks page; the form becomes the
-   second step, pre-filled from the draft.
+4. ✅ **Prompt-first creation shipped** — the tasks-page composer carries the
+   prompt into the existing form as a history-state draft; users review the full
+   form and confirm before creation. The prompt is not put in the URL.
 5. **Notification channels** — abstract `notification` into channels; add
    "only when something changed"; keep e-mail as the default channel (still
    opt-in per task).
@@ -507,7 +508,7 @@ Kept deliberately, per §5:
 
 - [x] Task state: active / paused / completed, with a filter on the list
 - [x] Unread runs and an inbox-style review surface with an explicit per-run read action
-- [ ] Prompt-first creation with a confirmable draft
+- [x] Prompt-first creation with a confirmable draft
 - [x] End condition: never / on a date / after N scheduled bookings (manual runs and retries do not count)
 - [ ] "Nothing to report" outcome that suppresses notification
 - [ ] Notification channels beyond e-mail, with per-feature settings

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useForm } from 'react-hook-form';
 import type { FieldPath } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { useToast } from '../components/ui';
 import { ErrorAlert, Field, PageHeader, Spinner } from '../components/ui';
 import {
@@ -21,17 +22,24 @@ import {
 import type { TimePreset } from '../lib/schedule';
 import { describeSchedule } from '../lib/describe';
 import { preferredModelId } from '../lib/provider-config';
+import {
+  clearTaskPromptDraft,
+  isTaskPromptDraftState,
+  rememberTaskPromptDraft,
+  taskPromptDraftFromState,
+  taskPromptDraftState,
+} from '../lib/task-prompt-draft';
 import { taskFormSchema, toTaskInput } from '../lib/task-schema';
 import type { TaskFormValues } from '../lib/task-schema';
 import type { Task } from '../lib/types';
 
 const DEFAULT_MEMORY_SETTINGS = { mode: 'auto' as const, contextBytes: 12_000 };
 
-function emptyValues(timezone: string): TaskFormValues {
+function emptyValues(timezone: string, prompt = ''): TaskFormValues {
   return {
     title: '',
     description: '',
-    prompt: '',
+    prompt,
     systemInstructions: '',
     providerId: '',
     model: '',
@@ -80,9 +88,18 @@ function taskValues(task: Task, fallbackTimezone: string): TaskFormValues {
 }
 
 export function TaskFormPage() {
+  const { user } = useAuth();
+  const ownerId = user?.id ?? null;
+  return <TaskFormPageForOwner key={ownerId ?? 'signed-out'} ownerId={ownerId} />;
+}
+
+function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
   const { t } = useTranslation();
   const { id } = useParams();
+  const location = useLocation();
   const editing = Boolean(id);
+  const promptDraft = ownerId ? taskPromptDraftFromState(location.state, ownerId) : '';
+  const promptFirst = Boolean(!editing && ownerId && isTaskPromptDraftState(location.state, ownerId));
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -106,10 +123,16 @@ export function TaskFormPage() {
     setError,
     clearErrors,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm<TaskFormValues>({ defaultValues: emptyValues(fallbackTimezone) });
+  } = useForm<TaskFormValues>({ defaultValues: emptyValues(fallbackTimezone, promptDraft) });
 
   const [formError, setFormError] = useState<string | null>(null);
   const initialised = useRef(false);
+
+  useLayoutEffect(() => {
+    // A reload drops module memory; restore it from this owner's history entry
+    // before a browser Back can mount the task list.
+    if (promptFirst && ownerId) rememberTaskPromptDraft(ownerId, promptDraft);
+  }, [ownerId, promptDraft, promptFirst]);
 
   useEffect(() => {
     if (initialised.current) return;
@@ -124,12 +147,13 @@ export function TaskFormPage() {
         initialised.current = true;
       }
     } else if (me.data) {
-      reset(emptyValues(me.data.preferences.timezone));
+      reset(emptyValues(me.data.preferences.timezone, promptDraft));
       initialised.current = true;
     }
-  }, [editing, task.data, me.data, fallbackTimezone, isDirty, reset]);
+  }, [editing, task.data, me.data, fallbackTimezone, isDirty, reset, promptDraft]);
 
   const providerId = watch('providerId');
+  const formPrompt = watch('prompt');
   const schedule = watch('schedule');
   const endConditionType = watch('endCondition.type');
   const preset = schedule?.preset ?? 'daily';
@@ -175,7 +199,12 @@ export function TaskFormPage() {
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
       ]);
       showToast(editing ? t('tasks.saved') : t('tasks.createdMsg'));
-      navigate(`/tasks/${saved.id}`);
+      if (promptFirst) {
+        if (ownerId) clearTaskPromptDraft(ownerId);
+        navigate(`/tasks/${saved.id}`, { replace: true });
+      } else {
+        navigate(`/tasks/${saved.id}`);
+      }
     },
     onError: (cause) => setFormError(errorMessage(cause)),
   });
@@ -258,14 +287,20 @@ export function TaskFormPage() {
         title={editing ? t('tasks.editTask') : t('tasks.newTask')}
         subtitle={t('tasks.subtitle')}
         actions={
-          <Link className="btn btn-ghost btn-sm" to={editing && id ? `/tasks/${id}` : '/tasks'}>
-            {t('common.cancel')}
+          <Link
+            className="btn btn-ghost btn-sm"
+            to={editing && id ? `/tasks/${id}` : '/tasks'}
+            state={promptFirst && ownerId ? taskPromptDraftState(ownerId, formPrompt ?? promptDraft) : undefined}
+            replace={promptFirst}
+          >
+            {promptFirst ? t('tasks.backToPrompt') : t('common.cancel')}
           </Link>
         }
       />
 
       <form className="flex flex-col gap-5" onSubmit={onSubmit} noValidate>
         {formError ? <ErrorAlert message={formError} /> : null}
+        {promptFirst ? <p className="rounded-lg bg-info/10 px-4 py-3 text-sm">{t('tasks.promptDraftReview')}</p> : null}
 
         <section className="card border border-base-300 bg-base-100 shadow-sm">
           <div className="card-body gap-3 p-5">
@@ -293,8 +328,19 @@ export function TaskFormPage() {
                 id="task-prompt"
                 className="textarea w-full"
                 rows={5}
+                maxLength={20_000}
                 aria-invalid={Boolean(errors.prompt)}
-                {...register('prompt')}
+                {...register('prompt', {
+                  onChange: (event) => {
+                    if (!promptFirst || !ownerId) return;
+                    const nextPrompt = event.target.value;
+                    rememberTaskPromptDraft(ownerId, nextPrompt);
+                    navigate(`${location.pathname}${location.search}${location.hash}`, {
+                      replace: true,
+                      state: taskPromptDraftState(ownerId, nextPrompt),
+                    });
+                  },
+                })}
               />
             </Field>
             <Field
@@ -660,12 +706,17 @@ export function TaskFormPage() {
         </section>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Link className="btn btn-ghost" to={editing && id ? `/tasks/${id}` : '/tasks'}>
-            {t('common.cancel')}
+          <Link
+            className="btn btn-ghost"
+            to={editing && id ? `/tasks/${id}` : '/tasks'}
+            state={promptFirst && ownerId ? taskPromptDraftState(ownerId, formPrompt ?? promptDraft) : undefined}
+            replace={promptFirst}
+          >
+            {promptFirst ? t('tasks.backToPrompt') : t('common.cancel')}
           </Link>
           <button type="submit" className="btn btn-primary" disabled={isSubmitting || save.isPending}>
             {save.isPending ? <span className="loading loading-spinner loading-sm" aria-hidden="true" /> : null}
-            {save.isPending ? t('common.saving') : t('tasks.save')}
+            {save.isPending ? t('common.saving') : promptFirst ? t('tasks.confirmCreate') : t('tasks.save')}
           </button>
         </div>
       </form>
