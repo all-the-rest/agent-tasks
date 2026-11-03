@@ -453,6 +453,7 @@ async function proxyToolBridge(request, response) {
   });
   response.writeHead(upstream.status, {
     'content-type': upstream.headers.get('content-type') ?? 'application/json',
+    ...(upstream.headers.get('mcp-session-id') ? { 'mcp-session-id': upstream.headers.get('mcp-session-id') } : {}),
     'cache-control': 'no-store',
   });
   response.flushHeaders();
@@ -492,10 +493,11 @@ async function releaseRuntime(request, response, state, token) {
   return send(response, 200, { released: true });
 }
 
-function allowedOpenCodeRoute(method, path) {
+export function allowedOpenCodeRoute(method, path) {
   return method === 'POST' && /^api\/session\/?$/.test(path)
     || method === 'POST' && /^api\/session\/[A-Za-z0-9_-]+\/(prompt|interrupt)$/.test(path)
-    || method === 'GET' && /^api\/session\/[A-Za-z0-9_-]+\/message$/.test(path);
+    || method === 'GET' && /^api\/session\/[A-Za-z0-9_-]+\/message$/.test(path)
+    || method === 'GET' && path === 'api/mcp';
 }
 
 async function proxyProvider(request, response, state, token) {

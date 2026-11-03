@@ -16,7 +16,7 @@ import { createIsolatedOpenCodeRunner } from '../src/opencode-isolated-runtime.j
 import { createToolBridgeHub } from '../src/opencode-tool-bridge.js';
 import type { OpenCodeSessionStore } from '../src/opencode-session-store.js';
 import { Executor } from '../src/executor.js';
-import { runtimeConfig } from '../../../services/opencode-provisioner/server.mjs';
+import { createProvisionerServer, runtimeConfig } from '../../../services/opencode-provisioner/server.mjs';
 import type { WorkerEnv } from '../src/env.js';
 import { createBoss, executionWorkOptions, QUEUE_EXECUTION } from '../src/queues.js';
 import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
@@ -174,7 +174,7 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
     }
   }, 40_000);
 
-  it('offers the bridged e-mail tool to the real model and captures validated blocks', async () => {
+  it('calls the bridged e-mail tool through the provisioner proxy with a fake model', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'agent-tasks-opencode-mcp-'));
     const config = join(workspace, 'config', 'opencode');
     await mkdir(config, { recursive: true });
@@ -219,6 +219,13 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
 
     const hub = await createToolBridgeHub({ port: 0 });
     const session = hub.open({ tools: ['compose_email'] });
+    const previousBridgeUrl = process.env.TOOL_BRIDGE_URL;
+    process.env.TOOL_BRIDGE_URL = hub.url;
+    const proxy = createProvisionerServer({ token: 'local-test-provisioner-token-1234567890' });
+    proxy.listen(0, '127.0.0.1');
+    await once(proxy, 'listening');
+    const proxyAddress = proxy.address();
+    if (!proxyAddress || typeof proxyAddress === 'string') throw new Error('proxy port unavailable');
     let proc: ChildProcess | undefined;
     try {
       const openCodeConfig = JSON.stringify({
@@ -229,7 +236,7 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
           servers: {
             agent_tasks_tools: {
               type: 'remote',
-              url: hub.url,
+              url: `http://127.0.0.1:${proxyAddress.port}/mcp`,
               headers: { authorization: `Bearer ${session.token}` },
               codemode: false,
               timeout: { startup: 10_000, catalog: 10_000, execution: 30_000 },
@@ -318,6 +325,9 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
         await Promise.race([once(proc, 'exit'), new Promise((resolve) => setTimeout(resolve, 5_000))]);
       }
       await hub.close();
+      await new Promise<void>((resolve, reject) => proxy.close((error: Error | undefined) => error ? reject(error) : resolve()));
+      if (previousBridgeUrl === undefined) delete process.env.TOOL_BRIDGE_URL;
+      else process.env.TOOL_BRIDGE_URL = previousBridgeUrl;
       await new Promise<void>((resolve, reject) => chat.close((error) => error ? reject(error) : resolve()));
       await rm(workspace, { recursive: true, force: true });
     }

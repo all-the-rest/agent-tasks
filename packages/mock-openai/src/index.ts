@@ -26,6 +26,8 @@ export interface MockOpenAiOptions {
   requireClientUserAgent?: boolean;
   /** Require a stable conversation id in this header (OpenCode Go: `x-opencode-session`). */
   sessionHeader?: string;
+  /** Accept only these bearer tokens; anything else (including no token) gets a 401. */
+  acceptedApiKeys?: string[];
   /** Reject a session id that changes mid-conversation (when the client echoes prior ids). */
   requireStableSession?: boolean;
   /** Number of research tool calls before the final answer. */
@@ -197,6 +199,14 @@ export function createMockOpenAiServer(options: MockOpenAiOptions = {}): Promise
       parsed = null;
     }
     requests.push({ path, headers: request.headers, body: parsed, receivedAt: Date.now() });
+
+    if (options.acceptedApiKeys
+      && !options.acceptedApiKeys.some((key) => request.headers.authorization === `Bearer ${key}`)) {
+      // A revoked credential must look like a revoked credential, not like an
+      // anonymous request: the endpoint rejects it before any work happens.
+      json(response, 401, { error: { message: 'invalid api key', type: 'invalid_request_error' } });
+      return;
+    }
 
     const ordinal = requests.length - 1;
     if (options.failAtIndex !== undefined && ordinal === options.failAtIndex) {

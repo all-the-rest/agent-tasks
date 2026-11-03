@@ -55,6 +55,19 @@ the existing runtime.
 
 ## Gates still open before cutover
 
+The provisioner's production provider proxy resolves the upstream hostname and
+rejects private and loopback addresses, then connects using HTTPS on port 443.
+A locally hosted fake provider therefore cannot exercise that complete path
+without changing the security boundary. The local OpenCode live suite uses a
+fake provider; the e-mail test routes MCP through the actual provisioner proxy
+to the worker bridge. It does not prove the production-image provider proxy,
+container-to-container MCP forwarding, or provider-side credential rotation and
+revocation. These gates remain open until they can be tested
+with an appropriately reachable HTTPS provider and actual runtime images.
+The worker's provisioner request now includes the MCP capability and serializes
+the model as the object expected by the provisioner. Focused tests cover this
+request contract; they do not replace an end-to-end model invocation.
+
 1. **Real Go credential.** Every live check so far used a fake OpenAI-compatible
    provider. The shared connection must be validated against a real OpenCode Go
    account, including model ids, context limits and allowance accounting.

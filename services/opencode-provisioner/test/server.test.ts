@@ -1,7 +1,8 @@
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runtimeConfig, providerRequestHeaders, createProvisionerServer } from '../server.mjs';
+import { runtimeConfig, providerRequestHeaders, createProvisionerServer, allowedOpenCodeRoute } from '../server.mjs';
+import { HttpOpenCodeProvisioner } from '../../../apps/worker/src/http-opencode-provisioner.js';
 
 const token = 'unit-test-provisioner-token-0123456789abcdef';
 const lease = { executionId: '123e4567-e89b-42d3-a456-426614174000', ownerId: '123e4567-e89b-42d3-a456-426614174001', workerId: 'unit-worker' };
@@ -32,6 +33,31 @@ afterEach(async () => {
 });
 
 describe('isolated OpenCode provisioner service', () => {
+  it('accepts the real worker client request including the model and MCP capability', async () => {
+    let baseUrl = '';
+    const provision = vi.fn(async (request) => ({
+      state: { executionId: request.lease.executionId },
+      response: {
+        baseUrl: `${baseUrl}/v1/runtime/${request.lease.executionId}/`,
+        password: 'p'.repeat(64), directory: '/workspace',
+        model: { providerID: 'agent_tasks', id: request.model.id },
+      },
+    }));
+    baseUrl = await listen(createProvisionerServer({ token, provision }));
+    const client = new HttpOpenCodeProvisioner(baseUrl, token);
+    const bridge = { token: 'b'.repeat(43), tools: ['compose_email'] };
+    const runtime = await client.open({
+      lease, providerKind: 'openai-compatible',
+      providerContext: { apiKey: 'fake-key', config: input.provider },
+      model: 'model-a', systemPrompt: 'test', maxAgentSteps: 4, maxOutputBytes: 8192,
+      toolBridge: bridge,
+    });
+    expect(runtime.model.id).toBe('model-a');
+    expect(provision).toHaveBeenCalledOnce();
+    expect(provision.mock.calls[0]?.[0]).toMatchObject({
+      lease, apiKey: 'fake-key', model: { id: 'model-a' }, toolBridge: bridge,
+    });
+  });
   it('builds a tool-denying provider config without storing credentials', () => {
     const config = runtimeConfig(input, 'http://opencode-provisioner:4090/provider');
     expect(config.model).toBe('agent_tasks/model-a');
@@ -91,7 +117,7 @@ describe('isolated OpenCode provisioner service', () => {
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
         received = { authorization: request.headers.authorization, body: Buffer.concat(chunks).toString() };
-        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.writeHead(200, { 'content-type': 'text/event-stream', 'mcp-session-id': 'mcp-test-session' });
         response.end('event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n');
       });
     });
@@ -106,6 +132,7 @@ describe('isolated OpenCode provisioner service', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
       });
       expect(response.status).toBe(200);
+      expect(response.headers.get('mcp-session-id')).toBe('mcp-test-session');
       expect(received.authorization).toBe('Bearer execution-token');
       expect(received.body).toContain('tools/list');
     } finally {
@@ -176,5 +203,13 @@ describe('isolated OpenCode provisioner service', () => {
       headers: { 'x-agent-tasks-egress': 'wrong' },
     });
     expect(egress.status).toBe(403);
+  });
+
+  it('allows only reading MCP connection status, not MCP mutations or other routes', () => {
+    expect(allowedOpenCodeRoute('GET', 'api/mcp')).toBe(true);
+    expect(allowedOpenCodeRoute('POST', 'api/mcp')).toBe(false);
+    expect(allowedOpenCodeRoute('DELETE', 'api/mcp')).toBe(false);
+    expect(allowedOpenCodeRoute('GET', 'api/mcp/server')).toBe(false);
+    expect(allowedOpenCodeRoute('GET', 'api/shell')).toBe(false);
   });
 });

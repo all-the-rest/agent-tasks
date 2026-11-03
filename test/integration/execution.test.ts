@@ -11,7 +11,7 @@ import { createMockOpenAiServer } from '@agent-tasks/mock-openai';
 import type { MockServer } from '@agent-tasks/mock-openai';
 import { Executor } from '../../apps/worker/src/executor';
 import type { WorkerEnv } from '../../apps/worker/src/env';
-import { createHarness } from '../helpers/harness';
+import { bootstrapAdmin, createHarness } from '../helpers/harness';
 import type { TestHarness } from '../helpers/harness';
 
 let RUNNER_PORT = 0;
@@ -91,7 +91,7 @@ afterAll(async () => {
   await harness.close();
 });
 
-async function seedTask(options: { limits?: Record<string, number>; allowWebResearch?: boolean; baseUrl?: string; notification?: 'none' | 'email' } = {}): Promise<{ taskId: string; executionId: string; ownerId: string }> {
+async function seedTask(options: { limits?: Record<string, number>; allowWebResearch?: boolean; baseUrl?: string; notification?: 'none' | 'email'; apiKey?: string } = {}): Promise<{ taskId: string; executionId: string; ownerId: string; providerId: string }> {
   const owner = await harness.db.pool.query(`insert into "user" (id, name, email, email_verified, role) values ($1,'Owner',$2,true,'USER') returning id`, [randomUUID(), `owner-${randomUUID()}@example.com`]);
   const ownerId = owner.rows[0].id;
   const provider = await harness.db.pool.query(
@@ -101,7 +101,7 @@ async function seedTask(options: { limits?: Record<string, number>; allowWebRese
   const box = new SecretBox(harness.env.SECRETS_ENCRYPTION_KEY);
   await harness.db.pool.query(
     `insert into provider_credentials (id, provider_id, owner_id, label, ciphertext) values ($1,$2,null,'shared',$3)`,
-    [randomUUID(), provider.rows[0].id, box.encrypt('mock-api-key')],
+    [randomUUID(), provider.rows[0].id, box.encrypt(options.apiKey ?? 'mock-api-key')],
   );
 
   await harness.db.pool.query(
@@ -122,7 +122,17 @@ async function seedTask(options: { limits?: Record<string, number>; allowWebRese
     `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Live research','queued','manual','mock-researcher',$4)`,
     [executionId, taskId, ownerId, provider.rows[0].id],
   );
-  return { taskId, executionId, ownerId };
+  return { taskId, executionId, ownerId, providerId: provider.rows[0].id as string };
+}
+
+/** Queue a second execution for an existing task, as the scheduler would. */
+async function queueExecution(input: { taskId: string; ownerId: string; providerId: string }): Promise<string> {
+  const executionId = randomUUID();
+  await harness.db.pool.query(
+    `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Live research','queued','manual','mock-researcher',$4)`,
+    [executionId, input.taskId, input.ownerId, input.providerId],
+  );
+  return executionId;
 }
 
 function workerEnv(): WorkerEnv {
@@ -306,6 +316,70 @@ describe('execution end to end (mock model, real browser, real network policy)',
       expect(execution.rows[0].status).toBe('completed');
     } finally {
       await hostile.close();
+    }
+  }, 120_000);
+
+  it('sends the rotated shared key and stops sending a revoked one', async () => {
+    const keyMock = await createMockOpenAiServer({
+      researchSteps: 0,
+      acceptedApiKeys: ['first-shared-key-123', 'rotated-shared-key-456'],
+    });
+    try {
+      const first = await seedTask({
+        allowWebResearch: false,
+        baseUrl: keyMock.url,
+        apiKey: 'first-shared-key-123',
+      });
+      const { cookie } = await bootstrapAdmin(harness);
+      const run = async (executionId: string) => {
+        const executor = new Executor({ db: harness.db.db, env: workerEnv(), boss: bossStub, workerId: 'test-worker' });
+        await executor.handle(executionId);
+        const result = await harness.db.pool.query('select status, error from executions where id = $1', [executionId]);
+        return result.rows[0] as { status: string; error: string | null };
+      };
+      const authorizations = () => keyMock.requests.map((request) => request.headers.authorization);
+
+      // The configured key is the one the provider sees.
+      expect((await run(first.executionId)).status).toBe('completed');
+      expect(keyMock.requests.length).toBeGreaterThan(0);
+      expect(authorizations().every((value) => value === 'Bearer first-shared-key-123')).toBe(true);
+
+      // Rotate the shared credential through the admin API: the next execution must
+      // pick up the new secret without a redeploy or a restart.
+      const rotated = await harness.app.inject({
+        method: 'POST',
+        url: `/api/admin/providers/${first.providerId}/credentials`,
+        headers: { cookie },
+        payload: { apiKey: 'rotated-shared-key-456', label: 'shared' },
+      });
+      expect(rotated.statusCode, rotated.body).toBe(201);
+      keyMock.reset();
+
+      const secondExecution = await queueExecution(first);
+      expect((await run(secondExecution)).status).toBe('completed');
+      expect(keyMock.requests.length).toBeGreaterThan(0);
+      expect(authorizations().every((value) => value === 'Bearer rotated-shared-key-456')).toBe(true);
+
+      // Revoke it: the endpoint now rejects the execution and the old key is gone
+      // from the request (and from the stored error message).
+      const revoked = await harness.app.inject({
+        method: 'DELETE',
+        url: `/api/admin/providers/${first.providerId}/credentials`,
+        headers: { cookie },
+      });
+      expect(revoked.statusCode, revoked.body).toBe(204);
+      keyMock.reset();
+
+      const thirdExecution = await queueExecution(first);
+      const third = await run(thirdExecution);
+      const requests = keyMock.requests.length;
+      expect(requests).toBeGreaterThan(0);
+      expect(authorizations()).toEqual(Array.from({ length: requests }, () => undefined));
+      expect(third.status, third.error ?? '').toBe('failed');
+      expect(third.error ?? '').not.toContain('rotated-shared-key-456');
+      expect(third.error ?? '').not.toContain('first-shared-key-123');
+    } finally {
+      await keyMock.close();
     }
   }, 120_000);
 });
