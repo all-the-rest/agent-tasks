@@ -18,6 +18,43 @@ const OWNER_1: SessionUser = { id: 'owner-1', email: 'owner@example.test', name:
 const OWNER_2: SessionUser = { id: 'owner-2', email: 'other@example.test', name: 'Other', role: 'USER' };
 let activeSessionUser: SessionUser | null = OWNER_1;
 
+type NamedFormRole = 'button' | 'checkbox' | 'combobox' | 'listbox' | 'radio' | 'searchbox' | 'slider' | 'spinbutton' | 'textbox';
+
+function formControlRole(control: Element): NamedFormRole | null {
+  if (control.tagName === 'BUTTON') return 'button';
+  if (control.tagName === 'SELECT') return (control as HTMLSelectElement).multiple ? 'listbox' : 'combobox';
+  if (control.tagName === 'TEXTAREA') return 'textbox';
+  if (control.tagName !== 'INPUT') return null;
+
+  switch ((control as HTMLInputElement).type) {
+    case 'hidden':
+      return null;
+    case 'checkbox':
+      return 'checkbox';
+    case 'radio':
+      return 'radio';
+    case 'search':
+      return 'searchbox';
+    case 'range':
+      return 'slider';
+    case 'number':
+      return 'spinbutton';
+    case 'button':
+    case 'image':
+    case 'reset':
+    case 'submit':
+      return 'button';
+    case 'date':
+    case 'datetime-local':
+    case 'month':
+    case 'time':
+    case 'week':
+      return null;
+    default:
+      return 'textbox';
+  }
+}
+
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 'task-created',
@@ -324,6 +361,38 @@ describe('prompt-first task creation', () => {
     const reloadedComposer = await screen.findByRole('textbox', { name: 'What should this task do?' });
     expect((reloadedComposer as HTMLTextAreaElement).value).toBe('');
     expect(screen.getByTestId('current-location').textContent).toBe('/tasks');
+  });
+
+  it('gives every form control a non-empty accessible name', async () => {
+    mockCreationApi();
+    const { container } = renderCreationFlow(['/tasks/new']);
+    await screen.findByRole('textbox', { name: 'Prompt' });
+
+    const controls = [...container.querySelectorAll('button, input, select, textarea')]
+      .filter((control) => control.tagName !== 'INPUT' || (control as HTMLInputElement).type !== 'hidden');
+    expect(controls.length).toBeGreaterThan(5);
+    const roleCounts = new Map<NamedFormRole, number>();
+    const rolelessControls: Element[] = [];
+    for (const control of controls) {
+      const role = formControlRole(control);
+      if (role) roleCounts.set(role, (roleCounts.get(role) ?? 0) + 1);
+      else rolelessControls.push(control);
+    }
+    for (const [role, count] of roleCounts) {
+      expect(within(container).getAllByRole(role, { name: /\S/ })).toHaveLength(count);
+    }
+    const unnamedRoleless = rolelessControls.filter((control) => {
+      const element = control as HTMLInputElement;
+      const ariaLabel = element.getAttribute('aria-label')?.trim();
+      const labelledBy = element.getAttribute('aria-labelledby')
+        ?.split(/\s+/)
+        .map((id) => container.ownerDocument.getElementById(id)?.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .join(' ');
+      const labelText = Array.from(element.labels ?? []).map((label) => label.textContent?.trim() ?? '').join(' ').trim();
+      return !(ariaLabel || labelledBy || labelText);
+    });
+    expect(unnamedRoleless.map((element) => `${element.tagName.toLowerCase()}#${element.id}`)).toEqual([]);
   });
 
   it('keeps the direct new-task form available without a prompt draft', async () => {
