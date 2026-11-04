@@ -202,8 +202,11 @@ jobs:
             echo "E2E_ADMIN_EMAIL=e2e-admin@example.com"
             echo "E2E_ADMIN_PASSWORD=$ADMIN_PASSWORD"
             echo "ALLOW_REGISTRATION=false"
+            # The browser suite's multi-context flows exceed the production per-IP request budget.
+            echo "RATE_LIMIT_API_MAX=1000"
             # The suite plus the bootstrap check sign in several times per minute.
             echo "RATE_LIMIT_SIGNIN_MAX=100"
+            echo "RATE_LIMIT_SESSION_MAX=1000"
             echo "SMTP_URL=smtp://mailpit:1025"
             echo "E2E_BASE_URL=http://localhost:8080"
           } >> "$GITHUB_ENV"
