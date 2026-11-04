@@ -51,4 +51,47 @@ describe('report link validation', () => {
     expect(result.markdown).toBe('source');
     expect(result.markdown).not.toContain('](');
   });
+
+  it('removes GFM bare URLs, angle autolinks, reference links and images', () => {
+    const markdown = [
+      'Bare https://invented.example/bare',
+      '<https://invented.example/angle>',
+      '[reference][invented] and ![invented image](https://invented.example/image.png)',
+      '[invented]: https://invented.example/reference',
+      'Keep [sourced][real].',
+      '[real]: https://source.example/article',
+    ].join('\n\n');
+    const result = checkReportLinks(markdown, [{ url: 'https://source.example/article' }]);
+
+    expect(result.removed).toEqual([
+      'https://invented.example/bare',
+      'https://invented.example/angle',
+      'https://invented.example/reference',
+    ]);
+    expect(result.markdown).not.toMatch(/\]\(https:\/\/invented\.example/);
+    expect(result.markdown).not.toMatch(/<https:\/\/invented\.example/);
+    expect(result.markdown).toContain('sourced');
+    expect(result.markdown).toContain('https://source.example/article');
+  });
+
+  it('never embeds a remote image even when its URL is a collected source', () => {
+    const result = checkReportLinks('![page](https://source.example/article)', [{ url: 'https://source.example/article' }]);
+
+    expect(result.markdown).toBe('page');
+    expect(result.removed).toEqual([]);
+  });
+
+  it('does not create Markdown links from escaped, code or raw-HTML-looking input', () => {
+    const markdown = [
+      '`https://invented.example/code`',
+      'https\\://invented.example/escaped',
+      '<a href="https://invented.example/html">raw HTML</a>',
+    ].join('\n\n');
+    const result = checkReportLinks(markdown, []);
+
+    expect(result.markdown).not.toMatch(/\]\(https:\/\/invented\.example/);
+    expect(result.removed).toContain('https://invented.example/escaped');
+    expect(result.markdown).toContain('`https://invented.example/code`');
+    expect(result.markdown).toContain('raw HTML');
+  });
 });

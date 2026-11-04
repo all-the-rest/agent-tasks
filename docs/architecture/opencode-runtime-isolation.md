@@ -126,6 +126,10 @@ app continues to use the authenticated Agent Tasks API/BFF. OpenCode stays priva
 to trusted backend services; session IDs are not authorization, and browser code
 never receives OpenCode server credentials.
 
+The separate [OpenCode Web research](opencode-web-research.md) records why the
+OpenCode Web UI is not an Agent Tasks integration surface and why its experimental,
+session-bound schedules do not replace the product scheduler.
+
 The worker resolves credentials under the task owner, verifies that task and
 execution owners match, and checks the active execution lease before passing
 provider context to the provisioner. Those checks do not replace the isolation
@@ -143,24 +147,34 @@ response echoes `mcp-session-id` so the transport stays correlated.
 
 - **Token lifecycle.** A random 32-byte bearer is minted in worker memory when the
   execution opens its bridge, registered with that session's allowlist and call
-  budget, and handed to the provisioner only as runtime configuration. It is never
+  policy, and handed to the provisioner only as runtime configuration. Budget
+  counters are atomically reserved against the execution row in PostgreSQL, not
+  reset with a bridge process; the stored maxima can only stay the same or tighten
+  across retries and recovery. The bearer itself is never
   written to the database, a report or a log. It expires after one hour, comfortably
   above the maximum execution duration, and expiry is checked on every request, so an
   execution whose bridge was never closed cannot leave a usable token behind. Closing
   the execution removes the session immediately; either way a later request gets
   `401`.
 - **Allowlist and budget.** Only the exact tools the task is entitled to are
-  registered. Denied tools, malformed arguments and exhausted budgets are returned
-  to the model as structured `isError` results, not exceptions. Request bodies are
-  size-capped and error replies carry no stack traces or configuration.
+  registered. Every authenticated tool call, including malformed or disallowed
+  calls, consumes the durable call budget before dispatch; page visits and searches
+  are reserved before their side effects. Exhausted calls are refused without a
+  timeline row, so refusals cannot amplify storage. Database/lease failures fail
+  closed. Request bodies are size-capped and error replies carry no stack traces or
+  configuration.
 - **Capability, not ambient authority.** Research tools are registered only when
   the bridge received the execution's browser and search clients; otherwise
   `open()` fails. URLs pass the same `checkUrl` policy as the native runtime, page
-  text is treated as data, and tool output is truncated to `maxOutputBytes`.
-- **Validated writes only.** E-mail blocks are parsed from the product DSL, memory
-  operations are schema-checked and secret-scanned, and recommendations cannot set
-  a user decision. The bridge never writes to the database; the Executor persists
-  the collected result only after the execution completed successfully.
+  text is treated as data, each tool reply is byte-capped, and the total output
+  returned to OpenCode is accounted against a cumulative per-execution budget.
+- **Validated writes and timeline.** E-mail blocks are parsed from the product DSL,
+  memory operations are schema-checked and secret-scanned, and recommendations
+  cannot set a user decision. The bridge never writes to the database. The Executor
+  persists redacted, bounded tool-call steps as they occur; memory/recommendation
+  arguments and results are deliberately omitted from history so later edits or
+  deletion cannot leave their content in the timeline. Validated sources, e-mail
+  blocks, memory operations and recommendations are applied only after success.
 
 ## Recovery contract
 

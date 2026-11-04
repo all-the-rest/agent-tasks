@@ -9,12 +9,18 @@ catalogs:
     '@types/node':
       specifier: ^26.6.6
       version: 26.6.6
+    drizzle-orm:
+      specifier: ^0.45.4
+      version: 0.45.4
     fastify:
       specifier: ^5.12.7
       version: 5.12.7
     pg:
       specifier: ^8.16.3
       version: 8.23.1
+    pg-boss:
+      specifier: ^12.38.0
+      version: 12.38.0
     tsup:
       specifier: ^9.0.0
       version: 9.0.0
@@ -59,11 +65,14 @@ importers:
       '@playwright/test':
         specifier: ^1.64.1
         version: 1.64.1
+      '@types/mdast':
+        specifier: ^4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
       drizzle-orm:
-        specifier: ^0.45.4
+        specifier: 'catalog:'
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(kysely@0.29.7)(pg@8.23.1)
       eslint:
         specifier: ^9.39.0
@@ -114,7 +123,7 @@ importers:
         specifier: ^1.7.14
         version: 1.7.14(@opentelemetry/api@1.10.0)(drizzle-kit@0.31.11)(drizzle-orm@0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(kysely@0.29.7)(pg@8.23.1))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(jsdom@27.4.0(@noble/hashes@2.4.0)(supports-color@7.2.0))(vite@8.3.5(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)))
       drizzle-orm:
-        specifier: ^0.45.4
+        specifier: 'catalog:'
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(kysely@0.29.7)(pg@8.23.1)
       fastify:
         specifier: 'catalog:'
@@ -126,7 +135,7 @@ importers:
         specifier: 'catalog:'
         version: 8.23.1
       pg-boss:
-        specifier: ^12.38.0
+        specifier: 'catalog:'
         version: 12.38.0(@opentelemetry/api@1.10.0)
       zod:
         specifier: 'catalog:'
@@ -233,7 +242,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       drizzle-orm:
-        specifier: ^0.45.4
+        specifier: 'catalog:'
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(kysely@0.29.7)(pg@8.23.1)
       nodemailer:
         specifier: ^10.0.6
@@ -242,7 +251,7 @@ importers:
         specifier: 'catalog:'
         version: 8.23.1
       pg-boss:
-        specifier: ^12.38.0
+        specifier: 'catalog:'
         version: 12.38.0(@opentelemetry/api@1.10.0)
       zod:
         specifier: 'catalog:'
@@ -304,7 +313,7 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: ^0.45.4
+        specifier: 'catalog:'
         version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(kysely@0.29.7)(pg@8.23.1)
       pg:
         specifier: 'catalog:'
@@ -327,6 +336,21 @@ importers:
       cron-parser:
         specifier: ^5.10.2
         version: 5.10.2
+      mdast-util-from-markdown:
+        specifier: ^2.1.0
+        version: 2.1.0(supports-color@7.2.0)
+      mdast-util-gfm:
+        specifier: ^3.1.0
+        version: 3.1.0(supports-color@7.2.0)
+      mdast-util-to-markdown:
+        specifier: ^2.2.1
+        version: 2.2.1
+      micromark-extension-gfm:
+        specifier: ^3.0.0
+        version: 3.0.0
+      unist-util-visit:
+        specifier: ^5.2.0
+        version: 5.2.0
       zod:
         specifier: 'catalog:'
         version: 4.6.7

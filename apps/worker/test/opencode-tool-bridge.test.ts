@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserRunnerClient, SearchProvider } from '@agent-tasks/browser-tools';
 import { createToolBridgeHub, startToolBridge } from '../src/opencode-tool-bridge.js';
-import type { ToolBridge, ToolBridgeHub } from '../src/opencode-tool-bridge.js';
+import type { ToolBridge, ToolBridgeCallRecord, ToolBridgeContext, ToolBridgeHub } from '../src/opencode-tool-bridge.js';
 
 let bridge: ToolBridge | undefined;
 let hub: ToolBridgeHub | undefined;
@@ -23,6 +23,19 @@ async function rpc(target: ToolBridge, body: unknown, token = target.token): Pro
   const text = await response.text();
   const data = text.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('');
   return JSON.parse(data);
+}
+
+function toolContext(overrides: Partial<ToolBridgeContext> = {}): ToolBridgeContext {
+  return {
+    browser: {
+      act: vi.fn(async () => ({ ok: true, url: 'https://example.com/report', title: 'Report', text: 'Verified text.' })),
+    } as unknown as BrowserRunnerClient,
+    search: { search: vi.fn(async () => []) } as unknown as SearchProvider,
+    sessionId: 'browser-session',
+    allowForms: false,
+    limits: { maxPageVisits: 5, maxSearchQueries: 5, maxOutputBytes: 4_000 },
+    ...overrides,
+  };
 }
 
 describe('OpenCode tool bridge', () => {
@@ -79,6 +92,117 @@ describe('OpenCode tool bridge', () => {
     expect(second.result.isError).toBe(true);
     expect(second.result.content[0]?.text).toContain('budget exhausted');
     expect(bridge.calls).toBe(1);
+  });
+
+  it('uses the execution tool-call limit and lets an explicit bridge budget win', async () => {
+    const call = { jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'compose_email', arguments: { dsl: 'hello' } } };
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['compose_email'],
+      context: toolContext({ limits: { maxPageVisits: 5, maxSearchQueries: 5, maxOutputBytes: 4_000, maxToolCalls: 1 } }),
+    });
+    const first = await rpc(bridge, call) as { result: { isError: boolean } };
+    const second = await rpc(bridge, call) as { result: { isError: boolean; content: Array<{ text: string }> } };
+    expect(first.result.isError).toBe(false);
+    expect(second.result.isError).toBe(true);
+    expect(second.result.content[0]?.text).toContain('tool call budget exhausted (1)');
+    expect(bridge.calls).toBe(1);
+
+    await bridge.close();
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['compose_email'],
+      maxCalls: 2,
+      context: toolContext({ limits: { maxPageVisits: 5, maxSearchQueries: 5, maxOutputBytes: 4_000, maxToolCalls: 1 } }),
+    });
+    expect((await rpc(bridge, call) as { result: { isError: boolean } }).result.isError).toBe(false);
+    expect((await rpc(bridge, call) as { result: { isError: boolean } }).result.isError).toBe(false);
+    expect(bridge.calls).toBe(2);
+  });
+
+  it('caps every tool reply at the execution output budget without truncating stored results', async () => {
+    const browser = { act: vi.fn() } as unknown as BrowserRunnerClient;
+    const search = { search: vi.fn(async () => []) } as unknown as SearchProvider;
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['record_task_memory'],
+      context: toolContext({
+        browser,
+        search,
+        limits: { maxPageVisits: 5, maxSearchQueries: 5, maxOutputBytes: 24 },
+      }),
+    });
+    const reply = await rpc(bridge, {
+      jsonrpc: '2.0', id: 12, method: 'tools/call',
+      params: { name: 'record_task_memory', arguments: { category: 'finding', content: 'A'.repeat(500) } },
+    }) as { result: { isError: boolean; content: Array<{ text: string }> } };
+    const text = reply.result.content[0]?.text ?? '';
+    expect(reply.result.isError).toBe(false);
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(24);
+    expect(text.endsWith('…')).toBe(true);
+    // Presentation is capped; the validated proposal is still persisted in full.
+    expect(bridge.memoryOps[0]?.content).toHaveLength(500);
+  });
+
+  it('enforces the search-query budget at the bridge', async () => {
+    const search = { search: vi.fn(async () => []) } as unknown as SearchProvider;
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['search_web'],
+      context: toolContext({
+        search,
+        limits: { maxPageVisits: 5, maxSearchQueries: 1, maxOutputBytes: 4_000 },
+      }),
+    });
+    const call = (id: number) => rpc(bridge!, {
+      jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'search_web', arguments: { query: 'agent tasks' } },
+    }) as Promise<{ result: { isError: boolean; content: Array<{ text: string }> } }>;
+    expect((await call(13)).result.isError).toBe(false);
+    const refused = await call(14);
+    expect(refused.result.isError).toBe(true);
+    expect(refused.result.content[0]?.text).toContain('search budget exhausted');
+    expect(search.search).toHaveBeenCalledTimes(1);
+  });
+
+  it('serialises page visits so parallel calls cannot overshoot the budget', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const act = vi.fn(async () => {
+      await gate;
+      return { ok: true, url: 'https://example.com/report', title: 'Report', text: 'Verified text.' };
+    });
+    const browser = { act } as unknown as BrowserRunnerClient;
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['open_url'],
+      context: toolContext({
+        browser,
+        limits: { maxPageVisits: 1, maxSearchQueries: 5, maxOutputBytes: 4_000 },
+      }),
+    });
+    const call = (id: number) => rpc(bridge!, {
+      jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'open_url', arguments: { url: 'https://example.com/report' } },
+    }) as Promise<{ result: { isError: boolean; content: Array<{ text: string }> } }>;
+    const first = call(15);
+    for (let attempt = 0; attempt < 100 && act.mock.calls.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(browser.act).toHaveBeenCalledTimes(1);
+    const second = call(16);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    // The second call is queued behind the first, not sent to the browser.
+    expect(browser.act).toHaveBeenCalledTimes(1);
+    release();
+    const [opened, refused] = await Promise.all([first, second]);
+    expect(opened.result.isError).toBe(false);
+    expect(refused.result.isError).toBe(true);
+    expect(refused.result.content[0]?.text).toContain('page visit budget exhausted');
+    expect(browser.act).toHaveBeenCalledTimes(1);
   });
 
   it('isolates concurrent sessions by token', async () => {
@@ -174,5 +298,154 @@ describe('OpenCode tool bridge', () => {
     hub = await createToolBridgeHub({ port: 0 });
     expect(() => hub.open({ tools: ['search_web'] })).toThrow('requires a tool context');
     expect(() => hub.open({ tools: ['compose_email'] })).not.toThrow();
+  });
+
+  it('numbers, times and previews accepted calls, including recorded refusals', async () => {
+    const calls: ToolBridgeCallRecord[] = [];
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['compose_email'],
+      maxCalls: 2,
+      onCall: (call) => { calls.push(call); },
+    });
+    const allowed = rpc(bridge, {
+      jsonrpc: '2.0', id: 20, method: 'tools/call', params: { name: 'compose_email', arguments: { dsl: '# One' } },
+    }) as Promise<{ result: { isError: boolean } }>;
+    const denied = rpc(bridge, {
+      jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'add_email_block', arguments: { type: 'paragraph', text: 'x' } },
+    }) as Promise<{ result: { isError: boolean } }>;
+    const [first, second] = await Promise.all([allowed, denied]);
+    expect(first.result.isError).toBe(false);
+    expect(second.result.isError).toBe(true);
+    expect(bridge.sequence).toBe(2);
+    expect(bridge.calls).toBe(2);
+
+    const ordered = calls.sort((left, right) => left.step - right.step);
+    expect(ordered.map((entry) => entry.step)).toEqual([1, 2]);
+    const accepted = ordered.find((entry) => entry.ok);
+    const refused = ordered.find((entry) => !entry.ok);
+    expect(accepted).toMatchObject({
+      tool: 'compose_email',
+      arguments: { dsl: '# One' },
+      resultPreview: 'composed 1 email block(s)',
+    });
+    expect(refused).toMatchObject({
+      tool: 'add_email_block',
+      arguments: { type: 'paragraph', text: 'x' },
+      error: 'tool not allowed: add_email_block',
+    });
+    for (const entry of ordered) {
+      expect(Date.parse(entry.startedAt)).toBeLessThanOrEqual(Date.parse(entry.finishedAt));
+      expect(entry.durationMs).toBeGreaterThanOrEqual(0);
+    }
+
+    // Once the budget is spent, further calls are refused at the transport guard
+    // and must not create a third timeline row.
+    const exhausted = await rpc(bridge, {
+      jsonrpc: '2.0', id: 22, method: 'tools/call', params: { name: 'compose_email', arguments: { dsl: '# Three' } },
+    }) as { result: { isError: boolean; content: Array<{ text: string }> } };
+    expect(exhausted.result.isError).toBe(true);
+    expect(exhausted.result.content[0]?.text).toContain('tool call budget exhausted (2)');
+    expect(calls).toHaveLength(2);
+    expect(bridge.sequence).toBe(2);
+    expect(bridge.calls).toBe(2);
+  });
+
+  it('does not amplify a denied-call burst into unbounded timeline rows', async () => {
+    const calls: ToolBridgeCallRecord[] = [];
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['compose_email'],
+      maxCalls: 3,
+      onCall: (call) => { calls.push(call); },
+    });
+    const replies = await Promise.all(Array.from({ length: 25 }, (_, index) => rpc(bridge!, {
+      jsonrpc: '2.0',
+      id: 30 + index,
+      method: 'tools/call',
+      params: { name: 'add_email_block', arguments: { type: 'paragraph', text: `x${index}` } },
+    }) as Promise<{ result: { isError: boolean } }>));
+
+    expect(replies.every((reply) => reply.result.isError)).toBe(true);
+    expect(bridge.calls).toBe(3);
+    expect(bridge.sequence).toBe(3);
+    expect(calls).toHaveLength(3);
+    expect(calls.map((call) => call.step).sort((left, right) => left - right)).toEqual([1, 2, 3]);
+  });
+
+  it('charges malformed and disallowed calls to the budget and records only accepted rows', async () => {
+    const calls: ToolBridgeCallRecord[] = [];
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['compose_email'],
+      maxCalls: 2,
+      onCall: (call) => { calls.push(call); },
+    });
+    const disallowed = await rpc(bridge, {
+      jsonrpc: '2.0', id: 40, method: 'tools/call', params: { name: 'search_web', arguments: { query: 'x' } },
+    }) as { result: { isError: boolean } };
+    const malformed = await rpc(bridge, {
+      jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 123, arguments: ['not', 'an', 'object'] },
+    }) as { result: { isError: boolean } };
+    const exhausted = await rpc(bridge, {
+      jsonrpc: '2.0', id: 42, method: 'tools/call', params: { name: 'compose_email', arguments: { dsl: 'hello' } },
+    }) as { result: { isError: boolean; content: Array<{ text: string }> } };
+
+    expect(disallowed.result.isError).toBe(true);
+    expect(malformed.result.isError).toBe(true);
+    expect(exhausted.result.isError).toBe(true);
+    expect(exhausted.result.content[0]?.text).toContain('tool call budget exhausted (2)');
+    expect(calls).toHaveLength(2);
+    expect(calls.map((call) => call.arguments)).toEqual([{ query: 'x' }, {}]);
+    expect(calls[1]?.tool).toBe('(missing)');
+  });
+
+  it('records a thrown tool failure without leaking an internal message', async () => {
+    const calls: ToolBridgeCallRecord[] = [];
+    const browser = { act: vi.fn(async () => { throw new Error('upstream stack detail'); }) } as unknown as BrowserRunnerClient;
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['open_url'],
+      maxCalls: 5,
+      onCall: (call) => { calls.push(call); },
+      context: toolContext({ browser }),
+    });
+    const reply = await rpc(bridge, {
+      jsonrpc: '2.0', id: 22, method: 'tools/call',
+      params: { name: 'open_url', arguments: { url: 'https://example.com/report' } },
+    }) as { result: { isError: boolean; content: Array<{ text: string }> } };
+
+    expect(reply.result.isError).toBe(true);
+    expect(reply.result.content[0]?.text).toBe('tool execution failed');
+    expect(calls).toEqual([
+      expect.objectContaining({
+        step: 1,
+        tool: 'open_url',
+        arguments: { url: 'https://example.com/report' },
+        ok: false,
+        error: 'tool execution failed',
+        resultPreview: 'tool failed',
+      }),
+    ]);
+    expect(JSON.stringify(calls)).not.toContain('upstream stack detail');
+  });
+
+  it('keeps the tool response when timeline persistence fails', async () => {
+    bridge = await startToolBridge({
+      token: 'secret-token',
+      port: 0,
+      tools: ['compose_email'],
+      onCall: () => { throw new Error('timeline unavailable'); },
+    });
+    const reply = await rpc(bridge, {
+      jsonrpc: '2.0', id: 23, method: 'tools/call',
+      params: { name: 'compose_email', arguments: { dsl: 'hello' } },
+    }) as { result: { isError: boolean; content: Array<{ text: string }> } };
+    expect(reply.result.isError).toBe(false);
+    expect(reply.result.content[0]?.text).toContain('Composed 1 email block');
   });
 });

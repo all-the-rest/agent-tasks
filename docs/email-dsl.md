@@ -4,9 +4,12 @@ Agents compose the completion e-mail in a compact, Markdown-like DSL. The model
 never writes HTML: the server parses the DSL into validated blocks and renders
 table-based, inline-styled HTML plus a plain-text alternative.
 
-The DSL is exposed through the `compose_email` tool. The tool is only offered
-when the task setting is **Email me** (`notification: "email"`); a task without
-e-mail notification cannot compose blocks.
+The DSL is exposed through the `compose_email` tool. The tool is offered when
+the task setting is **Email me** (`notification: "email"`) or **Email me only
+when the report changes** (`notification: "email_on_change"`). Both settings can
+compose blocks; only `notification: "none"` cannot. With `email_on_change` the
+blocks are still composed on every run, but the e-mail is delivered only when
+the report text changed.
 
 ## Grammar
 

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { APIError } from 'better-auth/api';
@@ -8,6 +9,15 @@ import * as schema from '@agent-tasks/database';
 import type { ApiEnv } from './env.js';
 import { renderActionEmail } from './lib/email-templates.js';
 import type { Mailer } from './mailer.js';
+
+/** Internal-only marker for accounts whose e-mail is verified by trusted onboarding. */
+export const TRUSTED_SIGNUP_HEADER = 'x-agent-tasks-trusted-signup';
+const trustedSignupContext = new AsyncLocalStorage<boolean>();
+
+/** Marks an internal Better Auth signup as trusted for the duration of its async call. */
+export function withTrustedSignup<T>(signup: () => Promise<T>): Promise<T> {
+  return trustedSignupContext.run(true, signup);
+}
 
 export interface AuthDeps {
   db: Database;
@@ -31,7 +41,7 @@ export function createAuth({ db, env, mailer }: AuthDeps) {
       disableSignUp: false,
       minPasswordLength: 12,
       maxPasswordLength: 200,
-      requireEmailVerification: false,
+      requireEmailVerification: true,
       async sendResetPassword({ user, url }) {
         const content = renderActionEmail({
           heading: 'Reset your password',
@@ -44,9 +54,10 @@ export function createAuth({ db, env, mailer }: AuthDeps) {
       },
     },
     emailVerification: {
-      sendOnSignUp: false,
+      sendOnSignUp: true,
       autoSignInAfterVerification: false,
-      async sendVerificationEmail({ user, url }) {
+      async sendVerificationEmail({ user, url }, request) {
+        if (trustedSignupContext.getStore() || request?.headers.get(TRUSTED_SIGNUP_HEADER) === 'true') return;
         const content = renderActionEmail({
           heading: 'Verify your e-mail address',
           paragraphs: ['Confirm that this address belongs to your Agent Tasks account.'],
@@ -120,6 +131,10 @@ export function createAuth({ db, env, mailer }: AuthDeps) {
         '/get-session': { window: env.RATE_LIMIT_WINDOW_SECONDS, max: env.RATE_LIMIT_SESSION_MAX },
         '/two-factor/verify-totp': { window: 60, max: 6 },
         '/request-password-reset': { window: 300, max: 3 },
+        // Unauthenticated resends answer generically (and in constant time) for
+        // unknown or already verified addresses; the same cap as a password
+        // reset keeps the endpoint from becoming a mail-bomb amplifier.
+        '/send-verification-email': { window: 300, max: 3 },
         '/sign-up/email': { window: 300, max: 5 },
       },
     },

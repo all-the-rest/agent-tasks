@@ -82,6 +82,191 @@ describe('OpenCode runner recovery', () => {
     expect(result.usage).toEqual({ promptTokens: 25, completionTokens: 7, totalTokens: 32, allowanceUsd: 0.75 });
   });
 
+  it('reports a truthful uncertainty note when web research is disabled', async () => {
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: false }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual([
+      'Web research was disabled for this task, so the answer was not verified against external sources.',
+    ]);
+  });
+
+  it('reports that no research happened when web research was allowed but no research tool ran', async () => {
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: true }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual(['No web research was performed, so no source was verified.']);
+  });
+
+  it('reports a limitation instead of a false no-research claim when a bridge is attached but no tool parts were returned', async () => {
+    // test/helpers/fake-opencode.ts invokes bridge tools during prompt dispatch
+    // and then emits only the final assistant text, without tool parts.
+    const client = clientWith((path) => {
+      if (path === '/api/mcp') {
+        return new Response(JSON.stringify({ data: [{ name: 'agent_tasks_tools', status: { status: 'connected' } }] }));
+      }
+      return path.endsWith('/message')
+        ? new Response(JSON.stringify({ data: [completed] }))
+        : new Response(JSON.stringify({ data: {} }));
+    });
+    const result = await createOpenCodeV2Runner({
+      client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store(), requiresMcp: true,
+    })(options({ allowWebResearch: true }), lease);
+    expect(result.uncertainty).toEqual([
+      'The runtime did not expose tool-call evidence, so it could not be confirmed whether web research was performed.',
+    ]);
+  });
+
+  it('can still prove that research did not run when the runtime reports other tool parts', async () => {
+    const toolTurn = {
+      type: 'assistant',
+      finish: 'tool-calls',
+      content: [{ type: 'tool', name: 'agent_tasks_tools_compose_email', state: { status: 'completed' } }],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3 },
+    };
+    const client = clientWith((path) => {
+      if (path === '/api/mcp') {
+        return new Response(JSON.stringify({ data: [{ name: 'agent_tasks_tools', status: { status: 'connected' } }] }));
+      }
+      return path.endsWith('/message')
+        ? new Response(JSON.stringify({ data: [toolTurn, completed] }))
+        : new Response(JSON.stringify({ data: {} }));
+    });
+    const result = await createOpenCodeV2Runner({
+      client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store(), requiresMcp: true,
+    })(options({ allowWebResearch: true }), lease);
+    expect(result.uncertainty).toEqual(['No web research was performed, so no source was verified.']);
+  });
+
+  it('stays silent when a completed page-opening tool call verifies a source', async () => {
+    // OpenCode exposes bridged MCP tools under the server name.
+    const toolTurn = {
+      type: 'assistant',
+      finish: 'tool-calls',
+      content: [{ type: 'tool', name: 'agent_tasks_tools_open_url', state: { status: 'completed' } }],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3 },
+    };
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [toolTurn, completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: true }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual([]);
+  });
+
+  it('reports that no page was opened when research stopped at search results', async () => {
+    const toolTurn = {
+      type: 'assistant',
+      finish: 'tool-calls',
+      content: [{ type: 'tool', name: 'search_web', state: { status: 'completed' } }],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3 },
+    };
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [toolTurn, completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: true }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual(['No web page was opened, so no source was verified.']);
+  });
+
+  it('reports a failed page-opening call as missing evidence', async () => {
+    const toolTurn = {
+      type: 'assistant',
+      finish: 'tool-calls',
+      content: [{ type: 'tool', name: 'agent_tasks_tools_open_url', state: { status: 'error' } }],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3 },
+    };
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [toolTurn, completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: true }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual([
+      'No web page could be opened successfully, so no source was verified.',
+      'A web research tool call failed during this run: open_url. Evidence from that call may be missing.',
+    ]);
+  });
+
+  it('reports all failed research tools once, even when another page opened', async () => {
+    const toolTurn = {
+      type: 'assistant',
+      finish: 'tool-calls',
+      content: [
+        { type: 'tool', name: 'agent_tasks_tools_open_url', state: { status: 'completed' } },
+        { type: 'tool', name: 'agent_tasks_tools_open_url', state: { status: 'error' } },
+        { type: 'tool', name: 'agent_tasks_tools_search_web', state: { status: 'error' } },
+      ],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3 },
+    };
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [toolTurn, completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: true }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual([
+      'Web research tool calls failed during this run: open_url, search_web. Evidence from those calls may be missing.',
+    ]);
+  });
+
+  it('does not turn an unreadable tool status into a failed-research claim', async () => {
+    const toolTurn = {
+      type: 'assistant',
+      finish: 'tool-calls',
+      content: [{ type: 'tool', name: 'open_url', state: {} }],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3 },
+    };
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [toolTurn, completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: true }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual([]);
+  });
+
+  it('reports the evidence limitation when a tool-calling turn has no readable tool parts', async () => {
+    const toolTurn = {
+      type: 'assistant',
+      finish: 'tool-calls',
+      content: [{ type: 'tool_call' }],
+      time: { created: 900, completed: 950 },
+      tokens: { input: 20, output: 3 },
+    };
+    const client = clientWith((path) => path.endsWith('/message')
+      ? new Response(JSON.stringify({ data: [toolTurn, completed] }))
+      : new Response(JSON.stringify({ data: {} })));
+    const result = await createOpenCodeV2Runner({ client, directory: '/tmp', model: { providerID: 'p', id: 'model' }, store: store() })(
+      options({ allowWebResearch: true }),
+      lease,
+    );
+    expect(result.uncertainty).toEqual([
+      'The runtime did not expose tool-call evidence, so it could not be confirmed whether web research was performed.',
+    ]);
+  });
+
   it('treats a 409 prompt replay as accepted and waits for the durable message', async () => {
     let messages = 0;
     const client = clientWith((path) => {

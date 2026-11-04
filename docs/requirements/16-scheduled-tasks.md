@@ -347,6 +347,10 @@ remove a working capability to look more like the reference.
 - A retired model on a task is flagged, not silently substituted.
 - Paused tasks consume no quota but keep their schedule and history.
 - A shared snapshot never carries memory, files or credentials.
+- A share link is a frozen definition: editing the task afterwards does not change
+  what an existing link shows.
+- Revoking a share link stops it resolving immediately; tasks already adopted from
+  it keep working because they are independent copies.
 - Relative next-run text stays correct across DST changes.
 - An empty filter shows the empty state, not the suggestion block.
 - Duplicating a task copies definition and schedule, never history or memory.
@@ -379,6 +383,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | End conditions | `never / on_date / after_runs`; date includes the selected local day; run cap counts scheduled bookings, not manual runs or retries | `packages/shared/src/task-end-condition.ts`, `apps/worker/src/scheduling.ts`, `packages/database/drizzle/0005_deep_madripoor.sql` |
 | Per-run caps | duration, steps, pages, output bytes, tool calls, search queries; admin may lower | `packages/shared/src/limits.ts:3-24` |
 | Task memory policy | `off / suggest / auto` + `contextBytes` per task | `schema.ts:207-212` |
+| Share snapshots | Frozen title, prompt, schedule and timezone; 32-byte bearer token stored only as SHA-256; owner-scoped create/list/revoke; public read and authenticated copy-on-adopt | `packages/shared/src/task-share.ts`, `packages/database/src/schema.ts`, `apps/api/src/routes/task-shares.ts`, `apps/web/src/pages/SharePage.tsx` |
 | Multi-user | owner-scoped reads/writes, roles, invites, audit log | `apps/api/src/routes/*.ts`, `schema.ts:494` |
 | UI | task table + title search, task detail with runs, executions page with status tabs | `apps/web/src/pages/TasksPage.tsx`, `TaskDetailPage.tsx`, `ExecutionsPage.tsx` |
 | i18n | full en/de catalogues, localised schedule summaries | `apps/web/src/locales/*`, `schedule.ts:115-132` |
@@ -393,7 +398,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Filter active / paused / completed | ✅ | `GET /api/tasks?status=…`; status is derived from `completed_at` first, then `enabled` |
 | Unread marker on new runs | ✅ | Completed runs are unread by default; owners explicitly mark an individual execution read. Existing completed runs are backfilled as read |
 | Composer-first creation | ✅ | The task-list composer carries a prompt in router history state to the existing form; the user reviews the draft and confirms there. The direct form remains available. |
-| One-click suggestions | ❌ | Empty state only links to "create your first task" |
+| One-click suggestions | ✅ | A collapsible block on an active list with tasks seeds the composer draft; it never creates or runs a task, and an empty filter keeps its empty state |
 | Relative "next run" in the list | ✅ | Active tasks show a locale-aware relative next run; paused and completed tasks show no next run |
 
 **Definition**
@@ -431,8 +436,8 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | --- | --- | --- |
 | Pause / resume / duplicate / delete | ✅ | Duplicate is ours alone |
 | Task caps per plan | ✅+ | No cap on task count by design; per-user execution caps instead (`maxTaskExecutionsPerDay`, `maxConcurrentExecutionsPerUser`) |
-| Share as frozen snapshot | ❌ | No share route, no snapshot table |
-| Copy-on-adopt | ❌ | — |
+| Share as frozen snapshot | ✅ | `POST /api/tasks/:id/share` freezes title, prompt, schedule and timezone; description, system instructions, provider/model, credentials, memory and history are never in the snapshot |
+| Copy-on-adopt | ✅ | `POST /api/shares/:token/adopt` requires a signed-in owner and their own executable provider/model; it creates an independent copy with no source memory, history or credentials |
 | Per-feature notification channels | ❌ | One global e-mail switch per task |
 | Push channel | ❌ | E-mail only |
 | Event triggers (Gmail/Slack/GitHub) | ❌ | No connectors |
@@ -462,9 +467,9 @@ Kept deliberately, per §5:
 | 2 | ✅ **Prompt-first creation shipped** | The form asks for provider/model/schedule before the user has said what they want | Prompt composer + private history-state draft + explicit form confirmation; direct form remains available |
 | 3 | **Destination choice** | Every run looks the same; no "continue this thread" | L — needs a conversation concept |
 | 4 | **End conditions (date / after N runs)** | Long-running monitors never stop | ✅ Shipped in #20; after N counts scheduled bookings, while manual runs and retries remain independent |
-| 5 | **Monitoring diff + "nothing to report"** | The core of a monitoring task; we would e-mail noise | M — compare with previous run, suppress notification |
-| 6 | **Notification channels** (push, per-feature, only-on-change) | E-mail-only limits the product to inbox-checkers | M — channel abstraction + settings page |
-| 7 | **Share snapshot** | No way to hand a task to a colleague without credentials | S/M — snapshot table, public read route, adopt flow |
+| 5 | ✅ **Monitoring comparison and quiet runs** | Unchanged report text need not generate e-mail noise | `email_on_change` suppresses unchanged reports; comparison is text-based, not semantic |
+| 6 | **Notification channels** (push, per-feature) | E-mail-only limits the product to inbox-checkers | Only-on-change e-mail exists; additional channels and per-feature settings remain open |
+| 7 | ✅ **Share snapshot shipped** | A frozen definition-only link can be handed to a colleague without credentials; revoking stops the link, not existing copies | Snapshot table, public read route, owner-scoped revoke, authenticated copy-on-adopt |
 | 8 | **Event triggers** | Pull-based only; no reaction to changes | L — connector layer, rate limits, review UI |
 | 9 | **Approval pause** | Unattended actions either run or fail | M — approval state + resume |
 | 10 | **RRULE import/export** | Only relevant if we interoperate with calendar tooling | S — optional |
@@ -473,8 +478,9 @@ Kept deliberately, per §5:
 
 1. ✅ **End conditions shipped in #20** — date and "after N runs" are evaluated
    by the scheduler before booking; date is inclusive in the task timezone.
-2. **Monitoring diff + quiet runs** — store the previous report, compare, and make
-   "nothing changed" a first-class result that suppresses e-mail.
+2. ✅ **Monitoring comparison + quiet runs** — compare report text with the previous
+   completed report; an unchanged result suppresses `email_on_change` notifications.
+   This is not a semantic diff and may report a change for formatting differences.
 3. ✅ **Inbox slice shipped in #20** — task state (`active / paused / completed`),
    owner-scoped unread runs, an explicit per-execution read action, status filter
    and relative next run. Reuses the executions table; existing completed runs
@@ -482,15 +488,21 @@ Kept deliberately, per §5:
 4. ✅ **Prompt-first creation shipped** — the tasks-page composer carries the
    prompt into the existing form as a history-state draft; users review the full
    form and confirm before creation. The prompt is not put in the URL.
-5. **Notification channels** — abstract `notification` into channels; add
-   "only when something changed"; keep e-mail as the default channel (still
-   opt-in per task).
-6. **Share snapshot** — definition only, copy-on-adopt, revoke, explicit exclusion
-   of memory and history.
+5. **Notification channels** — abstract `notification` into channels and add
+   per-feature settings. E-mail and opt-in `email_on_change` already exist.
+6. ✅ **Share snapshot shipped** — definition only, copy-on-adopt, revoke, explicit
+   exclusion of memory and history. The link carries title, prompt, schedule and
+   timezone; the adopter supplies their own provider and model.
 7. **Destination** — thread-aware runs, once a conversation model exists.
-8. **Approvals** — pause a run that wants to act outside its allowlist.
+8. **Approvals** — open design: unlisted tools are not offered and browser/egress
+   hard denies must not be overridden. An OpenCode permission request can pause a
+   live process, but the pending request is lost on runtime restart. Durable
+   approval therefore needs an explicit approvable action policy and recovery
+   design before it can safely be shipped.
 9. **Event triggers** — only after a connector exists.
 10. **RRULE** (rank 10 in §8.4) stays out of scope: five-field cron covers our cases.
+11. ✅ **One-click suggestions shipped** — a static, originally written set on the
+    active list; selecting one only fills the composer draft.
 
 ## 10. Acceptance criteria
 
@@ -509,10 +521,11 @@ Kept deliberately, per §5:
 - [x] Task state: active / paused / completed, with a filter on the list
 - [x] Unread runs and an inbox-style review surface with an explicit per-run read action
 - [x] Prompt-first creation with a confirmable draft
+- [x] One-click suggested prompts that fill the draft only
 - [x] End condition: never / on a date / after N scheduled bookings (manual runs and retries do not count)
 - [x] "Nothing to report" outcome that suppresses notification
 - [ ] Notification channels beyond e-mail, with per-feature settings
-- [ ] Share snapshot with copy-on-adopt and revoke
+- [x] Share snapshot with copy-on-adopt and revoke
 - [ ] Destination: continue an existing thread or start a standalone run
 - [ ] Approval pause for unattended actions
 - [ ] Event triggers — only after a connector layer exists (see §9 item 9)

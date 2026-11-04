@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cookiesFrom, createHarness, bootstrapAdmin, inviteAndAccept } from '../helpers/harness';
+import { cookiesFrom, createHarness, createCapturingMailer, bootstrapAdmin, inviteAndAccept } from '../helpers/harness';
 import { secretFromTotpUri, totp } from '../helpers/totp';
-import type { TestHarness } from '../helpers/harness';
+import type { CapturingMailer, TestHarness } from '../helpers/harness';
+import { ensureBootstrap } from '../../apps/api/src/bootstrap';
 
 let harness: TestHarness;
+let capturingMailer: CapturingMailer;
 
 beforeAll(async () => {
-  harness = await createHarness();
+  capturingMailer = createCapturingMailer();
+  harness = await createHarness({}, capturingMailer);
 });
 
 afterAll(async () => {
@@ -27,12 +30,14 @@ describe('authentication', () => {
   });
 
   it('creates exactly one admin from the setup token and refuses a second setup', async () => {
+    const verificationCount = capturingMailer.messages.filter((message) => message.subject.includes('Verify')).length;
     const setup = await harness.app.inject({
       method: 'POST',
       url: '/api/setup',
       payload: { token: harness.env.SETUP_TOKEN, email: 'admin@example.com', password: 'admin-password-123', name: 'Admin' },
     });
     expect(setup.statusCode).toBe(200);
+    expect(capturingMailer.messages.filter((message) => message.subject.includes('Verify'))).toHaveLength(verificationCount);
 
     const again = await harness.app.inject({
       method: 'POST',
@@ -121,6 +126,73 @@ describe('authentication', () => {
       payload: { email: 'blocked@example.com', password: 'blocked-password-123', name: 'Blocked' },
     });
     expect(blocked.statusCode).toBe(403);
+  });
+
+  it('sends verification mail for public sign-up but not for trusted onboarding', async () => {
+    const verificationCount = () => capturingMailer.messages.filter((message) => message.subject.includes('Verify')).length;
+    const initialCount = verificationCount();
+    const login = await harness.app.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in/email',
+      payload: { email: 'admin@example.com', password: 'admin-password-123' },
+    });
+    const cookie = cookiesFrom(login);
+    const invitation = await harness.app.inject({
+      method: 'POST',
+      url: '/api/admin/invitations',
+      headers: { cookie },
+      payload: { email: 'mail-bridge@example.com', role: 'USER' },
+    });
+    expect(invitation.statusCode, invitation.body).toBe(201);
+    const invitedSignup = await harness.app.inject({
+      method: 'POST',
+      url: '/api/auth/sign-up/email',
+      headers: { 'x-invite-token': invitation.json().token },
+      payload: { email: 'mail-bridge@example.com', password: 'invite-password-123', name: 'Invited' },
+    });
+    expect(invitedSignup.statusCode, invitedSignup.body).toBe(200);
+    expect(verificationCount()).toBe(initialCount);
+
+    const acceptedInvitation = await harness.app.inject({
+      method: 'POST',
+      url: '/api/admin/invitations',
+      headers: { cookie },
+      payload: { email: 'mail-accept@example.com', role: 'USER' },
+    });
+    expect(acceptedInvitation.statusCode, acceptedInvitation.body).toBe(201);
+    const accepted = await harness.app.inject({
+      method: 'POST',
+      url: '/api/invitations/accept',
+      payload: { token: acceptedInvitation.json().token, name: 'Invited', password: 'invite-password-123' },
+    });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(verificationCount()).toBe(initialCount);
+
+    const settings = await harness.app.inject({ method: 'GET', url: '/api/admin/settings', headers: { cookie } });
+    const opened = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings',
+      headers: { cookie },
+      payload: { ...settings.json(), allowRegistration: true },
+    });
+    expect(opened.statusCode, opened.body).toBe(200);
+    try {
+      const publicSignup = await harness.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-up/email',
+        headers: { 'x-agent-tasks-trusted-signup': 'true' },
+        payload: { email: 'mail-public@example.com', password: 'public-password-123', name: 'Public' },
+      });
+      expect(publicSignup.statusCode, publicSignup.body).toBe(200);
+      expect(verificationCount()).toBe(initialCount + 1);
+    } finally {
+      await harness.app.inject({
+        method: 'PUT',
+        url: '/api/admin/settings',
+        headers: { cookie },
+        payload: { ...settings.json(), allowRegistration: false },
+      });
+    }
   });
 
   it('onboards invited users and rejects an invite reused for another address', async () => {
@@ -236,6 +308,120 @@ describe('authentication', () => {
       await isolated.close();
     }
   });
+
+  it('requires e-mail verification for public registration and sends the verification link', async () => {
+    const mailer = createCapturingMailer();
+    const isolated = await createHarness({ ALLOW_REGISTRATION: 'true' }, mailer);
+    try {
+      await ensureBootstrap(isolated.context);
+      const signup = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-up/email',
+        payload: { email: 'verify@example.com', password: 'verify-password-123', name: 'Verify' },
+      });
+      expect(signup.statusCode, signup.body).toBe(200);
+      // requireEmailVerification makes sign-up non-authenticating: no token, no cookie.
+      expect(signup.json().token).toBeNull();
+      expect(cookiesFrom(signup)).toBe('');
+      expect(mailer.messages).toHaveLength(1);
+      expect(mailer.messages[0]).toMatchObject({ to: 'verify@example.com', subject: 'Verify your Agent Tasks address' });
+      const verificationUrl = mailer.messages[0]?.text.match(/https?:\/\/[^\s)]+/)?.[0];
+      expect(verificationUrl).toBeTruthy();
+
+      const userBeforeVerification = await isolated.db.pool.query<{ email_verified: boolean }>(
+        'select email_verified from "user" where email = $1',
+        ['verify@example.com'],
+      );
+      expect(userBeforeVerification.rows[0]?.email_verified).toBe(false);
+      const unverifiedSignIn = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-in/email',
+        payload: { email: 'verify@example.com', password: 'verify-password-123' },
+      });
+      expect(unverifiedSignIn.statusCode, unverifiedSignIn.body).toBe(403);
+      expect(unverifiedSignIn.json().code).toBe('EMAIL_NOT_VERIFIED');
+      expect(cookiesFrom(unverifiedSignIn)).toBe('');
+
+      const link = new URL(verificationUrl as string);
+      const verify = await isolated.app.inject({ method: 'GET', url: `${link.pathname}${link.search}` });
+      expect([200, 302, 303]).toContain(verify.statusCode);
+      const userAfterVerification = await isolated.db.pool.query<{ email_verified: boolean }>(
+        'select email_verified from "user" where email = $1',
+        ['verify@example.com'],
+      );
+      expect(userAfterVerification.rows[0]?.email_verified).toBe(true);
+      const verifiedSignIn = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-in/email',
+        payload: { email: 'verify@example.com', password: 'verify-password-123' },
+      });
+      expect(verifiedSignIn.statusCode, verifiedSignIn.body).toBe(200);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it('re-issues a verification link without revealing whether the address has an account', async () => {
+    const mailer = createCapturingMailer();
+    const isolated = await createHarness({ ALLOW_REGISTRATION: 'true' }, mailer);
+    try {
+      await ensureBootstrap(isolated.context);
+      const signup = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-up/email',
+        payload: { email: 'resend@example.com', password: 'resend-password-123', name: 'Resend' },
+      });
+      expect(signup.statusCode, signup.body).toBe(200);
+      expect(mailer.messages).toHaveLength(1);
+
+      const resent = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/send-verification-email',
+        payload: { email: 'resend@example.com' },
+      });
+      expect(resent.statusCode, resent.body).toBe(200);
+      expect(resent.json()).toEqual({ status: true });
+      expect(mailer.messages).toHaveLength(2);
+      expect(mailer.messages[1]).toMatchObject({
+        to: 'resend@example.com',
+        subject: 'Verify your Agent Tasks address',
+      });
+      expect(mailer.messages[1]?.text).toMatch(/verify-email\?token=/);
+
+      // Unknown addresses receive the same body and no mail. Together with the
+      // constant-time floor in Better Auth this avoids an enumeration oracle.
+      const unknown = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/send-verification-email',
+        payload: { email: 'ghost@example.com' },
+      });
+      expect(unknown.statusCode, unknown.body).toBe(200);
+      expect(unknown.json()).toEqual(resent.json());
+      expect(mailer.messages).toHaveLength(2);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it('rate-limits repeated verification link requests', async () => {
+    const isolated = await createHarness({ ALLOW_REGISTRATION: 'true' });
+    try {
+      await ensureBootstrap(isolated.context);
+      const statuses: number[] = [];
+      for (let index = 0; index < 4; index += 1) {
+        const response = await isolated.app.inject({
+          method: 'POST',
+          url: '/api/auth/send-verification-email',
+          payload: { email: `ghost-${index}@example.com` },
+        });
+        statuses.push(response.statusCode);
+      }
+      expect(statuses.slice(0, 3)).toEqual([200, 200, 200]);
+      expect(statuses[3]).toBe(429);
+    } finally {
+      await isolated.close();
+    }
+  });
 });
 
 /**
@@ -330,6 +516,35 @@ describe('security regressions', () => {
     }
   });
 
+  it('rejects expired invitation previews and acceptance', async () => {
+    const isolated = await createHarness();
+    try {
+      const admin = await bootstrapAdmin(isolated);
+      const invite = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/admin/invitations',
+        headers: { cookie: admin.cookie },
+        payload: { email: 'expired@example.com', role: 'USER' },
+      });
+      expect(invite.statusCode, invite.body).toBe(201);
+      const token = invite.json().token as string;
+      await isolated.db.pool.query("update invitations set expires_at = now() - interval '1 second' where email = $1", ['expired@example.com']);
+
+      const preview = await isolated.app.inject({ method: 'GET', url: `/api/invitations/${token}` });
+      const accept = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/invitations/accept',
+        payload: { token, name: 'Expired User', password: 'expired-password-123' },
+      });
+      expect(preview.statusCode).toBe(404);
+      expect(accept.statusCode).toBe(404);
+      const users = await isolated.db.pool.query<{ count: number }>('select count(*)::int as count from "user" where email = $1', ['expired@example.com']);
+      expect(users.rows[0]?.count).toBe(0);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it('consumes the invitation when sign-up goes through the auth bridge', async () => {
     const isolated = await createHarness();
     try {
@@ -351,8 +566,18 @@ describe('security regressions', () => {
       });
       expect([200, 201], signUp.body).toContain(signUp.statusCode);
 
-      const stored = await isolated.db.pool.query<{ accepted_at: Date | null }>('select accepted_at from invitations where email = $1', ['bridge@example.com']);
+      const stored = await isolated.db.pool.query<{ accepted_at: Date | null; email_verified: boolean }>(
+        'select invitations.accepted_at, "user".email_verified from invitations join "user" on "user".email = invitations.email where invitations.email = $1',
+        ['bridge@example.com'],
+      );
       expect(stored.rows[0]?.accepted_at).not.toBeNull();
+      expect(stored.rows[0]?.email_verified).toBe(true);
+      const inviteLogin = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-in/email',
+        payload: { email: 'bridge@example.com', password: 'bridge-password-123' },
+      });
+      expect(inviteLogin.statusCode, inviteLogin.body).toBe(200);
 
       const reuse = await isolated.app.inject({
         method: 'POST',

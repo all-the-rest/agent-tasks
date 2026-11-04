@@ -20,7 +20,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.4",
+    "drizzle-orm": "catalog:",
     "pg": "catalog:",
     "@agent-tasks/shared": "workspace:*"
   },

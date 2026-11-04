@@ -20,7 +20,7 @@ export function AuthShell({
   const locale: Locale = i18n.resolvedLanguage === 'de' ? 'de' : 'en';
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
+    <main className="relative flex min-h-screen items-center justify-center bg-base-200 px-4 py-10">
       <div className="absolute right-3 top-3 flex items-center gap-1">
         <button
           type="button"
@@ -60,6 +60,6 @@ export function AuthShell({
         </div>
         {footer ? <div className="mt-4 text-center text-sm opacity-80">{footer}</div> : null}
       </div>
-    </div>
+    </main>
   );
 }

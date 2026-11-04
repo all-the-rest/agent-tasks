@@ -7,9 +7,26 @@ import { buildApp } from '../../apps/api/src/app';
 import { createContext } from '../../apps/api/src/context';
 import type { AppContext } from '../../apps/api/src/context';
 import { createMailer } from '../../apps/api/src/mailer';
+import type { Mailer } from '../../apps/api/src/mailer';
 import type { ApiEnv } from '../../apps/api/src/env';
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgres://agent:agent@dind:55432/agent_tasks';
+
+export interface CapturingMailer extends Mailer {
+  readonly messages: Array<{ to: string; subject: string; text: string; html?: string }>;
+}
+
+/** Keeps transactional mail in memory so tests can follow the real link. */
+export function createCapturingMailer(): CapturingMailer {
+  const messages: CapturingMailer['messages'] = [];
+  return {
+    kind: 'log',
+    messages,
+    async send(message) {
+      messages.push(message);
+    },
+  };
+}
 
 export interface TestHarness {
   app: FastifyInstance;
@@ -48,11 +65,11 @@ export async function resetDatabase(db: DatabaseHandle): Promise<void> {
   );
 }
 
-export async function createHarness(overrides: Partial<ApiEnv> = {}): Promise<TestHarness> {
+export async function createHarness(overrides: Partial<ApiEnv> = {}, testMailer?: Mailer): Promise<TestHarness> {
   const env = testEnv(overrides);
   const db = createDatabase(env.DATABASE_URL, { max: 4 });
   await resetDatabase(db);
-  const mailer = createMailer({ nodeEnv: 'test' });
+  const mailer = testMailer ?? createMailer({ nodeEnv: 'test' });
   const auth = createAuth({ db: db.db, env, mailer });
   const context = createContext({ db: db.db, env, auth, mailer });
   const app = await buildApp(context);

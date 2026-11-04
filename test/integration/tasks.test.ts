@@ -117,19 +117,11 @@ describe('partial task updates', () => {
     expect(stored.rows[0]).toMatchObject({ enabled: false, allow_web_research: false, notification: 'none', next_run_at: null });
   });
 
-  it('does not expose configurable agent limits and ignores per-task overrides', async () => {
+  it('does not expose per-task agent limits and ignores per-task overrides', async () => {
     harness = await createHarness();
     const admin = await bootstrapAdmin(harness);
     const alice = await inviteAndAccept(harness, admin.cookie, 'alice@example.com');
     const providerId = await providerFor(harness, admin.cookie);
-    const settings = await harness.app.inject({
-      method: 'PUT',
-      url: '/api/admin/settings',
-      headers: { cookie: admin.cookie },
-      payload: { agentLimits: { maxDurationSec: 900, maxAgentSteps: 45 } },
-    });
-    expect(settings.statusCode, settings.body).toBe(200);
-    expect(settings.json()).not.toHaveProperty('agentLimits');
 
     const created = await harness.app.inject({
       method: 'POST',

@@ -103,7 +103,7 @@ export function AdminUsersPage() {
       ) : null}
 
       <div className="grid gap-5 xl:grid-cols-3">
-        <section className="card border border-base-300 bg-base-100 shadow-sm xl:col-span-2">
+        <section className="card min-w-0 border border-base-300 bg-base-100 shadow-sm xl:col-span-2">
           <div className="card-body p-5">
             <h2 className="card-title text-base">{t('admin.users')}</h2>
             {users.isLoading ? (
@@ -129,7 +129,7 @@ export function AdminUsersPage() {
                       const self = entry.id === currentUser?.id;
                       return (
                         <tr key={entry.id}>
-                          <td className="max-w-56">
+                          <td className="max-w-32 sm:max-w-56">
                             <p className="truncate font-medium">{entry.name}</p>
                             <p className="truncate text-xs opacity-60">{entry.email}</p>
                           </td>
@@ -180,7 +180,7 @@ export function AdminUsersPage() {
           </div>
         </section>
 
-        <div className="flex flex-col gap-5">
+        <div className="flex min-w-0 flex-col gap-5">
           <section className="card border border-base-300 bg-base-100 shadow-sm">
             <form
               className="card-body gap-3 p-5"

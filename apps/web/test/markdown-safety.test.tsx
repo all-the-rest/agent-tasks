@@ -4,6 +4,7 @@ import { render } from '@testing-library/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
+import { checkReportLinks } from '@agent-tasks/shared';
 
 /**
  * A report is model output derived from web pages. It is rendered exactly like the
@@ -19,6 +20,23 @@ function renderReport(markdown: string): HTMLElement {
 }
 
 describe('report rendering', () => {
+  it('renders no clickable URL from any unsupported Markdown link syntax', () => {
+    const markdown = [
+      'Bare https://invented.example/bare',
+      '<https://invented.example/angle>',
+      '[ref][bad] and ![image](https://invented.example/image)',
+      '[bad]: https://invented.example/reference',
+      '[valid](https://source.example/page)',
+    ].join('\n\n');
+    const checked = checkReportLinks(markdown, [{ url: 'https://source.example/page' }]);
+    const container = renderReport(checked.markdown);
+
+    expect(container.querySelectorAll('a')).toHaveLength(1);
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://source.example/page');
+    expect(container.querySelector('img')).toBeNull();
+    expect(checked.removed).toContain('https://invented.example/reference');
+  });
+
   it('does not execute or emit a script tag', () => {
     const container = renderReport('# Report\n\n<script>window.__pwned = true</script>');
     expect(container.querySelector('script')).toBeNull();

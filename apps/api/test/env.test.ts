@@ -13,6 +13,13 @@ describe('API environment', () => {
     expect(env.ALLOW_REGISTRATION).toBe('false');
     expect(env.ADMIN_EMAIL).toBeUndefined();
     expect(env.ADMIN_PASSWORD).toBeUndefined();
+    expect(env.RATE_LIMIT_API_MAX).toBe(300);
+  });
+
+  it('allows the global request limit to be configured', () => {
+    const env = loadEnv({ ...base, RATE_LIMIT_API_MAX: '1000' });
+    expect(env.RATE_LIMIT_API_MAX).toBe(1000);
+    expect(() => loadEnv({ ...base, RATE_LIMIT_API_MAX: '10001' })).toThrow(/RATE_LIMIT_API_MAX/);
   });
 
   it('treats empty compose variables as absent', () => {
@@ -30,6 +37,13 @@ describe('API environment', () => {
   it('requires ADMIN_EMAIL and ADMIN_PASSWORD together', () => {
     expect(() => loadEnv({ ...base, ADMIN_EMAIL: 'admin@example.com' })).toThrow(/ADMIN_PASSWORD/);
     expect(() => loadEnv({ ...base, ADMIN_PASSWORD: 'admin-password-123' })).toThrow(/ADMIN_EMAIL/);
+  });
+
+  it('requires SMTP when production open registration is enabled', () => {
+    expect(() => loadEnv({ ...base, NODE_ENV: 'production', ALLOW_REGISTRATION: 'true' })).toThrow(/SMTP_URL/);
+    expect(loadEnv({ ...base, NODE_ENV: 'production', ALLOW_REGISTRATION: 'true', SMTP_URL: 'smtp://mail.example.test' }).SMTP_URL)
+      .toBe('smtp://mail.example.test');
+    expect(loadEnv({ ...base, NODE_ENV: 'test', ALLOW_REGISTRATION: 'true' }).ALLOW_REGISTRATION).toBe('true');
   });
 
   it('rejects a too-short admin password', () => {

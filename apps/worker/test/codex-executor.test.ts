@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { executions, providerCredentials, providerModels, providers, user } from '@agent-tasks/database';
+import { executionSteps, executions, providerCredentials, providerModels, providers, user } from '@agent-tasks/database';
 import { SecretBox } from '@agent-tasks/ai-providers';
 import type { AgentRunResult, RunAgentOptions } from '@agent-tasks/agent-runtime';
 import { Executor } from '../src/executor.js';
@@ -65,6 +65,7 @@ function fixture(kind = 'codex', notification: 'none' | 'email' = 'none') {
         if (table === executions) return chain([{ execution, task }]);
         if (table === providerCredentials) return chain([{ ownerId: null, ciphertext: box.encrypt('fake-provider-key') }]);
         if (table === providerModels) return chain([]);
+        if (table === executionSteps) return chain([]);
         if (table === user) return chain([{ email: 'owner@example.com' }]);
         throw new Error('unexpected select table');
       },
