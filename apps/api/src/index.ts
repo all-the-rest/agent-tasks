@@ -30,6 +30,10 @@ const app = await buildApp(context);
 // Materialise settings/admin/provider seeds before accepting requests. The wait
 // covers a fresh deployment where the worker has not finished migrating yet.
 const bootstrap = await ensureBootstrap(context);
+const settings = await context.settings();
+if (env.NODE_ENV === 'production' && settings.allowRegistration && mailer.kind !== 'smtp') {
+  throw new Error('production open registration requires SMTP_URL so users can verify their e-mail addresses');
+}
 app.log.info({ event: 'bootstrap', ...bootstrap }, 'database bootstrap complete');
 
 app.log.info(

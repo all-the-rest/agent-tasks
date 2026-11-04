@@ -31,6 +31,8 @@ export interface FakeOllamaScenario {
   doneReason: string;
   /** Values returned by `POST /api/show` and used by the adapter's capability probe. */
   capabilities: string[];
+  /** Simulate an unavailable capability endpoint. */
+  capabilityProbeFailure: boolean;
   failure: FakeOllamaFailure;
   /** Delay between NDJSON chunks when the client asks for `stream: true`. */
   streamDelayMs: number;
@@ -164,6 +166,7 @@ export async function createFakeOllamaServer(options: Partial<FakeOllamaScenario
     evalCount: 7,
     doneReason: 'stop',
     capabilities: ['completion', 'tools'],
+    capabilityProbeFailure: false,
     failure: 'none',
     streamDelayMs: 5,
     chatDelayMs: 0,
@@ -202,6 +205,10 @@ export async function createFakeOllamaServer(options: Partial<FakeOllamaScenario
           });
           return;
         case 'POST /api/show':
+          if (scenario.capabilityProbeFailure) {
+            sendJson(response, 503, { error: 'capability probe unavailable' });
+            return;
+          }
           sendJson(response, 200, {
             model: scenario.model,
             modified_at: CREATED_AT,

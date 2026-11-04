@@ -15,6 +15,8 @@ export interface RunnerLimits {
   maxTextChars: number;
 }
 
+type NativeConstructor = abstract new (...args: never[]) => unknown;
+
 type BrowserPolicyInspection =
   | {
       kind: 'click';
@@ -67,12 +69,12 @@ export function installInteractionListenerTracking(
       let hasAny = false;
       registry = {
         addType: (eventType: string) => {
-          addType(eventType.toLowerCase());
+          addType(callStringToLowerCase(eventType));
           hasAny = true;
         },
         hasType: (eventType?: string) => eventType === undefined
           ? hasAny
-          : containsType(eventType.toLowerCase()),
+          : containsType(callStringToLowerCase(eventType)),
       };
       setListenerTypes(target, registry);
     }
@@ -85,7 +87,48 @@ export function installInteractionListenerTracking(
   const originalAttachShadow = Element.prototype.attachShadow;
   const originalGetAttribute = Element.prototype.getAttribute;
   const originalMatches = Element.prototype.matches;
-  const arrayFrom = Function.prototype.call.bind(Array.from, Array) as <T>(items: Iterable<T> | ArrayLike<T>) => T[];
+  const callArrayMap = Function.prototype.call.bind(Array.prototype.map) as <T, U>(
+    items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => U,
+  ) => U[];
+  const callArrayFilter = Function.prototype.call.bind(Array.prototype.filter) as <T>(
+    items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => boolean,
+  ) => T[];
+  const callArraySome = Function.prototype.call.bind(Array.prototype.some) as <T>(
+    items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => boolean,
+  ) => boolean;
+  const callArrayPop = Function.prototype.call.bind(Array.prototype.pop) as <T>(items: T[]) => T | undefined;
+  const callArrayPush = Function.prototype.call.bind(Array.prototype.push) as <T>(items: T[], ...values: T[]) => number;
+  const callArrayIncludes = Function.prototype.call.bind(Array.prototype.includes) as <T>(items: readonly T[], value: T) => boolean;
+  const callArrayJoin = Function.prototype.call.bind(Array.prototype.join) as (items: readonly unknown[], separator?: string) => string;
+  const callStringToLowerCase = Function.prototype.call.bind(String.prototype.toLowerCase) as (value: string) => string;
+  const callStringTrim = Function.prototype.call.bind(String.prototype.trim) as (value: string) => string;
+  const callStringCharAt = Function.prototype.call.bind(String.prototype.charAt) as (value: string, index: number) => string;
+  const callStringCharCodeAt = Function.prototype.call.bind(String.prototype.charCodeAt) as (value: string, index: number) => number;
+  const nativeIsSafeInteger = Number.isSafeInteger;
+  const NativeSet = Set;
+  const callSetAdd = Function.prototype.call.bind(NativeSet.prototype.add) as <T>(set: Set<T>, value: T) => Set<T>;
+  const callSetHas = Function.prototype.call.bind(NativeSet.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
+  const callSetForEach = Function.prototype.call.bind(NativeSet.prototype.forEach) as <T>(
+    set: Set<T>, callback: (value: T) => void,
+  ) => void;
+  const callFunctionHasInstance = Function.prototype.call.bind(Function.prototype[Symbol.hasInstance]) as (
+    constructor: NativeConstructor,
+    value: unknown,
+  ) => boolean;
+  const nativeConstructors = Object.create(null) as Record<string, NativeConstructor | undefined>;
+  const captureNativeConstructor = (name: string, constructor: NativeConstructor | undefined): void => {
+    if (constructor) nativeConstructors[name] = constructor;
+  };
+  captureNativeConstructor('Set', NativeSet);
+  captureNativeConstructor('Element', typeof Element === 'undefined' ? undefined : Element);
+  captureNativeConstructor('ShadowRoot', typeof ShadowRoot === 'undefined' ? undefined : ShadowRoot);
+  captureNativeConstructor('HTMLImageElement', typeof HTMLImageElement === 'undefined' ? undefined : HTMLImageElement);
+  captureNativeConstructor('HTMLInputElement', typeof HTMLInputElement === 'undefined' ? undefined : HTMLInputElement);
+  captureNativeConstructor('HTMLButtonElement', typeof HTMLButtonElement === 'undefined' ? undefined : HTMLButtonElement);
+  captureNativeConstructor('HTMLSelectElement', typeof HTMLSelectElement === 'undefined' ? undefined : HTMLSelectElement);
+  captureNativeConstructor('HTMLTextAreaElement', typeof HTMLTextAreaElement === 'undefined' ? undefined : HTMLTextAreaElement);
+  captureNativeConstructor('HTMLLabelElement', typeof HTMLLabelElement === 'undefined' ? undefined : HTMLLabelElement);
+  captureNativeConstructor('HTMLSlotElement', typeof HTMLSlotElement === 'undefined' ? undefined : HTMLSlotElement);
   const callOriginalAddEventListener = Function.prototype.call.bind(originalAddEventListener);
   const callOriginalAttachShadow = Function.prototype.call.bind(originalAttachShadow);
   const callOriginalGetAttribute = Function.prototype.call.bind(originalGetAttribute);
@@ -116,14 +159,73 @@ export function installInteractionListenerTracking(
   const captureProperties = (prototype: object | undefined, properties: string[]): void => {
     for (const property of properties) captureNativeProperty(prototype, property);
   };
+  const getNodeListLength = captureGetter(typeof NodeList === 'undefined' ? undefined : NodeList.prototype, 'length');
+  const getHtmlCollectionLength = captureGetter(
+    typeof HTMLCollection === 'undefined' ? undefined : HTMLCollection.prototype,
+    'length',
+  );
+  const arrayFrom = <T>(items: Iterable<T> | ArrayLike<T>): T[] => {
+    const fromSet: T[] = [];
+    let setIndex = 0;
+    try {
+      callSetForEach(items as Set<T>, (value) => {
+        if (setIndex >= 10_000) throw new Error('browser policy collection is too large');
+        fromSet[setIndex] = value;
+        setIndex += 1;
+      });
+      return fromSet;
+    } catch {
+      // Non-Set collections fall through to their captured native length getters.
+    }
+    let length: unknown;
+    const collectionGetters = [getNodeListLength, getHtmlCollectionLength];
+    for (let index = 0; index < collectionGetters.length; index += 1) {
+      const getter = collectionGetters[index];
+      if (!getter) continue;
+      try {
+        length = getter(items as object);
+        break;
+      } catch {
+        // Try the other native collection brand, then use an array's own length.
+      }
+    }
+    if (typeof length !== 'number') {
+      if (typeof items !== 'object' || items === null || !('length' in items)) {
+        throw new Error('browser policy value is not a trusted collection');
+      }
+      length = (items as ArrayLike<T>).length;
+    }
+    const numericLength = length as number;
+    if (!nativeIsSafeInteger(numericLength) || numericLength < 0 || numericLength > 10_000) {
+      throw new Error('browser policy collection has an invalid length');
+    }
+    const result: T[] = [];
+    const arrayLike = items as ArrayLike<T>;
+    for (let index = 0; index < numericLength; index += 1) result[index] = arrayLike[index] as T;
+    return result;
+  };
   const getNativeSubmitter = captureGetter(
     typeof SubmitEvent === 'undefined' ? undefined : SubmitEvent.prototype,
     'submitter',
   );
+  const getNativeEventType = captureGetter(typeof Event === 'undefined' ? undefined : Event.prototype, 'type');
+  const nativeGetElementById = typeof Document === 'undefined' ? undefined : Document.prototype.getElementById;
+  const callNativeGetElementById = nativeGetElementById
+    ? Function.prototype.call.bind(nativeGetElementById) as (target: Document, id: string) => HTMLElement | null
+    : null;
   captureProperties(typeof HTMLFormElement === 'undefined' ? undefined : HTMLFormElement.prototype, ['action', 'method', 'elements']);
-  captureProperties(typeof HTMLInputElement === 'undefined' ? undefined : HTMLInputElement.prototype, [
-    'form', 'type', 'formAction', 'formMethod', 'name', 'value', 'disabled', 'checked', 'labels',
+  captureProperties(typeof Element === 'undefined' ? undefined : Element.prototype, [
+    'localName', 'assignedSlot', 'parentElement', 'shadowRoot', 'children',
   ]);
+  captureProperties(typeof DocumentFragment === 'undefined' ? undefined : DocumentFragment.prototype, ['children']);
+  captureProperties(typeof Document === 'undefined' ? undefined : Document.prototype, ['activeElement']);
+  captureProperties(typeof HTMLElement === 'undefined' ? undefined : HTMLElement.prototype, ['title']);
+  captureProperties(typeof ShadowRoot === 'undefined' ? undefined : ShadowRoot.prototype, ['host']);
+  captureProperties(typeof Node === 'undefined' ? undefined : Node.prototype, ['childNodes']);
+  captureProperties(typeof HTMLInputElement === 'undefined' ? undefined : HTMLInputElement.prototype, [
+    'form', 'type', 'formAction', 'formMethod', 'name', 'value', 'disabled', 'checked', 'labels', 'alt',
+  ]);
+  captureProperties(typeof HTMLImageElement === 'undefined' ? undefined : HTMLImageElement.prototype, ['alt']);
   captureProperties(typeof HTMLButtonElement === 'undefined' ? undefined : HTMLButtonElement.prototype, [
     'form', 'type', 'formAction', 'formMethod', 'name', 'value', 'disabled', 'labels',
   ]);
@@ -137,6 +239,13 @@ export function installInteractionListenerTracking(
     'value', 'disabled', 'selected',
   ]);
   captureProperties(typeof HTMLLabelElement === 'undefined' ? undefined : HTMLLabelElement.prototype, ['control']);
+  captureProperties(typeof KeyboardEvent === 'undefined' ? undefined : KeyboardEvent.prototype, ['key']);
+  const nativeAssignedElements = typeof HTMLSlotElement === 'undefined'
+    ? undefined
+    : HTMLSlotElement.prototype.assignedElements;
+  const callNativeAssignedElements = nativeAssignedElements
+    ? Function.prototype.call.bind(nativeAssignedElements) as (target: HTMLSlotElement, options?: AssignedNodesOptions) => Element[]
+    : null;
   const getTrustedProperty = (target: object, property: string): unknown => {
     const getters = nativePropertyGetters[property];
     if (!getters) return undefined;
@@ -148,6 +257,35 @@ export function installInteractionListenerTracking(
       }
     }
     return undefined;
+  };
+  const isNativeInstance = (target: unknown, name: string): boolean => {
+    if (typeof target !== 'object' || target === null) return false;
+    if (name === 'Set') {
+      const setConstructor = nativeConstructors.Set;
+      return typeof setConstructor === 'function' && callFunctionHasInstance(setConstructor, target);
+    }
+    if (name === 'ShadowRoot') {
+      const host = getTrustedProperty(target, 'host');
+      if (host !== undefined && getTrustedProperty(host as object, 'localName') !== undefined) return true;
+      const constructor = nativeConstructors.ShadowRoot;
+      return typeof constructor === 'function' && callFunctionHasInstance(constructor, target);
+    }
+    const localName = getTrustedProperty(target, 'localName');
+    if (typeof localName !== 'string') {
+      const constructor = nativeConstructors[name];
+      return typeof constructor === 'function' && callFunctionHasInstance(constructor, target);
+    }
+    if (name === 'Element') return true;
+    const tagByInterface: Record<string, string> = {
+      HTMLImageElement: 'img',
+      HTMLInputElement: 'input',
+      HTMLButtonElement: 'button',
+      HTMLSelectElement: 'select',
+      HTMLTextAreaElement: 'textarea',
+      HTMLLabelElement: 'label',
+      HTMLSlotElement: 'slot',
+    };
+    return tagByInterface[name] === localName;
   };
   const callComposedPath = Function.prototype.call.bind(Event.prototype.composedPath);
   const callPreventDefault = Function.prototype.call.bind(Event.prototype.preventDefault);
@@ -169,11 +307,20 @@ export function installInteractionListenerTracking(
   const getTrustedTextContent = (node: Node): string | null => callNativeTextContentGetter
     ? callNativeTextContentGetter(node) as string | null
     : node.textContent;
+  const appendArray = <T>(target: T[], values: readonly T[]): void => {
+    for (let index = 0; index < values.length; index += 1) {
+      callArrayPush(target, values[index] as T);
+    }
+  };
   const formForActiveElement = (active: Element | null): HTMLFormElement | null => {
     if (!active) return null;
     const nativeForm = getTrustedProperty(active, 'form');
     if (nativeForm !== undefined) return nativeForm as HTMLFormElement | null;
     return active.closest('form');
+  };
+  const getActiveElement = (): Element | null => {
+    const activeElement = getTrustedProperty(document, 'activeElement');
+    return activeElement === undefined ? document.activeElement : activeElement as Element | null;
   };
   const armInteraction = (
     element: Element | null,
@@ -181,7 +328,7 @@ export function installInteractionListenerTracking(
     expectedFingerprint: string,
   ): boolean => {
     if (token !== intentToken) return false;
-    const form = formForActiveElement(document.activeElement);
+    const form = formForActiveElement(getActiveElement());
     const actionTarget: EventTarget | null = element ?? form;
     if (!actionTarget) return false;
     let fingerprint: string | undefined;
@@ -191,11 +338,13 @@ export function installInteractionListenerTracking(
       return false;
     }
     if (fingerprint !== expectedFingerprint) return false;
-    const isFormControl = element instanceof HTMLButtonElement || element instanceof HTMLInputElement;
-    const formOwner = isFormControl ? getTrustedProperty(element, 'form') as HTMLFormElement | null : null;
-    const type = isFormControl ? getTrustedProperty(element, 'type') : undefined;
-    const isSubmitter = element instanceof HTMLButtonElement && type === 'submit'
-      || element instanceof HTMLInputElement && (type === 'submit' || type === 'image');
+    const isButton = isNativeInstance(element, 'HTMLButtonElement');
+    const isInput = isNativeInstance(element, 'HTMLInputElement');
+    const isFormControl = isButton || isInput;
+    const formOwner = element && isFormControl ? getTrustedProperty(element, 'form') as HTMLFormElement | null : null;
+    const type = element && isFormControl ? getTrustedProperty(element, 'type') : undefined;
+    const isSubmitter = isButton && type === 'submit'
+      || isInput && (type === 'submit' || type === 'image');
     const state = { fingerprint, inspectElement: element, submitter: isSubmitter ? element : null, activationSeen: false };
     setArmedIntent(actionTarget, state);
     if (isSubmitter && formOwner) {
@@ -205,11 +354,11 @@ export function installInteractionListenerTracking(
   };
   const clearInteraction = (element: Element | null, token: string): boolean => {
     if (token !== intentToken) return false;
-    const activeForm = element ? null : formForActiveElement(document.activeElement);
+    const activeForm = element ? null : formForActiveElement(getActiveElement());
     const target = element ?? activeForm;
     if (!target) return false;
     deleteArmedIntent(target);
-    const formOwner = element instanceof HTMLButtonElement || element instanceof HTMLInputElement
+    const formOwner = element && (isNativeInstance(element, 'HTMLButtonElement') || isNativeInstance(element, 'HTMLInputElement'))
       ? getTrustedProperty(element, 'form') as HTMLFormElement | null
       : null;
     if (formOwner) {
@@ -240,34 +389,36 @@ export function installInteractionListenerTracking(
       : current.parentElement;
     if (parent) return parent;
     const root = callGetRootNode ? callGetRootNode(current) : current.getRootNode();
-    const host = typeof ShadowRoot !== 'undefined' && root instanceof ShadowRoot && readShadowHost
+    const host = isNativeInstance(root, 'ShadowRoot') && readShadowHost
       ? readShadowHost(root)
       : getProperty(root, 'host');
-    return host instanceof Element ? host : null;
+    return isNativeInstance(host, 'Element') ? host as Element : null;
   };
   const hasInlineHandler = (target: EventTarget, type: string): boolean =>
-    typeof getProperty(target, `on${type.toLowerCase()}`) === 'function';
+    typeof getProperty(target, `on${callStringToLowerCase(type)}`) === 'function';
   const armActivatedIntent = (event: Event, path: EventTarget[]): void => {
-    const type = event.type.toLowerCase();
+    const type = callStringToLowerCase((getNativeEventType?.(event) as string | undefined) ?? event.type);
     const isAuthorizedActivation = type === 'click'
-      || ((type === 'keydown' || type === 'keypress') && getProperty(event, 'key') === 'Enter');
+      || ((type === 'keydown' || type === 'keypress') && getTrustedProperty(event, 'key') === 'Enter');
     if (!isAuthorizedActivation) return;
-    for (const target of path) {
+    for (let index = 0; index < path.length; index += 1) {
+      const target = path[index];
+      if (!target) continue;
       const armed = getArmedIntent(target);
       if (!armed) continue;
       if (type === 'click' && (armed.inspectElement === null
-        || (armed.submitter !== null && path.includes(armed.submitter)))) {
+        || (armed.submitter !== null && callArrayIncludes(path, armed.submitter)))) {
         armed.activationSeen = true;
       }
       if (type !== 'click' && armed.inspectElement === null) armed.activationSeen = true;
     }
   };
   const guardUnverifiedHandlers: EventListener = (event) => {
-    const type = event.type.toLowerCase();
+    const type = callStringToLowerCase((getNativeEventType?.(event) as string | undefined) ?? event.type);
     const path = callComposedPath(event) as EventTarget[];
-    const hasPathHandler = path.some((target) =>
+    const hasPathHandler = callArraySome(path, (target) =>
       hasListener(target, type) || hasInlineHandler(target, type));
-    const changedArmedIntent = path.some((target) => {
+    const changedArmedIntent = callArraySome(path, (target) => {
       const armed = getArmedIntent(target);
       if (!armed) return false;
       try {
@@ -276,9 +427,9 @@ export function installInteractionListenerTracking(
         return true;
       }
     });
-    const hasArmedIntent = path.some((target) => getArmedIntent(target) !== undefined);
+    const hasArmedIntent = callArraySome(path, (target) => getArmedIntent(target) !== undefined);
     const keyboardEnter = (type === 'keydown' || type === 'keypress')
-      && getProperty(event, 'key') === 'Enter';
+      && getTrustedProperty(event, 'key') === 'Enter';
     let submitter: Element | null | undefined;
     if (type === 'submit' && getNativeSubmitter) {
       try {
@@ -289,7 +440,7 @@ export function installInteractionListenerTracking(
     }
     const authorizedSubmit = type === 'submit'
       && submitter !== undefined
-      && path.some((target) => {
+      && callArraySome(path, (target) => {
         const armed = getArmedIntent(target);
         return armed !== undefined
           && armed.activationSeen
@@ -299,9 +450,9 @@ export function installInteractionListenerTracking(
       });
     const missingArmedIntent = ((type === 'click' || type === 'auxclick' || keyboardEnter) && !hasArmedIntent)
       || (type === 'submit' && !authorizedSubmit);
-    const hasLifecycleHandler = eventTypes.some((eventType) =>
+    const hasLifecycleHandler = callArraySome(eventTypes, (eventType) =>
       isLifecycleInteraction(eventType)
-      && [window, document].some((target) =>
+      && callArraySome([window, document], (target) =>
         hasListener(target, eventType) || hasInlineHandler(target, eventType)));
     if (hasPathHandler || changedArmedIntent || missingArmedIntent
       || (hasLifecycleHandler && isInteractionEvent(type))) {
@@ -309,13 +460,19 @@ export function installInteractionListenerTracking(
       callPreventDefault(event);
       callStopImmediatePropagation(event);
       if (type === 'submit') {
-        for (const target of path) deleteArmedIntent(target);
+        for (let index = 0; index < path.length; index += 1) {
+          const target = path[index];
+          if (target) deleteArmedIntent(target);
+        }
       }
       return;
     }
     armActivatedIntent(event, path);
     if (type === 'submit') {
-      for (const target of path) deleteArmedIntent(target);
+      for (let index = 0; index < path.length; index += 1) {
+        const target = path[index];
+        if (target) deleteArmedIntent(target);
+      }
     }
   };
   for (const type of eventTypes) {
@@ -327,7 +484,7 @@ export function installInteractionListenerTracking(
     listener: EventListenerOrEventListenerObject | null,
     options?: boolean | AddEventListenerOptions,
   ): void {
-    if (listener && isInteractionEvent(type.toLowerCase())) trackListener(this, type);
+    if (listener && isInteractionEvent(callStringToLowerCase(type))) trackListener(this, type);
     callOriginalAddEventListener(this, type, listener, options);
   };
   Object.defineProperty(EventTarget.prototype, 'addEventListener', {
@@ -415,6 +572,125 @@ export function installInteractionListenerTracking(
     enumerable: false,
     writable: false,
   });
+  Object.defineProperty(window, '__agentTasksGetNativeRoot', {
+    value: (node: Node) => callGetRootNode ? callGetRootNode(node) : null,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksGetAssignedElements', {
+    value: (slot: Element) => callNativeAssignedElements
+      ? callNativeAssignedElements(slot as HTMLSlotElement, { flatten: true })
+      : null,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksGetElementById', {
+    value: (id: string) => {
+      if (callNativeGetElementById) {
+        try {
+          return callNativeGetElementById(document, id);
+        } catch {
+          // Unit-test DOMs may not implement the native Document brand.
+        }
+      }
+      return document.getElementById(id);
+    },
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksStringToLowerCase', {
+    value: callStringToLowerCase,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksStringTrim', {
+    value: callStringTrim,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksStringCharAt', {
+    value: callStringCharAt,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksStringCharCodeAt', {
+    value: callStringCharCodeAt,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksIsNativeInstance', {
+    value: isNativeInstance,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksArrayMap', {
+    value: callArrayMap,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksArrayFilter', {
+    value: callArrayFilter,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksArraySome', {
+    value: callArraySome,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksArrayIncludes', {
+    value: callArrayIncludes,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksArrayJoin', {
+    value: callArrayJoin,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksAppendArray', {
+    value: appendArray,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksArrayPop', {
+    value: callArrayPop,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksCreateSet', {
+    value: <T>() => new NativeSet<T>(),
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksSetAdd', {
+    value: callSetAdd,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksSetHas', {
+    value: callSetHas,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
 }
 
 /** Runs in Chromium to inspect control labels, routes, fields, and script-driven intent. */
@@ -427,6 +703,24 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     __agentTasksGetComposedParent?: (target: Element) => Element | null;
     __agentTasksArrayFrom?: <T>(items: Iterable<T> | ArrayLike<T>) => T[];
     __agentTasksGetNativeProperty?: (target: object, property: string) => unknown;
+    __agentTasksGetNativeRoot?: (node: Node) => Node | null;
+    __agentTasksGetAssignedElements?: (slot: Element) => Element[] | null;
+    __agentTasksGetElementById?: (id: string) => HTMLElement | null;
+    __agentTasksStringToLowerCase?: (value: string) => string;
+    __agentTasksStringTrim?: (value: string) => string;
+    __agentTasksStringCharAt?: (value: string, index: number) => string;
+    __agentTasksStringCharCodeAt?: (value: string, index: number) => number;
+    __agentTasksIsNativeInstance?: (target: unknown, name: string) => boolean;
+    __agentTasksArrayMap?: <T, U>(items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => U) => U[];
+    __agentTasksArrayFilter?: <T>(items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => boolean) => T[];
+    __agentTasksArraySome?: <T>(items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => boolean) => boolean;
+    __agentTasksArrayIncludes?: <T>(items: readonly T[], value: T) => boolean;
+    __agentTasksArrayJoin?: (items: readonly unknown[], separator?: string) => string;
+    __agentTasksAppendArray?: <T>(target: T[], values: readonly T[]) => void;
+    __agentTasksArrayPop?: <T>(items: T[]) => T | undefined;
+    __agentTasksCreateSet?: <T>() => Set<T>;
+    __agentTasksSetAdd?: <T>(set: Set<T>, value: T) => Set<T>;
+    __agentTasksSetHas?: <T>(set: Set<T>, value: T) => boolean;
   };
   const readAttribute = securityAccess.__agentTasksGetAttribute;
   const matchesElement = securityAccess.__agentTasksMatchesElement;
@@ -435,8 +729,29 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
   const getComposedParent = securityAccess.__agentTasksGetComposedParent;
   const arrayFrom = securityAccess.__agentTasksArrayFrom;
   const getNativeProperty = securityAccess.__agentTasksGetNativeProperty;
+  const getNativeRoot = securityAccess.__agentTasksGetNativeRoot;
+  const getAssignedElements = securityAccess.__agentTasksGetAssignedElements;
+  const getElementById = securityAccess.__agentTasksGetElementById;
+  const stringToLowerCase = securityAccess.__agentTasksStringToLowerCase;
+  const stringTrim = securityAccess.__agentTasksStringTrim;
+  const stringCharAt = securityAccess.__agentTasksStringCharAt;
+  const stringCharCodeAt = securityAccess.__agentTasksStringCharCodeAt;
+  const isNativeInstance = securityAccess.__agentTasksIsNativeInstance;
+  const arrayMap = securityAccess.__agentTasksArrayMap;
+  const arrayFilter = securityAccess.__agentTasksArrayFilter;
+  const arraySome = securityAccess.__agentTasksArraySome;
+  const arrayIncludes = securityAccess.__agentTasksArrayIncludes;
+  const arrayJoin = securityAccess.__agentTasksArrayJoin;
+  const appendArray = securityAccess.__agentTasksAppendArray;
+  const arrayPop = securityAccess.__agentTasksArrayPop;
+  const createSet = securityAccess.__agentTasksCreateSet;
+  const setAdd = securityAccess.__agentTasksSetAdd;
+  const setHas = securityAccess.__agentTasksSetHas;
   if (!readAttribute || !matchesElement || !readTextContent || !getProperty || !getComposedParent
-    || !arrayFrom || !getNativeProperty) return null;
+    || !arrayFrom || !getNativeProperty || !getNativeRoot || !getAssignedElements || !getElementById
+    || !stringToLowerCase || !stringTrim || !stringCharAt || !stringCharCodeAt
+    || !isNativeInstance || !arrayMap || !arrayFilter || !arraySome
+    || !arrayIncludes || !arrayJoin || !appendArray || !arrayPop || !createSet || !setAdd || !setHas) return null;
   const hasTrackedInteractionListener = (window as Window & {
     __agentTasksHasInteractionListener?: (target: EventTarget) => boolean;
   }).__agentTasksHasInteractionListener;
@@ -444,6 +759,37 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     __agentTasksGetShadowRoot?: (host: Element) => ShadowRoot | undefined;
   }).__agentTasksGetShadowRoot;
   const pageUrl = window.location?.href ?? '';
+  const splitAsciiWhitespace = (value: string): string[] => {
+    const result: string[] = [];
+    let token = '';
+    for (let index = 0; index < value.length; index += 1) {
+      const code = stringCharCodeAt(value, index);
+      if (code === 9 || code === 10 || code === 12 || code === 13 || code === 32) {
+        if (token.length > 0) result[result.length] = token;
+        token = '';
+      } else {
+        token += stringCharAt(value, index);
+      }
+    }
+    if (token.length > 0) result[result.length] = token;
+    return result;
+  };
+  const collapseWhitespace = (value: string): string => {
+    let result = '';
+    let hasWhitespace = false;
+    for (let index = 0; index < value.length; index += 1) {
+      const code = stringCharCodeAt(value, index);
+      const whitespace = code === 9 || code === 10 || code === 12 || code === 13 || code === 32;
+      if (whitespace) {
+        hasWhitespace = result.length > 0;
+      } else {
+        if (hasWhitespace) result += ' ';
+        result += stringCharAt(value, index);
+        hasWhitespace = false;
+      }
+    }
+    return result;
+  };
   const interactionEventTypes = [
     'auxclick', 'blur', 'change', 'click', 'contextmenu', 'dblclick', 'focus', 'focusin', 'focusout', 'formdata',
     'input', 'keydown', 'keypress', 'keyup', 'mousedown', 'mouseenter', 'mouseleave', 'mousemove',
@@ -454,104 +800,113 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
   const hasDirectScriptHandler = (target: EventTarget): boolean => {
     if (!hasTrackedInteractionListener || !getTrackedShadowRoot) return true;
     if (hasTrackedInteractionListener(target)) return true;
-    return interactionEventTypes.some((type) =>
-      (target instanceof Element && readAttribute(target, `on${type}`) !== null)
+    return arraySome(interactionEventTypes, (type) =>
+      (isNativeInstance(target, 'Element') && readAttribute(target as Element, `on${type}`) !== null)
       || typeof getProperty(target, `on${type}`) === 'function');
   };
   const hasScriptHandlers = (node: Element): boolean => {
     if (hasDirectScriptHandler(window) || hasDirectScriptHandler(document)) return true;
-    if (!(node instanceof Element)) return hasDirectScriptHandler(node);
+    if (!isNativeInstance(node, 'Element')) return hasDirectScriptHandler(node);
     for (let current: Element | null = node; current;) {
       if (hasDirectScriptHandler(current)) return true;
-      const assignedSlot: HTMLSlotElement | null = current.assignedSlot;
-      if (assignedSlot) {
-        current = assignedSlot;
-        continue;
-      }
-      if (current.parentElement) {
-        current = current.parentElement;
-        continue;
-      }
-      const root: Node = current.getRootNode();
-      const host: unknown = getProperty(root, 'host');
-      if (host instanceof Element) {
-        if (hasDirectScriptHandler(root as EventTarget)) return true;
-        current = host;
-      } else {
-        current = null;
-      }
+      const root = getNativeRoot(current);
+      if (root && isNativeInstance(root, 'ShadowRoot') && hasDirectScriptHandler(root as EventTarget)) return true;
+      current = getComposedParent(current);
     }
     return false;
   };
   const hasDescendantScriptHandlers = (node: Element): boolean => {
     if (!hasTrackedInteractionListener || !getTrackedShadowRoot) return true;
     const pending = [node];
-    const visited = new Set<Element>();
+    const visited = createSet<Element>();
     while (pending.length > 0) {
-      const current = pending.pop();
-      if (!current || visited.has(current)) continue;
-      visited.add(current);
+      const current = arrayPop(pending);
+      if (!current || setHas(visited, current)) continue;
+      setAdd(visited, current);
       if (current !== node && hasDirectScriptHandler(current)) return true;
-      pending.push(...arrayFrom(current.children));
-      const shadowRoot = getTrackedShadowRoot(current) ?? current.shadowRoot;
+      const children = getNativeProperty(current, 'children');
+      if (!children) return true;
+      appendArray(pending, arrayFrom(children as ArrayLike<Element>));
+      const shadowRoot = getTrackedShadowRoot(current) ?? getNativeProperty(current, 'shadowRoot') as ShadowRoot | null;
       if (shadowRoot) {
         if (hasDirectScriptHandler(shadowRoot)) return true;
-        pending.push(...arrayFrom(shadowRoot.children));
+        const shadowChildren = getNativeProperty(shadowRoot, 'children');
+        if (!shadowChildren) return true;
+        appendArray(pending, arrayFrom(shadowChildren as ArrayLike<Element>));
       }
-      if (current.localName === 'slot') {
-        pending.push(...arrayFrom((current as HTMLSlotElement).assignedElements({ flatten: true })));
+      if (getNativeProperty(current, 'localName') === 'slot') {
+        const assignedElements = getAssignedElements(current);
+        if (!assignedElements) return true;
+        appendArray(pending, arrayFrom(assignedElements));
       }
     }
     return false;
   };
-  const accessibleName = (node: Element, visited = new Set<Element>()): string => {
-    if (visited.has(node)) return '';
-    const nextVisited = new Set(visited);
-    nextVisited.add(node);
+  const accessibleName = (node: Element, visited = createSet<Element>()): string => {
+    if (setHas(visited, node)) return '';
+    const nextVisited = createSet<Element>();
+    const priorNodes = arrayFrom(visited);
+    for (let index = 0; index < priorNodes.length; index += 1) {
+      const prior = priorNodes[index];
+      if (prior) setAdd(nextVisited, prior);
+    }
+    setAdd(nextVisited, node);
 
     const labelledBy = readAttribute(node, 'aria-labelledby');
     if (labelledBy) {
-      const names = labelledBy
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((id) => document.getElementById(id))
-        .filter((reference): reference is HTMLElement => reference !== null)
-        .map((reference) => accessibleName(reference, new Set(nextVisited)))
-        .filter(Boolean);
-      if (names.length > 0) return names.join(' ');
+      const ids = splitAsciiWhitespace(labelledBy);
+      const references = arrayFilter(arrayMap(ids, (id) => getElementById(id)),
+        (reference) => reference !== null);
+      const names = arrayFilter(
+        arrayMap(references, (reference) => accessibleName(reference as HTMLElement, nextVisited)),
+        (name) => name.length > 0,
+      );
+      if (names.length > 0) return arrayJoin(names, ' ');
     }
 
     const ariaLabel = readAttribute(node, 'aria-label');
     if (ariaLabel) return ariaLabel;
-    if (node instanceof HTMLImageElement) return node.alt || node.title || '';
-    if (node instanceof HTMLInputElement) {
-      if (node.type === 'image') return node.alt || node.value || node.title || '';
-      if (node.type === 'submit' || node.type === 'button' || node.type === 'reset') return node.value || node.title || '';
+    if (isNativeInstance(node, 'HTMLImageElement')) {
+      const alt = getNativeProperty(node, 'alt');
+      const title = getNativeProperty(node, 'title');
+      return (typeof alt === 'string' ? alt : '') || (typeof title === 'string' ? title : '');
+    }
+    if (isNativeInstance(node, 'HTMLInputElement')) {
+      const type = getNativeProperty(node, 'type');
+      const alt = getNativeProperty(node, 'alt');
+      const value = getNativeProperty(node, 'value');
+      const title = getNativeProperty(node, 'title');
+      if (type === 'image') {
+        return (typeof alt === 'string' ? alt : '') || (typeof value === 'string' ? value : '')
+          || (typeof title === 'string' ? title : '');
+      }
+      if (type === 'submit' || type === 'button' || type === 'reset') {
+        return (typeof value === 'string' ? value : '') || (typeof title === 'string' ? title : '');
+      }
     }
 
-    const labels = node instanceof HTMLInputElement
-      || node instanceof HTMLButtonElement
-      || node instanceof HTMLSelectElement
-      || node instanceof HTMLTextAreaElement
+    const labels = isNativeInstance(node, 'HTMLInputElement')
+      || isNativeInstance(node, 'HTMLButtonElement')
+      || isNativeInstance(node, 'HTMLSelectElement')
+      || isNativeInstance(node, 'HTMLTextAreaElement')
       ? arrayFrom((getNativeProperty(node, 'labels') as NodeListOf<HTMLLabelElement> | null) ?? [])
       : [];
-    const labelNames = labels
-      .map((label) => accessibleName(label, new Set(nextVisited)))
-      .filter(Boolean);
-    if (labelNames.length > 0) return labelNames.join(' ');
+    const labelNames = arrayFilter(arrayMap(labels, (label) => accessibleName(label, nextVisited)),
+      (label) => label.length > 0);
+    if (labelNames.length > 0) return arrayJoin(labelNames, ' ');
 
-    const contents = arrayFrom(node.childNodes)
-      .map((child) => child instanceof Element
-        ? accessibleName(child, new Set(nextVisited))
+    const childNodes = getNativeProperty(node, 'childNodes') as NodeListOf<Node> | undefined;
+    if (!childNodes) return '';
+    const contents = arrayJoin(arrayFilter(arrayMap(arrayFrom(childNodes), (child) => isNativeInstance(child, 'Element')
+        ? accessibleName(child as Element, nextVisited)
         : readTextContent(child) ?? '')
-      .filter(Boolean)
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return contents || readTextContent(node)?.trim() || readAttribute(node, 'title') || '';
+      , (value) => value.length > 0), ' ');
+    const normalizedContents = stringTrim(collapseWhitespace(contents));
+    const textContent = readTextContent(node);
+    return normalizedContents || (textContent ? stringTrim(textContent) : '') || readAttribute(node, 'title') || '';
   };
 
-  const labelFor = (node: Element): string => [
+  const labelFor = (node: Element): string => arrayJoin(arrayFilter([
     accessibleName(node),
     readTextContent(node) ?? '',
     readAttribute(node, 'value') ?? '',
@@ -559,23 +914,29 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     readAttribute(node, 'name') ?? '',
     readAttribute(node, 'type') ?? '',
     readAttribute(node, 'alt') ?? '',
-  ].filter(Boolean).join(' ');
+  ], (value) => value.length > 0), ' ');
 
   const fieldsFor = (
     form: HTMLFormElement,
     methodOverride = getNativeProperty(form, 'method') as string | undefined,
   ): Array<{ name: string; value: string }> | null => {
     if (typeof methodOverride !== 'string') return null;
-    const method = methodOverride.toLowerCase();
-    const actionFieldNames = new Set(['action', 'command', 'do', 'event', 'handler', 'intent', 'mode', 'op', 'operation', 'task', 'workflow']);
+    const method = stringToLowerCase(methodOverride);
+    const actionFieldNames = createSet<string>();
+    const actionNames = ['action', 'command', 'do', 'event', 'handler', 'intent', 'mode', 'op', 'operation', 'task', 'workflow'];
+    for (let index = 0; index < actionNames.length; index += 1) {
+      setAdd(actionFieldNames, actionNames[index]);
+    }
     const elements = getNativeProperty(form, 'elements') as HTMLFormControlsCollection | undefined;
     if (!elements) return null;
     const fields: Array<{ name: string; value: string }> = [];
-    for (const candidate of arrayFrom(elements)) {
-      if (!(candidate instanceof HTMLInputElement
-        || candidate instanceof HTMLButtonElement
-        || candidate instanceof HTMLSelectElement
-        || candidate instanceof HTMLTextAreaElement)) continue;
+    const candidates = arrayFrom(elements);
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      const candidate = candidates[candidateIndex];
+      if (!candidate || !(isNativeInstance(candidate, 'HTMLInputElement')
+        || isNativeInstance(candidate, 'HTMLButtonElement')
+        || isNativeInstance(candidate, 'HTMLSelectElement')
+        || isNativeInstance(candidate, 'HTMLTextAreaElement'))) continue;
 
       const disabled = getNativeProperty(candidate, 'disabled');
       const candidateName = getNativeProperty(candidate, 'name');
@@ -584,13 +945,16 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
 
       const type = getNativeProperty(candidate, 'type');
       const name = candidateName;
-      if (candidate instanceof HTMLInputElement && (type === 'checkbox' || type === 'radio')
+      if (isNativeInstance(candidate, 'HTMLInputElement') && (type === 'checkbox' || type === 'radio')
         && !getNativeProperty(candidate, 'checked')) continue;
-      if (candidate instanceof HTMLInputElement && type === 'file') continue;
-      if (candidate instanceof HTMLSelectElement && getNativeProperty(candidate, 'multiple')) {
+      if (isNativeInstance(candidate, 'HTMLInputElement') && type === 'file') continue;
+      if (isNativeInstance(candidate, 'HTMLSelectElement') && getNativeProperty(candidate, 'multiple')) {
         const selectedOptions = getNativeProperty(candidate, 'selectedOptions') as HTMLCollectionOf<HTMLOptionElement> | undefined;
         if (!selectedOptions) return null;
-        for (const option of arrayFrom(selectedOptions)) {
+        const options = arrayFrom(selectedOptions);
+        for (let optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
+          const option = options[optionIndex];
+          if (!option) return null;
           const optionDisabled = getNativeProperty(option, 'disabled');
           const optionValue = getNativeProperty(option, 'value');
           if (typeof optionDisabled !== 'boolean' || typeof optionValue !== 'string') return null;
@@ -598,9 +962,16 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
         }
         continue;
       }
-      const isHiddenInput = candidate instanceof HTMLInputElement && type === 'hidden';
-      const normalizedName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (method !== 'get' && !isHiddenInput && !actionFieldNames.has(normalizedName)) continue;
+      const isHiddenInput = isNativeInstance(candidate, 'HTMLInputElement') && type === 'hidden';
+      const loweredName = stringToLowerCase(name);
+      let normalizedName = '';
+      for (let nameIndex = 0; nameIndex < loweredName.length; nameIndex += 1) {
+        const code = stringCharCodeAt(loweredName, nameIndex);
+        if ((code >= 97 && code <= 122) || (code >= 48 && code <= 57)) {
+          normalizedName += stringCharAt(loweredName, nameIndex);
+        }
+      }
+      if (method !== 'get' && !isHiddenInput && !setHas(actionFieldNames, normalizedName)) continue;
 
       const value = getNativeProperty(candidate, 'value');
       if (typeof value !== 'string') return null;
@@ -610,49 +981,72 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
   };
   const hasFormScriptHandlers = (form: HTMLFormElement): boolean =>
     hasScriptHandlers(form)
-    || arrayFrom((getNativeProperty(form, 'elements') as HTMLFormControlsCollection | undefined) ?? [])
-      .some((candidate) => hasScriptHandlers(candidate));
+    || arraySome(arrayFrom((getNativeProperty(form, 'elements') as HTMLFormControlsCollection | undefined) ?? []),
+      (candidate) => hasScriptHandlers(candidate));
 
   if (element) {
     const hasUnverifiedDescendantHandlers = hasDescendantScriptHandlers(element);
-    const nodes = new Set<Element>([element]);
+    const nodes = createSet<Element>();
+    setAdd(nodes, element);
     const interactiveSelector = 'a[href], area[href], button, input[type="submit"], input[type="image"], input[type="button"], label, [role="button"], [role="link"], [onclick]';
-    const visitedElements = new Set<Element>();
+    const visitedElements = createSet<Element>();
+    let incompleteStructure = false;
     const collectFromContainer = (container: ParentNode): void => {
-      for (const child of arrayFrom(container.children)) collectInteractiveElement(child);
+      const children = getNativeProperty(container, 'children') as HTMLCollection | undefined;
+      if (!children) {
+        incompleteStructure = true;
+        return;
+      }
+      const childNodes = arrayFrom(children);
+      for (let index = 0; index < childNodes.length; index += 1) {
+        const child = childNodes[index];
+        if (child) collectInteractiveElement(child);
+      }
     };
     const collectInteractiveElement = (current: Element): void => {
-      if (visitedElements.has(current)) return;
-      visitedElements.add(current);
-      if (matchesElement(current, interactiveSelector)) nodes.add(current);
+      if (setHas(visitedElements, current)) return;
+      setAdd(visitedElements, current);
+      if (matchesElement(current, interactiveSelector)) setAdd(nodes, current);
       collectFromContainer(current);
-      const shadowRoot = getTrackedShadowRoot?.(current) ?? current.shadowRoot;
+      const shadowRoot = getTrackedShadowRoot?.(current) ?? getNativeProperty(current, 'shadowRoot') as ShadowRoot | null;
       if (shadowRoot) collectFromContainer(shadowRoot);
-      if (current.localName === 'slot') {
-        for (const assigned of arrayFrom((current as HTMLSlotElement).assignedElements({ flatten: true }))) {
-          collectInteractiveElement(assigned);
+      if (getNativeProperty(current, 'localName') === 'slot') {
+        const assigned = getAssignedElements(current);
+        if (!assigned) {
+          incompleteStructure = true;
+          return;
+        }
+        for (let index = 0; index < assigned.length; index += 1) {
+          const assignedElement = assigned[index];
+          if (assignedElement) collectInteractiveElement(assignedElement);
         }
       }
     };
     collectFromContainer(element);
-    const selectedShadowRoot = getTrackedShadowRoot?.(element) ?? element.shadowRoot;
+    const selectedShadowRoot = getTrackedShadowRoot?.(element) ?? getNativeProperty(element, 'shadowRoot') as ShadowRoot | null;
     if (selectedShadowRoot) collectFromContainer(selectedShadowRoot);
     for (let current: Element | null = element; current; current = getComposedParent(current)) {
       if (matchesElement(current, interactiveSelector)) {
-        nodes.add(current);
+        setAdd(nodes, current);
       }
     }
-    for (const node of arrayFrom(nodes)) {
-      if (node instanceof HTMLLabelElement) {
+    if (incompleteStructure) return null;
+    const inspectedNodes = arrayFrom(nodes);
+    for (let index = 0; index < inspectedNodes.length; index += 1) {
+      const node = inspectedNodes[index];
+      if (!node) continue;
+      if (isNativeInstance(node, 'HTMLLabelElement')) {
         const control = getNativeProperty(node, 'control') as Element | null;
-        if (control) nodes.add(control);
+        if (control) setAdd(nodes, control);
       }
-      if (node instanceof HTMLInputElement
-        || node instanceof HTMLButtonElement
-        || node instanceof HTMLSelectElement
-        || node instanceof HTMLTextAreaElement) {
-        for (const label of arrayFrom((getNativeProperty(node, 'labels') as NodeListOf<HTMLLabelElement> | null) ?? [])) {
-          nodes.add(label);
+      if (isNativeInstance(node, 'HTMLInputElement')
+        || isNativeInstance(node, 'HTMLButtonElement')
+        || isNativeInstance(node, 'HTMLSelectElement')
+        || isNativeInstance(node, 'HTMLTextAreaElement')) {
+        const labels = arrayFrom((getNativeProperty(node, 'labels') as NodeListOf<HTMLLabelElement> | null) ?? []);
+        for (let labelIndex = 0; labelIndex < labels.length; labelIndex += 1) {
+          const label = labels[labelIndex];
+          if (label) setAdd(nodes, label);
         }
       }
     }
@@ -660,9 +1054,9 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     const inspection: BrowserPolicyInspection = {
       kind: 'click',
       pageUrl,
-      targets: arrayFrom(nodes).map((node) => {
-        const isButton = node instanceof HTMLButtonElement;
-        const isInput = node instanceof HTMLInputElement;
+      targets: arrayMap(arrayFrom(nodes), (node) => {
+        const isButton = isNativeInstance(node, 'HTMLButtonElement');
+        const isInput = isNativeInstance(node, 'HTMLInputElement');
         const type = isButton || isInput ? getNativeProperty(node, 'type') : undefined;
         const isSubmitter = isButton && type === 'submit'
           || isInput && (type === 'submit' || type === 'image');
@@ -698,7 +1092,8 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     return inspection;
   }
 
-  const active = document.activeElement;
+  const nativeActiveElement = getNativeProperty(document, 'activeElement');
+  const active = (nativeActiveElement === undefined ? document.activeElement : nativeActiveElement) as Element | null;
   const form = active ? getNativeProperty(active, 'form') as HTMLFormElement | null | undefined : null;
   if (!form) return null;
   const formAction = getNativeProperty(form, 'action');
@@ -707,16 +1102,14 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
   if (typeof formAction !== 'string' || typeof formMethod !== 'string' || !formElements) return null;
   const formControls = arrayFrom(formElements);
   let incompleteSubmitterIntent = false;
-  const submitters = formControls
-    .filter((candidate): candidate is HTMLButtonElement | HTMLInputElement => {
+  const submitters = arrayMap(arrayFilter(formControls, (candidate) => {
       const disabled = getNativeProperty(candidate, 'disabled');
       const type = getNativeProperty(candidate, 'type');
-      if (candidate instanceof HTMLButtonElement) return type === 'submit' && disabled === false;
-      return candidate instanceof HTMLInputElement
+      if (isNativeInstance(candidate, 'HTMLButtonElement')) return type === 'submit' && disabled === false;
+      return isNativeInstance(candidate, 'HTMLInputElement')
         && (type === 'submit' || type === 'image')
         && disabled === false;
-    })
-    .map((candidate) => {
+    }), (candidate) => {
       const actionOverride = readAttribute(candidate, 'formaction') !== null;
       const nativeAction = actionOverride ? getNativeProperty(candidate, 'formAction') : formAction;
       if (typeof nativeAction !== 'string') incompleteSubmitterIntent = true;
@@ -726,21 +1119,23 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
         hasScriptHandlers: hasScriptHandlers(candidate),
       };
     });
-  const hasGetSubmitter = formControls.some((candidate) => {
+  const hasGetSubmitter = arraySome(formControls, (candidate) => {
     const type = getNativeProperty(candidate, 'type');
-    const isSubmitter = (candidate instanceof HTMLButtonElement && type === 'submit')
-      || (candidate instanceof HTMLInputElement && (type === 'submit' || type === 'image'));
+    const isSubmitter = (isNativeInstance(candidate, 'HTMLButtonElement') && type === 'submit')
+      || (isNativeInstance(candidate, 'HTMLInputElement') && (type === 'submit' || type === 'image'));
     return isSubmitter
     && getNativeProperty(candidate, 'disabled') === false
     && readAttribute(candidate, 'formmethod') !== null
-    && (getNativeProperty(candidate, 'formMethod') as string | undefined)?.toLowerCase() === 'get';
+    && typeof getNativeProperty(candidate, 'formMethod') === 'string'
+    && stringToLowerCase(getNativeProperty(candidate, 'formMethod') as string) === 'get';
   });
-  for (const candidate of formControls) {
-    if (!(candidate instanceof HTMLButtonElement || candidate instanceof HTMLInputElement)) continue;
+  for (let index = 0; index < formControls.length; index += 1) {
+    const candidate = formControls[index];
+    if (!candidate || !(isNativeInstance(candidate, 'HTMLButtonElement') || isNativeInstance(candidate, 'HTMLInputElement'))) continue;
     if (readAttribute(candidate, 'formmethod') !== null
       && typeof getNativeProperty(candidate, 'formMethod') !== 'string') incompleteSubmitterIntent = true;
   }
-  const method = formMethod.toLowerCase();
+  const method = stringToLowerCase(formMethod);
   const fields = fieldsFor(form, hasGetSubmitter ? 'get' : method);
   if (!fields || incompleteSubmitterIntent) return null;
   return {
@@ -971,6 +1366,7 @@ export class BrowserPool {
         if (!inspection || inspection.kind !== 'click'
           || inspection.targets.some(({ label, href, formAction, formFields, hasScriptHandlers }) =>
             hasScriptHandlers
+            || formAction !== null
             || isForbiddenClickTarget(label, { href, formAction, pageUrl: inspection.pageUrl })
             || (formAction !== null && isForbiddenFormIntent(formAction, formFields, inspection.pageUrl)))) {
           return { ok: false, action: 'click_element', error: 'clicking controls with unverified script behavior, authentication, payment or destructive actions is not allowed' };
@@ -1006,6 +1402,9 @@ export class BrowserPool {
         return { ok: true, action: 'click_element', url: page.url(), title: await page.title() };
       }
       case 'fill_form': {
+        if (action.submit) {
+          return { ok: false, action: 'fill_form', error: 'form submission is disabled by policy' };
+        }
         for (const field of action.fields) {
           const target = await page.locator(field.selector).first().elementHandle({ timeout: this.limits.actionTimeoutMs });
           if (!target) {
@@ -1025,45 +1424,6 @@ export class BrowserPool {
           if (blockedAfter === null || blockedAfter > blockedBefore) {
             return { ok: false, action: 'fill_form', error: 'script-driven interaction was blocked while filling a field' };
           }
-        }
-        if (action.submit) {
-          const inspection = await page.evaluate(inspectBrowserPolicy, null);
-          if (!inspection || inspection.kind !== 'form'
-            || inspection.hasScriptHandlers
-            || isForbiddenClickTarget('', { formAction: inspection.formAction, pageUrl: inspection.pageUrl })
-            || isForbiddenFormIntent(inspection.formAction, inspection.fields, inspection.pageUrl)
-            || inspection.submitters.some(({ label, formAction, hasScriptHandlers }) =>
-              hasScriptHandlers || isForbiddenClickTarget(label, { formAction, pageUrl: inspection.pageUrl }))) {
-            return { ok: false, action: 'fill_form', error: 'submitting a form with unverified script behavior, authentication, payment or destructive intent is not allowed' };
-          }
-          const armed = await page.evaluate((input: { token: string; fingerprint: string }) => {
-            const arm = (window as Window & {
-              __agentTasksArmInteraction?: (target: Element | null, token: string, fingerprint: string) => boolean;
-            }).__agentTasksArmInteraction;
-            return typeof arm === 'function' && arm(null, input.token, input.fingerprint);
-          }, { token: session.intentToken, fingerprint: JSON.stringify(inspection) });
-          if (!armed) {
-            return { ok: false, action: 'fill_form', error: 'the form changed after policy inspection' };
-          }
-          const blockedBefore = await readBlockedInteractionCount();
-          if (blockedBefore === null) {
-            return { ok: false, action: 'fill_form', error: 'interaction tracking is unavailable' };
-          }
-          try {
-            await page.keyboard.press('Enter');
-          } finally {
-            await page.evaluate((token: string) => {
-              const clear = (window as Window & {
-                __agentTasksClearInteraction?: (target: Element | null, intentToken: string) => boolean;
-              }).__agentTasksClearInteraction;
-              return typeof clear === 'function' && clear(null, token);
-            }, session.intentToken).catch(() => false);
-          }
-          const blockedAfter = await readBlockedInteractionCount();
-          if (blockedAfter === null || blockedAfter > blockedBefore) {
-            return { ok: false, action: 'fill_form', error: 'script-driven form submission was blocked' };
-          }
-          await page.waitForLoadState('domcontentloaded', { timeout: this.limits.actionTimeoutMs }).catch(() => undefined);
         }
         return { ok: true, action: 'fill_form', url: page.url(), title: await page.title() };
       }

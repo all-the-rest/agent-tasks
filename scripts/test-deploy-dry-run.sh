@@ -379,6 +379,7 @@ cat > "$tmp/config-template.json" <<'JSON'
   "name": "agent-tasks",
   "services": {
     "api": {
+      "image": "ghcr.io/all-the-rest/agent-tasks/api:0",
       "environment": {
         "AUTH_SECRET": "@auth@",
         "SECRETS_ENCRYPTION_KEY": "@encryption@",
@@ -403,12 +404,14 @@ cat > "$tmp/config-template.json" <<'JSON'
       ]
     },
     "worker": {
+      "image": "ghcr.io/all-the-rest/agent-tasks/api:0",
       "environment": {
         "RUNNER_TOKEN": "@runner@",
         "OPENCODE_PROVISIONER_TOKEN": "@provisioner@"
       }
     },
     "browser-runner": {
+      "image": "ghcr.io/all-the-rest/agent-tasks/browser-runner:0",
       "environment": {
         "RUNNER_TOKEN": "@runner@"
       },
@@ -454,6 +457,7 @@ if [ "${DEPLOY_TEST_RENDER_COMPOSE:-0}" = 1 ]; then
     env_line RUNNER_SECCOMP_PATH "$remote/docker/seccomp-browser.json"
     env_line SEARXNG_SETTINGS_PATH "$remote/docker/searxng/settings.yml"
     env_line OPENCODE_PROVISIONER_TOKEN "$provisioner_value"
+    env_line IMAGE_TAG 0
   } > "$tmp/compose-test.env"
   printf 'server:\n  secret_key: compose-contract-test-key\n' > \
     "$remote/docker/searxng/settings.yml"
@@ -500,7 +504,10 @@ elif mutation == "project-wrong":
 elif mutation == "postgres-volume-name-wrong":
     document["volumes"]["postgres-data"]["name"] = "agent-tasks_legacy-postgres-data"
 elif mutation == "opencode-profile":
-    services["opencode-provisioner"] = {"profiles": ["opencode-runtime"]}
+    services["opencode-provisioner"] = {
+        "profiles": ["opencode-runtime"],
+        "image": "ghcr.io/all-the-rest/agent-tasks/opencode-provisioner:0",
+    }
 elif mutation == "provisioner-token-missing":
     del services["worker"]["environment"]["OPENCODE_PROVISIONER_TOKEN"]
 else:
@@ -643,6 +650,25 @@ grep -q -- '-f .*compose.yaml.next config --format json' "$calls" ||
   fail 'preflight did not validate the candidate compose file explicitly'
 # Raw .env is deliberately valid here; the effective rendered value is not.
 preflight_case placeholder fail "$tmp/config-placeholder.json" "$tmp/net-valid" 'root:root 600' 'AUTH_SECRET'
+# Production must render a release selector; unset and latest both otherwise
+# resolve to the moving default. Stable major-line tags such as 0 remain valid.
+python3 - "$tmp/config-valid.json" "$tmp/config-latest.json" "$tmp/config-unset-tag.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    document = json.load(source)
+latest = json.loads(json.dumps(document))
+latest["services"]["api"]["image"] = "ghcr.io/all-the-rest/agent-tasks/api:latest"
+with open(sys.argv[2], "w", encoding="utf-8") as destination:
+    json.dump(latest, destination)
+unset = json.loads(json.dumps(document))
+unset["services"]["api"]["image"] = "ghcr.io/all-the-rest/agent-tasks/api"
+with open(sys.argv[3], "w", encoding="utf-8") as destination:
+    json.dump(unset, destination)
+PY
+preflight_case latest-image-tag fail "$tmp/config-latest.json" "$tmp/net-valid" 'root:root 600' 'IMAGE_TAG'
+preflight_case missing-image-tag fail "$tmp/config-unset-tag.json" "$tmp/net-valid" 'root:root 600' 'IMAGE_TAG'
 preflight_case env-mode fail "$tmp/config-valid.json" "$tmp/net-valid" 'root:root 644' 'root:root 0600'
 preflight_case hostless-url fail "$tmp/config-hostless.json" "$tmp/net-valid" 'root:root 600' 'PUBLIC_BASE_URL'
 preflight_case non-https-url fail "$tmp/config-http.json" "$tmp/net-valid" 'root:root 600' 'https://'

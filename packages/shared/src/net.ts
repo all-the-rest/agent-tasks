@@ -145,10 +145,20 @@ const BLOCKED_HOSTS = new Set([
   'kubernetes.default.svc',
 ]);
 
-/** Normalises a hostname: lowercase, punycode, no trailing dot. Returns null for garbage. */
+/**
+ * Normalises a hostname: lowercase, punycode, no trailing dot, no URL brackets.
+ * IPv6 literals are returned bare so `isIP` and the address policy can classify
+ * them; the brackets are a URL syntax detail, not part of the address. Returns
+ * null for garbage, including unbalanced or non-IP bracket forms.
+ */
 export function normalizeHostname(hostname: string): string | null {
   const trimmed = hostname.trim().toLowerCase().replace(/\.$/, '');
   if (!trimmed || trimmed.length > 253) return null;
+  if (trimmed.startsWith('[') || trimmed.endsWith(']')) {
+    if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) return null;
+    const inner = trimmed.slice(1, -1);
+    return isIP(inner) === 6 ? inner : null;
+  }
   if (isIP(trimmed)) return trimmed;
   const ascii = domainToASCII(trimmed);
   if (!ascii || ascii.length > 253) return null;
@@ -203,7 +213,9 @@ export function checkUrl(raw: string | URL, options: UrlCheckOptions = {}): Chec
   if (isIP(hostname) && !isPublicAddress(hostname)) {
     throw new NetworkPolicyError(`address ${hostname} is not public`, url.toString());
   }
-  url.hostname = hostname;
+  // IPv6 literals need brackets in a URL; the bare form is only an internal key
+  // for isIP/classifyAddress and for callers that resolve the address.
+  url.hostname = isIP(hostname) === 6 ? `[${hostname}]` : hostname;
   return { url, hostname, port };
 }
 

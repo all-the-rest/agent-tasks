@@ -129,7 +129,7 @@ async function resultFromMessage(
   message: AssistantMessage,
   assistants: AssistantMessage[],
   options: RunAgentOptions,
-  config: { model: OpenCodeV2Model },
+  config: { model: OpenCodeV2Model; requiresMcp?: boolean },
 ): Promise<AgentRunResult> {
   const markdown = message.content
     .filter((part: unknown): part is { type: 'text'; text: string } => typeof part === 'object' && part !== null && 'type' in part && part.type === 'text' && 'text' in part && typeof part.text === 'string')
@@ -170,7 +170,7 @@ async function resultFromMessage(
     markdown,
     summary: markdown.replace(/\s+/g, ' ').trim().slice(0, 400),
     sources: [],
-    uncertainty: [],
+    uncertainty: uncertaintyFromExecution(assistants, options, config.requiresMcp === true),
     steps: [step],
     usage: {
       ...(totals.promptTokens > 0 ? { promptTokens: totals.promptTokens } : {}),
@@ -183,6 +183,132 @@ async function resultFromMessage(
     recommendationOps: [],
     stopReason: 'completed',
   };
+}
+
+/** Tools the isolated runtime offers when the task allows web research. */
+const RESEARCH_TOOLS = new Set([
+  'search_web',
+  'open_url',
+  'extract_page_text',
+  'inspect_page',
+  'click_element',
+  'fill_form',
+  'navigate_back',
+  'get_page_title',
+  'get_current_url',
+  'extract_links',
+]);
+
+/**
+ * Only these tool calls can produce a persisted source in the tool bridge:
+ * `open_url` always records the opened page, `click_element` records the target
+ * when navigation returns a URL.
+ */
+const SOURCE_TOOLS = new Set(['open_url', 'click_element']);
+
+type ToolPart = { name: string; status: string | undefined };
+
+/**
+ * OpenCode namespaces MCP tools with their server (for example
+ * `agent_tasks_tools_open_url`). The server name is provisioner-controlled, so
+ * match the canonical tool as a suffix instead of hard-coding one prefix.
+ */
+function canonicalToolName(name: string): string | undefined {
+  if (RESEARCH_TOOLS.has(name)) return name;
+  for (const tool of RESEARCH_TOOLS) {
+    if (name.endsWith(`_${tool}`)) return tool;
+  }
+  return undefined;
+}
+
+/**
+ * Read the durable tool parts OpenCode emits for a tool-calling assistant turn.
+ * The message content is already the contract used for the final text; tool
+ * parts add the tool name and its terminal status (`completed` or `error`).
+ *
+ * This deliberately does not inspect the model's prose. OpenCode has no
+ * structured uncertainty field, so a model-written "Uncertainty" section stays
+ * part of the Markdown report and is not copied into the structured report as
+ * if it were machine-readable data.
+ */
+function toolPartsFrom(assistants: AssistantMessage[]): ToolPart[] {
+  const parts: ToolPart[] = [];
+  for (const assistant of assistants) {
+    if (!Array.isArray(assistant.content)) continue;
+    for (const part of assistant.content) {
+      if (typeof part !== 'object' || part === null || !('type' in part) || part.type !== 'tool') continue;
+      if (!('name' in part) || typeof part.name !== 'string' || part.name.length === 0) continue;
+      const state = 'state' in part && typeof part.state === 'object' && part.state !== null
+        ? (part.state as Record<string, unknown>)
+        : undefined;
+      parts.push({
+        name: canonicalToolName(part.name) ?? part.name,
+        status: state && typeof state.status === 'string' ? state.status : undefined,
+      });
+    }
+  }
+  return parts;
+}
+
+/**
+ * Uncertainty notes derived only from facts this runner can verify:
+ * the task's research permission and the durable tool calls OpenCode recorded.
+ * An empty result means the run had verified pages and no failed research call;
+ * it never means "the model declared no uncertainty", which is why model prose
+ * is not used here.
+ */
+function uncertaintyFromExecution(
+  assistants: AssistantMessage[],
+  options: RunAgentOptions,
+  requiresMcp: boolean,
+): string[] {
+  if (!options.allowWebResearch) {
+    return ['Web research was disabled for this task, so the answer was not verified against external sources.'];
+  }
+  const parts = toolPartsFrom(assistants);
+  // Every tool call creates a tool-calling assistant turn. If such a turn exists
+  // but its parts are unreadable, the schema changed: report the limitation
+  // rather than claiming research did not happen.
+  const toolTurn = assistants.some((assistant) => assistant.finish === 'tool-calls' || assistant.finish === 'tool_calls');
+  if (toolTurn && parts.length === 0) {
+    return ['The runtime did not expose tool-call evidence, so it could not be confirmed whether web research was performed.'];
+  }
+
+  if (parts.length === 0) {
+    // No tool call was reported. A tool-less client proves that no research ran.
+    // With a bridge attached, the runtime may have invoked tools without
+    // returning durable tool parts (the test fake does exactly that), so the
+    // bridge could know about research this runner cannot see.
+    if (requiresMcp) {
+      return ['The runtime did not expose tool-call evidence, so it could not be confirmed whether web research was performed.'];
+    }
+    return ['No web research was performed, so no source was verified.'];
+  }
+
+  const research = parts.filter((part) => RESEARCH_TOOLS.has(part.name));
+  if (research.length === 0) {
+    return ['No web research was performed, so no source was verified.'];
+  }
+
+  const notes: string[] = [];
+  const sourceCalls = research.filter((part) => SOURCE_TOOLS.has(part.name));
+  if (sourceCalls.length === 0) {
+    notes.push('No web page was opened, so no source was verified.');
+  } else {
+    const statusesKnown = sourceCalls.every((part) => part.status === 'completed' || part.status === 'error');
+    // Do not turn an unreadable status into a claim that a page failed to open.
+    if (statusesKnown && !sourceCalls.some((part) => part.status === 'completed')) {
+      notes.push('No web page could be opened successfully, so no source was verified.');
+    }
+  }
+
+  const failed = [...new Set(research.filter((part) => part.status === 'error').map((part) => part.name))];
+  if (failed.length === 1) {
+    notes.push(`A web research tool call failed during this run: ${failed[0]}. Evidence from that call may be missing.`);
+  } else if (failed.length > 1) {
+    notes.push(`Web research tool calls failed during this run: ${failed.join(', ')}. Evidence from those calls may be missing.`);
+  }
+  return notes;
 }
 
 function tokenCount(value: unknown): number {

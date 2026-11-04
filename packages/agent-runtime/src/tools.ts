@@ -233,7 +233,7 @@ const clickElementTool: AgentTool = {
 
 const fillFormTool: AgentTool = {
   name: 'fill_form',
-  description: 'Fill search/filter fields on a public page. Submitting is only allowed with explicit permission and never on login or payment pages.',
+  description: 'Fill search/filter fields on a public page. Form submission is disabled by policy.',
   parameters: {
     type: 'object',
     properties: {
@@ -241,7 +241,6 @@ const fillFormTool: AgentTool = {
         type: 'array',
         items: { type: 'object', properties: { selector: { type: 'string' }, value: { type: 'string' } }, required: ['selector', 'value'] },
       },
-      submit: { type: 'boolean', default: false },
     },
     required: ['fields'],
     additionalProperties: false,
@@ -249,10 +248,11 @@ const fillFormTool: AgentTool = {
   async run(input, context) {
     if (!context.allowForms) return { ok: false, content: 'form filling is disabled by policy', preview: 'denied', error: 'policy_denied', blocked: true };
     const parsed = z
-      .object({ fields: z.array(z.object({ selector: z.string().min(1).max(300), value: z.string().max(2_000) })).min(1).max(20), submit: z.boolean().default(false) })
+      .object({ fields: z.array(z.object({ selector: z.string().min(1).max(300), value: z.string().max(2_000) })).min(1).max(20) })
+      .strict()
       .safeParse(input);
     if (!parsed.success) return { ok: false, content: 'invalid arguments', preview: 'invalid arguments', error: 'invalid_arguments' };
-    const result = await context.browser.act(context.sessionId, { action: 'fill_form', ...parsed.data });
+    const result = await context.browser.act(context.sessionId, { action: 'fill_form', ...parsed.data, submit: false });
     return {
       ok: result.ok,
       content: truncateToBytes(asJson({ ok: result.ok, url: result.url }), context.limits.maxOutputBytes),

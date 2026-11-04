@@ -15,6 +15,12 @@ body,
   min-height: 100%;
 }
 
+/* Keep primary links and foreground text on primary badges at WCAG AA in dark mode. */
+:root[data-theme='dark'] {
+  --color-primary: oklch(0.68 0.2 277.117);
+  --color-primary-content: oklch(0.16 0.03 277.117);
+}
+
 body {
   margin: 0;
   background-color: var(--color-base-200);

@@ -121,6 +121,34 @@ describe('provider routes', () => {
     expect(provider.config.headers).toEqual({ authorization: '***', 'x-api-key': '***' });
   });
 
+  it('strips provider URL userinfo from both admin and user responses, including legacy rows', async () => {
+    const original = await harness.db.pool.query<{ config: Record<string, unknown> }>(
+      'select config from providers where id = $1',
+      [providerId],
+    );
+    const originalConfig = original.rows[0]?.config;
+    expect(originalConfig).toBeDefined();
+    const password = 'legacy-url-password-should-not-leak';
+    await harness.db.pool.query(
+      'update providers set config = $2 where id = $1',
+      [providerId, { ...originalConfig, baseUrl: `https://legacy-user:${password}@gateway.example/v1` }],
+    );
+
+    try {
+      const adminResponse = await harness.app.inject({ method: 'GET', url: '/api/admin/providers', headers: { cookie: adminCookie } });
+      const adminProvider = adminResponse.json().find((row: { id: string }) => row.id === providerId);
+      expect(adminProvider.config.baseUrl).toBe('https://gateway.example/v1');
+      expect(adminResponse.body).not.toContain(password);
+
+      const userResponse = await harness.app.inject({ method: 'GET', url: '/api/providers', headers: { cookie: aliceCookie } });
+      const userProvider = userResponse.json().find((row: { id: string }) => row.id === providerId);
+      expect(userProvider.baseUrl).toBe('https://gateway.example/v1');
+      expect(userResponse.body).not.toContain(password);
+    } finally {
+      await harness.db.pool.query('update providers set config = $2 where id = $1', [providerId, originalConfig]);
+    }
+  });
+
   it('answers 400 for an invalid provider config on create and patch', async () => {
     const missingCodexHome = await harness.app.inject({
       method: 'POST',

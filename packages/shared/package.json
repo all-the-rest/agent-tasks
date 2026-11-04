@@ -10,6 +10,18 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./report": {
+      "types": "./src/report.ts",
+      "default": "./src/report.ts"
+    },
+    "./limits": {
+      "types": "./src/limits.ts",
+      "default": "./src/limits.ts"
+    },
+    "./task-end-condition": {
+      "types": "./src/task-end-condition.ts",
+      "default": "./src/task-end-condition.ts"
+    },
     "./memory": {
       "types": "./src/memory.ts",
       "default": "./src/memory.ts"
@@ -21,6 +33,11 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "mdast-util-from-markdown": "^2.1.0",
+    "mdast-util-gfm": "^3.1.0",
+    "mdast-util-to-markdown": "^2.2.1",
+    "micromark-extension-gfm": "^3.0.0",
+    "unist-util-visit": "^5.2.0",
     "zod": "catalog:",
     "cron-parser": "^5.10.2"
   }

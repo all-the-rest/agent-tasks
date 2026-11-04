@@ -1,6 +1,7 @@
 import type {
   EmailBlock,
   ExecutionStatus,
+  Limits,
   MemoryCategory,
   MemoryLearningMode,
   MemoryScope,
@@ -13,6 +14,7 @@ import type { TaskEndCondition as SharedTaskEndCondition } from '@agent-tasks/sh
 
 export type {
   ExecutionStatus,
+  Limits,
   MemoryCategory,
   MemoryLearningMode,
   MemoryScope,
@@ -80,6 +82,27 @@ export interface TaskInput {
   allowWebResearch: boolean;
   notification: Notification;
   memorySettings: MemorySettings;
+}
+
+/** Frozen, definition-only content of a public share link. */
+export interface TaskShareSnapshot {
+  title: string;
+  prompt: string;
+  schedule: TaskSchedule;
+  timezone: string;
+}
+
+export interface TaskShare {
+  id: string;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+export interface TaskShareCreated {
+  id: string;
+  token: string;
+  url: string;
+  createdAt?: string;
 }
 
 export interface Memory {
@@ -287,6 +310,10 @@ export interface ExecutionReport {
   uncertainty: string[];
   /** Blocks the agent composed for the completion e-mail. */
   email?: { blocks: EmailBlock[] };
+  change?: {
+    status: 'first' | 'changed' | 'unchanged' | 'unknown';
+    previousExecutionId?: string;
+  };
 }
 
 export interface ExecutionStep {
@@ -373,6 +400,7 @@ export interface SystemSettings {
   defaultModel?: string;
   maxConcurrentExecutionsPerUser: number;
   maxTaskExecutionsPerDay: number;
+  agentLimits: Limits;
   browserAllowHttp: boolean;
   browserAllowedPorts: number[];
   searchProvider: 'searxng' | 'none';

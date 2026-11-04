@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { HARD_LIMITS } from '@agent-tasks/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bootstrapAdmin, createHarness, inviteAndAccept } from '../helpers/harness';
 import type { TestHarness } from '../helpers/harness';
@@ -61,7 +62,7 @@ describe('administrator invariants', () => {
     expect(JSON.stringify(rows.rows)).not.toContain('mock-api-key');
   });
 
-  it('does not expose legacy per-agent limits through system settings', async () => {
+  it('persists administrator-configured global per-run limits within the hard caps', async () => {
     harness = await createHarness();
     const admin = await bootstrapAdmin(harness);
 
@@ -69,10 +70,15 @@ describe('administrator invariants', () => {
       method: 'PUT',
       url: '/api/admin/settings',
       headers: { cookie: admin.cookie },
-      payload: { agentLimits: { maxDurationSec: 30, maxAgentSteps: 1 } },
+      payload: { agentLimits: { maxDurationSec: 600, maxAgentSteps: 12, maxPageVisits: 0 } },
     });
     expect(saved.statusCode, saved.body).toBe(200);
-    expect(saved.json()).not.toHaveProperty('agentLimits');
+    expect(saved.json().agentLimits).toEqual({
+      ...HARD_LIMITS,
+      maxDurationSec: 600,
+      maxAgentSteps: 12,
+      maxPageVisits: 0,
+    });
 
     const response = await harness.app.inject({
       method: 'GET',
@@ -80,7 +86,37 @@ describe('administrator invariants', () => {
       headers: { cookie: admin.cookie },
     });
     expect(response.statusCode, response.body).toBe(200);
-    expect(response.json()).not.toHaveProperty('agentLimits');
+    expect(response.json().agentLimits).toEqual(saved.json().agentLimits);
+
+    const raised = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+      payload: { agentLimits: { maxDurationSec: HARD_LIMITS.maxDurationSec + 1 } },
+    });
+    expect(raised.statusCode, raised.body).toBe(400);
+  });
+
+  it('refuses production open registration when the mailer cannot send verification e-mail', async () => {
+    harness = await createHarness();
+    const admin = await bootstrapAdmin(harness);
+    harness.context.env.NODE_ENV = 'production';
+
+    const response = await harness.app.inject({
+      method: 'PUT',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+      payload: { allowRegistration: true },
+    });
+    expect(response.statusCode, response.body).toBe(400);
+    expect(response.body).toContain('SMTP_URL');
+
+    const settings = await harness.app.inject({
+      method: 'GET',
+      url: '/api/admin/settings',
+      headers: { cookie: admin.cookie },
+    });
+    expect(settings.json().allowRegistration).toBe(false);
   });
 
   it('answers 404 for a malformed invitation id instead of a database error', async () => {

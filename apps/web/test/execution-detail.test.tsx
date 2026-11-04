@@ -1,0 +1,162 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { ToastProvider } from '../src/components/ui';
+import { setLanguage } from '../src/i18n';
+import { api } from '../src/lib/api';
+import type { Execution } from '../src/lib/types';
+import { ExecutionDetailPage } from '../src/pages/ExecutionDetailPage';
+
+function makeExecution(
+  id: string,
+  markdown: string,
+  change?: NonNullable<Execution['report']>['change'],
+  options: {
+    steps?: Execution['steps'];
+    sources?: NonNullable<Execution['report']>['sources'];
+    summary?: string;
+  } = {},
+): Execution {
+  return {
+    id,
+    taskId: 'task-1',
+    taskTitle: 'Research task',
+    status: 'completed',
+    trigger: 'schedule',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    finishedAt: '2026-01-01T00:01:00.000Z',
+    durationMs: 60_000,
+    error: null,
+    ownerId: 'owner-1',
+    providerId: 'provider-1',
+    model: 'test-model',
+    report: { summary: options.summary ?? 'Research summary', markdown, sources: options.sources ?? [], uncertainty: [], change },
+    toolCalls: [],
+    usage: null,
+    steps: options.steps ?? [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function renderExecutionDetail() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/executions/current']}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/executions/:id" element={<ExecutionDetailPage />} />
+          </Routes>
+        </ToastProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  setLanguage('en');
+  vi.spyOn(api.executions, 'memory').mockResolvedValue({ changes: [], suggestions: [], recommendationEvents: [] });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  setLanguage('en');
+});
+
+describe('execution report comparison', () => {
+  it('renders Markdown in the report summary without exposing its syntax', async () => {
+    vi.spyOn(api.executions, 'get').mockResolvedValue(
+      makeExecution('current', '# Findings', undefined, { summary: '> **Important** summary.' }),
+    );
+
+    const { container } = renderExecutionDetail();
+
+    await screen.findByRole('heading', { name: 'Findings' });
+    expect(container.querySelector('.report-prose blockquote strong')?.textContent).toBe('Important');
+    expect(container.textContent).not.toContain('> **Important**');
+  });
+
+  it('fetches and renders both sanitized reports when a predecessor is available', async () => {
+    const getExecution = vi.spyOn(api.executions, 'get').mockImplementation(async (id) =>
+      id === 'current'
+        ? makeExecution('current', '# Current findings', { status: 'changed', previousExecutionId: 'previous' })
+        : makeExecution('previous', '# Previous findings\n\n<script>window.__pwned = true</script>'),
+    );
+
+    const { container } = renderExecutionDetail();
+
+    expect(await screen.findByRole('heading', { name: 'Historical report comparison' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Previous findings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Current findings' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Previous report' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Current report' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open previous execution (previous)' }).getAttribute('href'))
+      .toBe('/executions/previous');
+    expect(getExecution).toHaveBeenCalledWith('previous');
+    expect(container.querySelector('script')).toBeNull();
+    expect(container.textContent).not.toContain('window.__pwned');
+  });
+
+  it('does not fetch or show comparison when change metadata has no predecessor', async () => {
+    const getExecution = vi.spyOn(api.executions, 'get').mockResolvedValue(
+      makeExecution('current', '# First report', { status: 'first' }),
+    );
+
+    renderExecutionDetail();
+
+    expect(await screen.findByRole('heading', { name: 'First report' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Historical report comparison' })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Open previous execution/ })).toBeNull();
+    expect(getExecution).toHaveBeenCalledTimes(1);
+    expect(getExecution).toHaveBeenCalledWith('current');
+  });
+
+  it('rechecks link provenance when rendering current and historical reports', async () => {
+    vi.spyOn(api.executions, 'get').mockImplementation(async (id) =>
+      id === 'current'
+        ? makeExecution(
+            'current',
+            '[unverified current link](https://invented-current.example/)',
+            { status: 'changed', previousExecutionId: 'previous' },
+          )
+        : makeExecution(
+            'previous',
+            '[verified historical link](https://source.example/page)\n\n[unverified historical link](https://invented-previous.example/)',
+            undefined,
+            { sources: [{ url: 'https://source.example/page', title: 'Verified source', retrievedAt: '2026-01-01T00:00:00.000Z', confidence: 'verified' }] },
+          ),
+    );
+
+    renderExecutionDetail();
+
+    expect(await screen.findByRole('heading', { name: 'Historical report comparison' })).toBeTruthy();
+    const verified = await screen.findByRole('link', { name: 'verified historical link' });
+    expect(verified.getAttribute('href')).toBe('https://source.example/page');
+    expect(screen.queryByRole('link', { name: 'unverified historical link' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'unverified current link' })).toBeNull();
+  });
+});
+
+describe('execution visited sites', () => {
+  it('only presents successful source-producing steps whose URL is a collected source', async () => {
+    vi.spyOn(api.executions, 'get').mockResolvedValue(makeExecution('current', '# Report', undefined, {
+      sources: [{ url: 'https://visited.example/page', title: 'Visited page', retrievedAt: '2026-01-01T00:00:00.000Z', confidence: 'verified' }],
+      steps: [
+        { id: '1', executionId: 'current', step: 1, tool: 'open_url', args: { url: 'https://visited.example/page' }, ok: true, startedAt: '2026-01-01T00:00:00.000Z', finishedAt: null, durationMs: 1, error: null, resultPreview: null },
+        { id: '2', executionId: 'current', step: 2, tool: 'open_url', args: { url: 'https://refused.example/' }, ok: false, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: null, durationMs: 1, error: 'blocked', resultPreview: null },
+        { id: '3', executionId: 'current', step: 3, tool: 'open_url', args: { url: 'https://not-collected.example/' }, ok: true, startedAt: '2026-01-01T00:00:02.000Z', finishedAt: null, durationMs: 1, error: null, resultPreview: null },
+      ],
+    }));
+
+    renderExecutionDetail();
+    await screen.findByRole('heading', { name: 'Report' });
+    await screen.findByRole('tab', { name: /Timeline/ }).then((tab) => tab.click());
+
+    expect(await screen.findByRole('link', { name: 'Visited page' })).toBeTruthy();
+    expect(screen.queryByText('https://refused.example/')).toBeNull();
+    expect(screen.queryByText('https://not-collected.example/')).toBeNull();
+  });
+});

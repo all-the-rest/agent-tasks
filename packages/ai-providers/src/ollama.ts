@@ -81,7 +81,7 @@ export class OllamaProvider implements AiProvider {
     const config = readConfig(context);
     if (config.requireToolSupport && request.tools && request.tools.length > 0) {
       const capabilities = await this.capabilities(context, request.model);
-      if (capabilities.length > 0 && !capabilities.includes('tools')) {
+      if (!capabilities.includes('tools')) {
         throw new ProviderError('unsupported', `model ${request.model} does not support tool calling`);
       }
     }

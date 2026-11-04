@@ -1,10 +1,11 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { invitations, user, userPreferences } from '@agent-tasks/database';
 import type { Database } from '@agent-tasks/database';
 import { AppError, acceptInviteSchema, isValidTimeZone, userPreferencesUpdateSchema } from '@agent-tasks/shared';
 import type { AppContext } from '../context.js';
+import { withTrustedSignup } from '../auth.js';
 import { AUDIT_ACTIONS } from '../lib/audit.js';
 
 export function hashToken(token: string): string {
@@ -48,6 +49,33 @@ function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+interface InvitationPreview {
+  email: string;
+  role: string;
+  expiresAt: Date;
+}
+
+/**
+ * A token is previewable only while it is usable. Accepted, revoked and expired
+ * invitations answer exactly like unknown tokens. Both preview routes go through
+ * this lookup so their state checks cannot drift apart.
+ */
+async function findUsableInvitation(db: Database, token: string): Promise<InvitationPreview | null> {
+  const rows = await db
+    .select({ email: invitations.email, role: invitations.role, expiresAt: invitations.expiresAt })
+    .from(invitations)
+    .where(
+      and(
+        eq(invitations.tokenHash, hashToken(token)),
+        isNull(invitations.acceptedAt),
+        isNull(invitations.revokedAt),
+        gt(invitations.expiresAt, new Date()),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export async function registerSetupRoutes(app: FastifyInstance, context: AppContext): Promise<void> {
@@ -103,10 +131,13 @@ export async function registerSetupRoutes(app: FastifyInstance, context: AppCont
         if (!env.SETUP_TOKEN) throw new AppError('internal', 'SETUP_TOKEN is not configured on the server', 503);
         const body = request.body ?? {};
         if (!body.token || !safeEqual(body.token, env.SETUP_TOKEN)) throw AppError.forbidden('invalid setup token');
-        if (!body.email || !body.password || !body.name) throw AppError.badRequest('email, password and name are required');
-        if (body.password.length < 12) throw AppError.badRequest('password must be at least 12 characters');
+        const { email, password, name } = body;
+        if (!email || !password || !name) throw AppError.badRequest('email, password and name are required');
+        if (password.length < 12) throw AppError.badRequest('password must be at least 12 characters');
 
-        const result = await auth.api.signUpEmail({ body: { email: body.email, password: body.password, name: body.name } });
+        const result = await withTrustedSignup(() => auth.api.signUpEmail({
+          body: { email, password, name },
+        }));
         // Better Auth writes on its own connection, so this transaction cannot roll it
         // back. Remember the id and compensate after the rollback if a later step fails.
         createdUserId = result.user.id;
@@ -125,16 +156,15 @@ export async function registerSetupRoutes(app: FastifyInstance, context: AppCont
     return { ok: true };
   });
 
-  app.get<{ Params: { token: string } }>('/api/invitations/:token', async (request) => {
-    const rows = await db
-      .select()
-      .from(invitations)
-      .where(and(eq(invitations.tokenHash, hashToken(request.params.token)), isNull(invitations.acceptedAt), isNull(invitations.revokedAt)))
-      .limit(1);
-    const invite = rows[0];
-    if (!invite || invite.expiresAt.getTime() < Date.now()) throw AppError.notFound('invitation');
-    return { email: invite.email, role: invite.role, expiresAt: invite.expiresAt };
-  });
+  const previewInvitation = async (token: string): Promise<InvitationPreview> => {
+    const invite = await findUsableInvitation(db, token);
+    if (!invite) throw AppError.notFound('invitation');
+    return invite;
+  };
+
+  app.get<{ Params: { token: string } }>('/api/invitations/:token', async (request) =>
+    previewInvitation(request.params.token),
+  );
 
   app.post<{ Body: unknown }>('/api/invitations/accept', async (request) => {
     const parsed = acceptInviteSchema.safeParse(request.body);
@@ -144,7 +174,9 @@ export async function registerSetupRoutes(app: FastifyInstance, context: AppCont
 
     let created;
     try {
-      created = await auth.api.signUpEmail({ body: { email: invite.email, password: parsed.data.password, name: parsed.data.name } });
+      created = await withTrustedSignup(() => auth.api.signUpEmail({
+        body: { email: invite.email, password: parsed.data.password, name: parsed.data.name },
+      }));
     } catch (error) {
       // Give the claim back: the invitation is still unused if no account exists.
       await releaseInvitation(db, invite.id);
@@ -165,16 +197,9 @@ export async function registerSetupRoutes(app: FastifyInstance, context: AppCont
     return { ok: true };
   });
 
-  app.get<{ Params: { token: string } }>('/api/invitations/:token/preview', async (request) => {
-    const rows = await db
-      .select({ email: invitations.email, role: invitations.role, expiresAt: invitations.expiresAt })
-      .from(invitations)
-      .where(eq(invitations.tokenHash, hashToken(request.params.token)))
-      .orderBy(asc(invitations.createdAt))
-      .limit(1);
-    if (!rows[0]) throw AppError.notFound('invitation');
-    return rows[0];
-  });
+  app.get<{ Params: { token: string } }>('/api/invitations/:token/preview', async (request) =>
+    previewInvitation(request.params.token),
+  );
 
   app.patch<{ Body: { timezone?: string; locale?: string; theme?: string } }>('/api/me/preferences', async (request, reply) => {
     const { requireUser } = await import('../lib/session.js');

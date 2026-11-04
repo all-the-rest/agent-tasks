@@ -1,16 +1,16 @@
 /**
- * Invitation links are account-creation credentials that stay valid for seven days.
- * Fastify's default request serializer logs `req.url`, so `GET /api/invitations/<token>`
- * and `/invite/<token>` would put the token into every request log line. Mask the
- * token segment while keeping the route recognisable.
+ * Invitation and share links are bearer credentials. Fastify's default request
+ * serializer logs `req.url`, so `GET /api/invitations/<token>`, `/invite/<token>`,
+ * `GET /api/shares/<token>` and `/share/<token>` would put the token into every
+ * request log line. Mask the token segment while keeping the route recognisable.
  */
-const INVITATION_PATH = /^(\/(?:api\/invitations|invite)\/)([^/?#]+)(.*)$/;
+const BEARER_PATH = /^(\/(?:api\/invitations|invite|api\/shares|share)\/)([^/?#]+)(.*)$/;
 
 export function redactRequestUrl(url: string): string {
   const suffixIndex = url.search(/[?#]/);
   const path = suffixIndex === -1 ? url : url.slice(0, suffixIndex);
   const suffix = suffixIndex === -1 ? '' : url.slice(suffixIndex);
-  const match = path.match(INVITATION_PATH);
+  const match = path.match(BEARER_PATH);
   if (!match) return url;
   const [, prefix, segment, rest] = match;
   // `POST /api/invitations/accept` is a route name, not a token; its token lives in the body.

@@ -6,9 +6,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { ToastProvider } from '../src/components/ui';
 import { setLanguage } from '../src/i18n';
+import { de } from '../src/i18n/de';
+import { en } from '../src/i18n/en';
 import { api } from '../src/lib/api';
 import { AuthProvider, RequireAuth, useAuth } from '../src/lib/auth';
 import { resetTaskPromptDraftMemory, setTaskPromptDraftOwner, taskPromptDraftState } from '../src/lib/task-prompt-draft';
+import { TASK_SUGGESTION_IDS } from '../src/lib/task-suggestions';
 import type { SessionUser, Task } from '../src/lib/types';
 import { TaskFormPage } from '../src/pages/TaskFormPage';
 import { TasksPage } from '../src/pages/TasksPage';
@@ -462,5 +465,90 @@ describe('prompt-first task creation', () => {
     expect(screen.getByRole('button', { name: 'Prüfen und Aufgabe anlegen' })).toBeTruthy();
     expect(screen.getByTestId('current-location').textContent).toBe('/tasks/new');
     expect(screen.getByTestId('current-location').textContent).not.toContain(prompt);
+  });
+
+  it('fills the composer from a suggested prompt without creating or running a task and keeps it owner-scoped', async () => {
+    const createTask = mockCreationApi();
+    vi.mocked(api.tasks.listPage).mockResolvedValue({ items: [makeTask()], nextCursor: null });
+    const taskAction = vi.spyOn(api.tasks, 'action');
+    const user = userEvent.setup({ delay: null });
+    const suggestionId = TASK_SUGGESTION_IDS[0];
+    const title = en.translation.tasks.suggestions[suggestionId].title;
+    const prompt = en.translation.tasks.suggestions[suggestionId].prompt;
+
+    renderCreationFlow();
+    await user.click(await screen.findByRole('button', { name: `Use prompt: ${title}` }));
+
+    const composer = screen.getByRole('textbox', { name: 'What should this task do?' }) as HTMLTextAreaElement;
+    expect(composer.value).toBe(prompt);
+    expect(composer).toBe(document.activeElement);
+    expect(screen.getByTestId('current-location').textContent).toBe('/tasks');
+    expect(JSON.parse(screen.getByTestId('location-state').textContent ?? 'null')).toEqual(
+      taskPromptDraftState(OWNER_1.id, prompt),
+    );
+    expect(createTask).not.toHaveBeenCalled();
+    expect(taskAction).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Switch to other account' }));
+    const otherAccountComposer = await screen.findByRole('textbox', { name: 'What should this task do?' });
+    expect((otherAccountComposer as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('activates a suggestion from the keyboard and keeps the block collapsible', async () => {
+    mockCreationApi();
+    vi.mocked(api.tasks.listPage).mockResolvedValue({ items: [makeTask()], nextCursor: null });
+    const user = userEvent.setup({ delay: null });
+    const suggestionId = TASK_SUGGESTION_IDS[1];
+    const title = en.translation.tasks.suggestions[suggestionId].title;
+    const prompt = en.translation.tasks.suggestions[suggestionId].prompt;
+
+    renderCreationFlow();
+    const suggestionButton = await screen.findByRole('button', { name: `Use prompt: ${title}` });
+    suggestionButton.focus();
+    await user.keyboard('{Enter}');
+    expect((screen.getByRole('textbox', { name: 'What should this task do?' }) as HTMLTextAreaElement).value).toBe(prompt);
+
+    const hideSuggestions = screen.getByRole('button', { name: 'Hide suggestions' });
+    expect(hideSuggestions.getAttribute('aria-expanded')).toBe('true');
+    await user.click(hideSuggestions);
+    expect(screen.queryByRole('button', { name: `Use prompt: ${title}` })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show suggestions' }).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('shows suggestions only on an active list that has tasks', async () => {
+    mockCreationApi();
+    vi.mocked(api.tasks.listPage).mockImplementation(async ({ status }) => ({
+      items: status === 'paused' ? [] : [makeTask()],
+      nextCursor: null,
+    }));
+    const user = userEvent.setup({ delay: null });
+
+    renderCreationFlow();
+    expect(await screen.findByRole('heading', { name: 'Suggested tasks' })).toBeTruthy();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by status' }), 'paused');
+    expect(await screen.findByText('No tasks in this status')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Suggested tasks' })).toBeNull();
+
+    cleanup();
+    vi.mocked(api.tasks.listPage).mockResolvedValue({ items: [], nextCursor: null });
+    renderCreationFlow();
+    expect(await screen.findByText('No tasks in this status')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Suggested tasks' })).toBeNull();
+  });
+
+  it('localizes suggested prompts in German', async () => {
+    mockCreationApi();
+    vi.mocked(api.tasks.listPage).mockResolvedValue({ items: [makeTask()], nextCursor: null });
+    setLanguage('de');
+    const user = userEvent.setup({ delay: null });
+    const suggestionId = TASK_SUGGESTION_IDS[2];
+    const title = de.translation.tasks.suggestions[suggestionId].title;
+    const prompt = de.translation.tasks.suggestions[suggestionId].prompt;
+
+    renderCreationFlow();
+    expect(await screen.findByRole('heading', { name: 'Vorgeschlagene Aufgaben' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: `Prompt übernehmen: ${title}` }));
+
+    expect((screen.getByRole('textbox', { name: 'Was soll diese Aufgabe erledigen?' }) as HTMLTextAreaElement).value).toBe(prompt);
   });
 });

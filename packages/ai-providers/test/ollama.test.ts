@@ -164,6 +164,19 @@ describe('ollama adapter wire protocol', () => {
     expect(chatRequests()).toHaveLength(0);
   });
 
+  it('refuses tool calling when the capability probe fails closed', async () => {
+    server.scenario.capabilityProbeFailure = true;
+    await expect(
+      provider.chat(context(), {
+        model: 'fake:latest',
+        sessionId: 'conv-3c',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [SEARCH_TOOL],
+      }),
+    ).rejects.toMatchObject({ code: 'unsupported' });
+    expect(chatRequests()).toHaveLength(0);
+  });
+
   it('round-trips assistant tool calls and a tool-role result in the follow-up request', async () => {
     const messages: ChatMessage[] = [
       { role: 'user', content: 'weather in vienna?' },
