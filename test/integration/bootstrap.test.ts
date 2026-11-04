@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { providerCredentials, providers } from '@agent-tasks/database';
 import { ensureBootstrap } from '../../apps/api/src/bootstrap';
-import { bootstrapAdmin, cookiesFrom, createHarness } from '../helpers/harness';
+import { bootstrapAdmin, cookiesFrom, createCapturingMailer, createHarness } from '../helpers/harness';
 import type { TestHarness } from '../helpers/harness';
 
 let harness: TestHarness | undefined;
@@ -58,8 +58,9 @@ describe('first-start bootstrap', () => {
     expect(second).toEqual({ settings: 'exists', admin: 'exists' });
   });
 
-  it('allows open sign-up only when the setting is enabled', async () => {
-    harness = await createHarness({ ALLOW_REGISTRATION: 'true' });
+  it('allows open sign-up only when the setting is enabled, after e-mail verification', async () => {
+    const mailer = createCapturingMailer();
+    harness = await createHarness({ ALLOW_REGISTRATION: 'true' }, mailer);
     await ensureBootstrap(harness.context);
 
     const signup = await harness.app.inject({
@@ -67,14 +68,32 @@ describe('first-start bootstrap', () => {
       url: '/api/auth/sign-up/email',
       payload: { email: 'open@example.com', password: 'open-password-123', name: 'Open User' },
     });
-    expect(signup.statusCode).toBe(200);
+    expect(signup.statusCode, signup.body).toBe(200);
+    expect(signup.json().token).toBeNull();
+    expect(cookiesFrom(signup)).toBe('');
+    expect(mailer.messages).toHaveLength(1);
+    const verificationUrl = mailer.messages[0]?.text.match(/https?:\/\/[^\s)]+/)?.[0];
+    expect(verificationUrl).toBeTruthy();
+
+    // The new account exists, but no session is issued until the mailbox is proven.
+    const beforeVerification = await harness.app.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in/email',
+      payload: { email: 'open@example.com', password: 'open-password-123' },
+    });
+    expect(beforeVerification.statusCode, beforeVerification.body).toBe(403);
+    expect(beforeVerification.json().code).toBe('EMAIL_NOT_VERIFIED');
+
+    const link = new URL(verificationUrl as string);
+    const verify = await harness.app.inject({ method: 'GET', url: `${link.pathname}${link.search}` });
+    expect([200, 302, 303]).toContain(verify.statusCode);
 
     const login = await harness.app.inject({
       method: 'POST',
       url: '/api/auth/sign-in/email',
       payload: { email: 'open@example.com', password: 'open-password-123' },
     });
-    expect(login.statusCode).toBe(200);
+    expect(login.statusCode, login.body).toBe(200);
     const me = await harness.app.inject({
       method: 'GET',
       url: '/api/me',

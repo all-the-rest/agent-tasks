@@ -40,7 +40,7 @@ _Labels: deploy, docs_
       offline deploy test that executes the remote prereq/preflight/backup/
       promote bodies; pre-commit glob matching runs lint/typecheck for every
       staged path, not just the joined list
-- [ ] Full compose start verified in this environment (Docker daemon is remote; see VERIFICATION_REPORT)
+- [x] Full Compose start verified locally (isolated current-tree stack; production deployment excluded)
 
 ## Evidence
 
@@ -49,4 +49,5 @@ _Labels: deploy, docs_
 `scripts/compose-parity-lib.mjs`, `scripts/test-compose-parity.mjs`,
 `scripts/check-deploy-compose-contract.mjs`,
 `scripts/test-deploy-dry-run.sh`, `DEPLOYMENT.md`,
-`docs/VERIFICATION_REPORT.md` (production host evidence 2026-11-02).
+`docs/VERIFICATION_REPORT.md` (isolated current-tree Compose start and E2E; production
+host evidence 2026-11-02 is historical and no production deployment was performed).

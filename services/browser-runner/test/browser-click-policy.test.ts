@@ -157,6 +157,26 @@ function stubFakeDom(
 ): void {
   const originalArrayFrom = Array.from;
   const callOriginalArrayFrom = Function.prototype.call.bind(originalArrayFrom, Array) as <T>(items: Iterable<T> | ArrayLike<T>) => T[];
+  const callArrayMap = Function.prototype.call.bind(Array.prototype.map) as <T, U>(
+    items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => U,
+  ) => U[];
+  const callArrayFilter = Function.prototype.call.bind(Array.prototype.filter) as <T>(
+    items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => boolean,
+  ) => T[];
+  const callArraySome = Function.prototype.call.bind(Array.prototype.some) as <T>(
+    items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => boolean,
+  ) => boolean;
+  const callArrayIncludes = Function.prototype.call.bind(Array.prototype.includes) as <T>(items: readonly T[], value: T) => boolean;
+  const callArrayJoin = Function.prototype.call.bind(Array.prototype.join) as (items: readonly unknown[], separator?: string) => string;
+  const callArrayPush = Function.prototype.call.bind(Array.prototype.push) as <T>(items: T[], value: T) => number;
+  const callArrayPop = Function.prototype.call.bind(Array.prototype.pop) as <T>(items: T[]) => T | undefined;
+  const callStringToLowerCase = Function.prototype.call.bind(String.prototype.toLowerCase) as (value: string) => string;
+  const callStringTrim = Function.prototype.call.bind(String.prototype.trim) as (value: string) => string;
+  const callStringCharAt = Function.prototype.call.bind(String.prototype.charAt) as (value: string, index: number) => string;
+  const callStringCharCodeAt = Function.prototype.call.bind(String.prototype.charCodeAt) as (value: string, index: number) => number;
+  const NativeSet = Set;
+  const callSetAdd = Function.prototype.call.bind(NativeSet.prototype.add) as <T>(set: Set<T>, value: T) => Set<T>;
+  const callSetHas = Function.prototype.call.bind(NativeSet.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
   const originalGetAttribute = FakeDomElement.prototype.getAttribute;
   const callOriginalGetAttribute = Function.prototype.call.bind(originalGetAttribute);
   const originalFakeMatches = FakeDomElement.prototype.matches;
@@ -182,8 +202,45 @@ function stubFakeDom(
     __agentTasksGetAttribute: (target: Element, name: string) => callOriginalGetAttribute(target as unknown as FakeDomElement, name),
     __agentTasksMatchesElement: (target: Element, selector: string) => originalMatches(target as unknown as FakeDomElement, selector),
     __agentTasksGetTextContent: (target: Node) => (target as unknown as FakeDomElement).textContent ?? null,
+    __agentTasksGetElementById: (id: string) => document.getElementById(id),
+    __agentTasksStringToLowerCase: callStringToLowerCase,
+    __agentTasksStringTrim: callStringTrim,
+    __agentTasksStringCharAt: callStringCharAt,
+    __agentTasksStringCharCodeAt: callStringCharCodeAt,
     __agentTasksGetProperty: (target: object, property: PropertyKey) => Reflect.get(target, property),
     __agentTasksArrayFrom: callOriginalArrayFrom,
+    __agentTasksArrayMap: callArrayMap,
+    __agentTasksArrayFilter: callArrayFilter,
+    __agentTasksArraySome: callArraySome,
+    __agentTasksArrayIncludes: callArrayIncludes,
+    __agentTasksArrayJoin: callArrayJoin,
+    __agentTasksAppendArray: <T>(target: T[], values: readonly T[]) => {
+      for (let index = 0; index < values.length; index += 1) callArrayPush(target, values[index] as T);
+    },
+    __agentTasksArrayPop: callArrayPop,
+    __agentTasksCreateSet: <T>() => new NativeSet<T>(),
+    __agentTasksSetAdd: callSetAdd,
+    __agentTasksSetHas: callSetHas,
+    __agentTasksIsNativeInstance: (target: unknown, name: string) => {
+      if (name === 'ShadowRoot') {
+        return typeof target === 'object' && target !== null && 'host' in target;
+      }
+      const constructors: Record<string, abstract new (...args: never[]) => object> = {
+        Element: FakeDomElement,
+        HTMLImageElement: FakeImageElement,
+        HTMLInputElement: FakeInputElement,
+        HTMLButtonElement: FakeButtonElement,
+        HTMLSelectElement: FakeSelectElement,
+        HTMLTextAreaElement: FakeTextAreaElement,
+        HTMLLabelElement: FakeLabelElement,
+        HTMLSlotElement: FakeSlotElement,
+      };
+      const constructor = constructors[name];
+      return typeof constructor === 'function' && typeof target === 'object' && target !== null && target instanceof constructor;
+    },
+    __agentTasksGetNativeRoot: (node: Node) => (node as unknown as FakeDomElement).getRootNode() as unknown as Node,
+    __agentTasksGetAssignedElements: (slot: Element) =>
+      (slot as unknown as FakeSlotElement).assignedElements() as unknown as Element[],
     __agentTasksGetNativeProperty: (target: object, property: string) => {
       const values = nativeProperties.get(target);
       if (values && Object.hasOwn(values, property)) return values[property];
@@ -344,19 +401,79 @@ describe('BrowserPool click policy wiring', () => {
     }
     class FakeNode {
       get textContent(): string { return ''; }
+      getRootNode(): object { return document; }
     }
     class FakeElement extends FakeNode {
+      constructor(readonly elementName = 'element', private readonly attributes: Record<string, string> = {}) { super(); }
+      get children(): FakeElement[] { return []; }
+      get localName(): string { return this.elementName; }
+      get shadowRoot(): ShadowRoot | null { return null; }
       attachShadow(): ShadowRoot { return { host: this } as unknown as ShadowRoot; }
-      getAttribute(): string | null { return null; }
+      getAttribute(name: string): string | null { return this.attributes[name] ?? null; }
       matches(): boolean { return false; }
     }
     class FakeForm extends FakeElement {
+      controls: FakeElement[] = [];
+      constructor() { super('form'); }
       get action(): string { return 'https://shop.example/checkout'; }
       get method(): string { return 'post'; }
-      get elements(): HTMLFormControlsCollection { return [] as unknown as HTMLFormControlsCollection; }
+      get elements(): HTMLFormControlsCollection { return this.controls as unknown as HTMLFormControlsCollection; }
     }
     class FakeInput extends FakeElement {
-      get value(): string { return 'delete_account'; }
+      constructor(private readonly formOwner: FakeForm | null = null) { super('input'); }
+      get form(): FakeForm | null {
+        if (!(this instanceof FakeInput)) throw new TypeError('Illegal invocation');
+        return this.formOwner;
+      }
+      get type(): string {
+        if (!(this instanceof FakeInput)) throw new TypeError('Illegal invocation');
+        return 'text';
+      }
+      get name(): string {
+        if (!(this instanceof FakeInput)) throw new TypeError('Illegal invocation');
+        return '';
+      }
+      get disabled(): boolean {
+        if (!(this instanceof FakeInput)) throw new TypeError('Illegal invocation');
+        return false;
+      }
+      get value(): string {
+        if (!(this instanceof FakeInput)) throw new TypeError('Illegal invocation');
+        return 'delete_account';
+      }
+    }
+    class FakeButton extends FakeElement {
+      private readonly formOwner: FakeForm | null;
+      constructor(form: FakeForm | null = null, readonly buttonType = 'button', action = '') {
+        super('button', action ? { formaction: action } : {});
+        this.formOwner = form;
+        this.action = action;
+      }
+      private readonly action: string;
+      get form(): FakeForm | null {
+        if (!(this instanceof FakeButton)) throw new TypeError('Illegal invocation');
+        return this.formOwner;
+      }
+      get type(): string {
+        if (!(this instanceof FakeButton)) throw new TypeError('Illegal invocation');
+        return this.buttonType;
+      }
+      get name(): string {
+        if (!(this instanceof FakeButton)) throw new TypeError('Illegal invocation');
+        return '';
+      }
+      get disabled(): boolean {
+        if (!(this instanceof FakeButton)) throw new TypeError('Illegal invocation');
+        return false;
+      }
+      get value(): string {
+        if (!(this instanceof FakeButton)) throw new TypeError('Illegal invocation');
+        return '';
+      }
+      get formAction(): string {
+        if (!(this instanceof FakeButton)) throw new TypeError('Illegal invocation');
+        return this.action;
+      }
     }
     const fakeWindow = new FakeTarget();
     vi.stubGlobal('EventTarget', FakeTarget);
@@ -365,13 +482,17 @@ describe('BrowserPool click policy wiring', () => {
     vi.stubGlobal('Element', FakeElement);
     vi.stubGlobal('HTMLFormElement', FakeForm);
     vi.stubGlobal('HTMLInputElement', FakeInput);
-    vi.stubGlobal('HTMLButtonElement', class FakeButton extends FakeElement {});
+    vi.stubGlobal('HTMLButtonElement', FakeButton);
     vi.stubGlobal('HTMLSelectElement', class FakeSelect extends FakeElement {});
     vi.stubGlobal('HTMLTextAreaElement', class FakeTextArea extends FakeElement {});
     vi.stubGlobal('HTMLOptionElement', class FakeOption extends FakeElement {});
     vi.stubGlobal('HTMLLabelElement', class FakeLabel extends FakeElement {});
     vi.stubGlobal('window', fakeWindow);
-    vi.stubGlobal('document', { activeElement: null });
+    const fakeDocument: { activeElement: FakeElement | null; getElementById: () => null } = {
+      activeElement: null,
+      getElementById: () => null,
+    };
+    vi.stubGlobal('document', fakeDocument);
 
     installInteractionListenerTracking('native-getter-test', () => null);
 
@@ -382,17 +503,52 @@ describe('BrowserPool click policy wiring', () => {
     const access = window as Window & {
       __agentTasksArrayFrom?: <T>(items: Iterable<T> | ArrayLike<T>) => T[];
       __agentTasksGetNativeProperty?: (target: object, property: string) => unknown;
+      __agentTasksArrayMap?: <T, U>(items: readonly T[], callback: (value: T, index: number, array: readonly T[]) => U) => U[];
+      __agentTasksIsNativeInstance?: (target: unknown, name: string) => boolean;
+      __agentTasksStringToLowerCase?: (value: string) => string;
     };
     const originalArrayFrom = Array.from;
     const getNativeProperty = access.__agentTasksGetNativeProperty;
     const arrayFrom = access.__agentTasksArrayFrom;
+    const arrayMap = access.__agentTasksArrayMap;
+    const isNativeInstance = access.__agentTasksIsNativeInstance;
+    const stringToLowerCase = access.__agentTasksStringToLowerCase;
+    const button = new FakeButton();
     const tamperedArrayFrom = vi.spyOn(Array, 'from').mockImplementation(() => []);
     const result = arrayFrom?.([1, 2, 3]);
     tamperedArrayFrom.mockRestore();
+    const tamperedArrayMap = vi.spyOn(Array.prototype, 'map').mockImplementation(() => []);
+    const tamperedStringCase = vi.spyOn(String.prototype, 'toLowerCase').mockImplementation(() => 'tampered');
+    vi.stubGlobal('HTMLButtonElement', class ReplacedButton {});
+    const mapped = arrayMap?.([1, 2, 3], (value) => value + 1);
+    const lowercased = stringToLowerCase?.('POST');
+    const inspection = inspectBrowserPolicy(button as unknown as Element);
+    const submissionForm = new FakeForm();
+    const submitter = new FakeButton(submissionForm, 'submit', 'https://shop.example/delete_account');
+    const activeInput = new FakeInput(submissionForm);
+    submissionForm.controls = [submitter, activeInput];
+    fakeDocument.activeElement = activeInput;
+    expect(getNativeProperty?.(submissionForm, 'elements')).toEqual([submitter, activeInput]);
+    expect(getNativeProperty?.(submitter, 'type')).toBe('submit');
+    expect(getNativeProperty?.(submitter, 'disabled')).toBe(false);
+    expect(isNativeInstance?.(submitter, 'HTMLButtonElement')).toBe(true);
+    const formInspection = inspectBrowserPolicy(null);
+    tamperedStringCase.mockRestore();
+    tamperedArrayMap.mockRestore();
 
     expect(getNativeProperty?.(form, 'action')).toBe('https://shop.example/checkout');
     expect(getNativeProperty?.(input, 'value')).toBe('delete_account');
     expect(result).toEqual([1, 2, 3]);
+    expect(mapped).toEqual([2, 3, 4]);
+    expect(lowercased).toBe('post');
+    expect(isNativeInstance?.(button, 'HTMLButtonElement')).toBe(true);
+    expect(inspection).toMatchObject({ kind: 'click', targets: [{ label: '' }] });
+    expect(formInspection).toMatchObject({
+      kind: 'form',
+      submitters: [{ formAction: 'https://shop.example/delete_account' }],
+    });
+    expect(Object.getOwnPropertyDescriptor(window, '__agentTasksArrayMap')).toMatchObject({ writable: false, configurable: false });
+    expect(Object.getOwnPropertyDescriptor(window, '__agentTasksStringToLowerCase')).toMatchObject({ writable: false, configurable: false });
     expect(Array.from).toBe(originalArrayFrom);
   });
 
@@ -1291,6 +1447,29 @@ describe('BrowserPool click policy wiring', () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
+  it('blocks native form submitters even when their destination looks safe', async () => {
+    const { pool, id, click } = await setupPool({ formAction: 'https://shop.example/search' });
+
+    const result = await pool.act(id, { action: 'click_element', selector: '#search' });
+
+    expect(result).toMatchObject({ ok: false, action: 'click_element' });
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it('refuses fill_form submission before filling or pressing Enter', async () => {
+    const { pool, id, target, page } = await setupPool();
+
+    const result = await pool.act(id, {
+      action: 'fill_form',
+      fields: [{ selector: '#q', value: 'search terms' }],
+      submit: true,
+    });
+
+    expect(result).toMatchObject({ ok: false, action: 'fill_form', error: 'form submission is disabled by policy' });
+    expect(target.fill).not.toHaveBeenCalled();
+    expect(page.keyboard.press).not.toHaveBeenCalled();
+  });
+
   it('blocks subscription initiation controls', async () => {
     const { pool, id, click } = await setupPool({ label: 'Subscribe' });
 
@@ -1494,7 +1673,7 @@ describe('BrowserPool click policy wiring', () => {
     expect(page.keyboard.press).not.toHaveBeenCalled();
   });
 
-  it('reports a submit handler that appears after form preflight', async () => {
+  it('refuses submission before filling even when a submit handler would appear', async () => {
     const { pool, id, fill, page } = await setupPool({
       blockedInteractionCounts: [0, 0, 0, 1],
       formSubmission: {
@@ -1512,8 +1691,8 @@ describe('BrowserPool click policy wiring', () => {
     });
 
     expect(result).toMatchObject({ ok: false, action: 'fill_form' });
-    expect(fill).toHaveBeenCalledOnce();
-    expect(page.keyboard.press).toHaveBeenCalledOnce();
+    expect(fill).not.toHaveBeenCalled();
+    expect(page.keyboard.press).not.toHaveBeenCalled();
   });
 
   it('refuses Enter submission when live form intent no longer matches preflight', async () => {
@@ -1758,7 +1937,7 @@ describe('BrowserPool click policy wiring', () => {
     expect(page.keyboard.press).not.toHaveBeenCalled();
   });
 
-  it('allows a GET search form whose query contains sensitive words', async () => {
+  it('blocks even a harmless GET search form submission', async () => {
     const { pool, id, page } = await setupPool({
       pageUrl: 'https://shop.example/search',
       formSubmission: {
@@ -1775,8 +1954,8 @@ describe('BrowserPool click policy wiring', () => {
       submit: true,
     });
 
-    expect(result).toMatchObject({ ok: true, action: 'fill_form' });
-    expect(page.keyboard.press).toHaveBeenCalledWith('Enter');
+    expect(result).toMatchObject({ ok: false, action: 'fill_form', error: 'form submission is disabled by policy' });
+    expect(page.keyboard.press).not.toHaveBeenCalled();
   });
 
   it('blocks Enter submission when the submitter formaction is sensitive', async () => {

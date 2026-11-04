@@ -63,6 +63,27 @@ function bytes(value: string): number {
 }
 
 describe('tool limits', () => {
+  it('offers fill-only form inputs and rejects any model-supplied submit flag', async () => {
+    const fillForm = findTool('fill_form');
+    expect(fillForm?.parameters.properties).not.toHaveProperty('submit');
+
+    let received: unknown;
+    const browserWithCapture = {
+      ...browser,
+      async act(_sessionId: string, action: unknown): Promise<BrowserResult> {
+        received = action;
+        return { ok: true, action: 'fill_form', url: 'https://example.com/search' };
+      },
+    } as unknown as BrowserRunnerClient;
+    const toolContext = context({ allowForms: true, browser: browserWithCapture });
+    const allowed = await fillForm?.run({ fields: [{ selector: '#q', value: 'query' }] }, toolContext);
+    expect(allowed?.ok).toBe(true);
+    expect(received).toMatchObject({ action: 'fill_form', submit: false });
+
+    const attemptedSubmit = await fillForm?.run({ fields: [{ selector: '#q', value: 'query' }], submit: true }, toolContext);
+    expect(attemptedSubmit).toMatchObject({ ok: false, error: 'invalid_arguments' });
+  });
+
   it('counts repeated URLs against the page-visit budget', async () => {
     const openUrl = findTool('open_url');
     const toolContext = context({ limits: { maxPageVisits: 2, maxSearchQueries: 5, maxOutputBytes: 50_000 } });

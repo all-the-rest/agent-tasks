@@ -39,6 +39,8 @@ const envSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     TRUST_PROXY: z.enum(['true', 'false']).default('false'),
     COOKIE_SECURE: z.enum(['true', 'false']).default('false'),
+    /** Global HTTP requests per minute and IP, including the SPA. */
+    RATE_LIMIT_API_MAX: z.coerce.number().int().min(1).max(10_000).default(300),
     /** Failed sign-ins per minute and IP before Better Auth answers 429. */
     RATE_LIMIT_SIGNIN_MAX: z.coerce.number().int().min(1).max(1000).default(5),
     /** Session reads per window and IP; the E2E stack raises this for its multi-context suite. */
@@ -51,6 +53,13 @@ const envSchema = z
         code: 'custom',
         path: [value.ADMIN_EMAIL ? 'ADMIN_PASSWORD' : 'ADMIN_EMAIL'],
         message: 'ADMIN_EMAIL and ADMIN_PASSWORD must be set together',
+      });
+    }
+    if (value.NODE_ENV === 'production' && value.ALLOW_REGISTRATION === 'true' && !value.SMTP_URL?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SMTP_URL'],
+        message: 'SMTP_URL is required when open registration is enabled in production',
       });
     }
   });

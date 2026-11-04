@@ -443,6 +443,13 @@ def text(mapping, key):
     return str(value)
 
 
+def image_tag(name):
+    reference = text(service(name), "image").rsplit("/", 1)[-1]
+    if "@" in reference:
+        return "digest"
+    return reference.rsplit(":", 1)[1] if ":" in reference else ""
+
+
 def placeholder(value):
     lowered = value.lower()
     return (
@@ -460,6 +467,15 @@ def require(mapping, key):
         fail(key + ":placeholder")
     return value
 
+
+# Compose falls back to :latest when IMAGE_TAG is absent, and Watchtower would
+# follow it across majors. The documented production policy is the floating
+# major line (for example 0), so only an unset or latest tag is rejected here.
+for name in ("api", "worker", "browser-runner", "opencode-provisioner"):
+    if name in services:
+        tag = image_tag(name)
+        if tag == "" or tag.lower() == "latest":
+            fail("IMAGE_TAG:unpinned")
 
 api = environment("api")
 postgres = environment("postgres")
@@ -648,6 +664,7 @@ effective_report=$(
     mismatch) fail "$key must be identical on worker and browser-runner in the effective Compose configuration" ;;
     wrong-service) fail "$key must be set on worker and browser-runner only, never on api" ;;
     runtime-disabled) fail "$key is empty: the isolated runtime is disabled in production, so the worker would exit before queue registration. Production deploys stay blocked until the verification gates pass (docs/architecture/opencode-runtime-isolation.md)" ;;
+    unpinned) fail "$key must name a release: set IMAGE_TAG in the host .env to a published tag such as the major line 0, a fixed 0.1.0 or sha-<short>; an unset or latest tag would follow a moving image" ;;
     name) fail "$key must resolve to the Docker volume agent-tasks_postgres-data mounted at /var/lib/postgresql/data; a different name would start an empty database" ;;
     unsupported)
       case "$key" in

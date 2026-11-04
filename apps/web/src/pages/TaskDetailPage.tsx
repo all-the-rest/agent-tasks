@@ -16,9 +16,19 @@ import {
 } from '../components/ui';
 import { MemoryManager } from '../components/MemoryManager';
 import { MemoryCommandBar } from '../components/MemoryCommandBar';
+import { ShareTaskDialog } from '../components/ShareTaskDialog';
+import { useTablist } from '../lib/tablist';
 
 type ActionName = 'pause' | 'resume' | 'run' | 'duplicate';
 type Tab = 'overview' | 'memory' | 'recommendations';
+
+const TASK_TABS = ['overview', 'memory', 'recommendations'] as const;
+
+const notificationKeys = {
+  none: 'tasks.notificationNone',
+  email: 'tasks.notificationEmail',
+  email_on_change: 'tasks.notificationEmailOnChange',
+} as const;
 
 export function TaskDetailPage() {
   const { t, i18n } = useTranslation();
@@ -37,6 +47,7 @@ export function TaskDetailPage() {
   });
   const executionRows = executions.data?.pages.flatMap((page) => page.items) ?? [];
   const [tab, setTab] = useState<Tab>('overview');
+  const { tabProps, panelProps } = useTablist<Tab>(TASK_TABS, tab, setTab, 'task-detail');
   const suggestions = useQuery({
     queryKey: ['task-suggestions', id],
     queryFn: () => api.tasks.memorySuggestions(id),
@@ -59,6 +70,7 @@ export function TaskDetailPage() {
   });
 
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const invalidate = async () => {
@@ -176,15 +188,13 @@ export function TaskDetailPage() {
         </div>
       ) : null}
 
-      <div role="tablist" className="tabs tabs-box mb-5 w-fit">
-        {(['overview', 'memory', 'recommendations'] as const).map((value) => (
+      <div role="tablist" aria-label={t('tasks.detailTitle')} className="tabs tabs-box mb-5 w-fit">
+        {TASK_TABS.map((value) => (
           <button
             key={value}
             type="button"
-            role="tab"
+            {...tabProps(value)}
             className={`tab ${tab === value ? 'tab-active' : ''}`}
-            aria-selected={tab === value}
-            onClick={() => setTab(value)}
           >
             {t(`memory.tab.${value}`)}
             {value === 'memory' && (changes.data?.length ?? 0) > 0 ? (
@@ -194,6 +204,7 @@ export function TaskDetailPage() {
         ))}
       </div>
 
+      <div {...panelProps('overview')}>
       {tab === 'overview' ? (
       <>
       <div className="grid gap-5 xl:grid-cols-3">
@@ -319,7 +330,7 @@ export function TaskDetailPage() {
                 <span className={`badge badge-sm ${data.allowWebResearch ? 'badge-info' : 'badge-ghost'}`}>
                   {t('tasks.allowWebResearch')}
                 </span>
-                <span className="badge badge-ghost badge-sm">{t(`tasks.notification${data.notification === 'email' ? 'Email' : 'None'}`)}</span>
+                <span className="badge badge-ghost badge-sm">{t(notificationKeys[data.notification])}</span>
               </div>
             </div>
           </section>
@@ -334,6 +345,9 @@ export function TaskDetailPage() {
                 disabled={action.isPending}
               >
                 {t('tasks.duplicate')}
+              </button>
+              <button type="button" className="btn btn-sm justify-start" onClick={() => setShareOpen(true)}>
+                {t('tasks.share.open')}
               </button>
               <button type="button" className="btn btn-sm btn-error btn-outline justify-start" onClick={() => setDeleteOpen(true)}>
                 {t('common.delete')}
@@ -350,7 +364,9 @@ export function TaskDetailPage() {
       ) : null}
       </>
       ) : null}
+      </div>
 
+      <div {...panelProps('memory')}>
       {tab === 'memory' ? (
         <div className="flex flex-col gap-5">
           <MemoryCommandBar />
@@ -440,7 +456,9 @@ export function TaskDetailPage() {
           </section>
         </div>
       ) : null}
+      </div>
 
+      <div {...panelProps('recommendations')}>
       {tab === 'recommendations' ? (
         <section className="card border border-base-300 bg-base-100 shadow-sm">
           <div className="card-body gap-4 p-5">
@@ -533,6 +551,15 @@ export function TaskDetailPage() {
           </div>
         </section>
       ) : null}
+      </div>
+
+      <ShareTaskDialog
+        open={shareOpen}
+        taskId={data.id}
+        title={data.title}
+        prompt={data.prompt}
+        onClose={() => setShareOpen(false)}
+      />
 
       <ConfirmDialog
         open={deleteOpen}

@@ -1,10 +1,11 @@
 import { AgentCancelledError, buildSystemPrompt } from '@agent-tasks/agent-runtime';
-import type { AgentSource, RunAgentOptions } from '@agent-tasks/agent-runtime';
+import type { AgentSource, AgentStepRecord, RunAgentOptions } from '@agent-tasks/agent-runtime';
 import { parseModelVariant, ProviderError } from '@agent-tasks/ai-providers';
 import type { ModelVariant, ProviderContext } from '@agent-tasks/ai-providers';
 import { catalogModelFor, catalogModelSupportsTools } from '@agent-tasks/shared';
 import type { OpenCodeExecutionLease, OpenCodeSessionStore } from './opencode-session-store.js';
 import type { ToolBridgeHub } from './opencode-tool-bridge.js';
+import type { ToolBridgeBudgetCounter, ToolBridgeBudgetReservation } from './opencode-tool-bridge.js';
 import { createOpenCodeV2Runner } from './opencode-v2-runner.js';
 import type { OpenCodeV2Client, OpenCodeV2Model } from './opencode-v2-client.js';
 
@@ -42,6 +43,13 @@ export interface IsolatedOpenCodeProvisioner {
     /** Release the worker connection; do not delete recoverable session state. */
     release(): Promise<void>;
   }>;
+}
+
+interface BudgetedRunAgentOptions extends RunAgentOptions {
+  /** Worker-injected durable budget; never sourced from the task or provider. */
+  executionBudget?: {
+    reserveBudget(counters: Partial<Record<ToolBridgeBudgetCounter, number>>): Promise<ToolBridgeBudgetReservation>;
+  };
 }
 
 export function createIsolatedOpenCodeRunner(
@@ -91,9 +99,35 @@ export function createIsolatedOpenCodeRunner(
     }
     if (options.memoryEnabled) tools.push('record_task_memory', 'track_recommendation');
     if (tools.length > 0 && !toolBridgeHub) throw new Error('OpenCode tool bridge is not configured');
+
+    // OpenCode emits one assistant message per model turn, not one event per MCP
+    // call. The bridge reports each call with its own per-session number; the
+    // synthetic `opencode` step is renumbered after the last observed call so a
+    // recovered run can never overwrite a real tool row. Writes are serialised so
+    // parallel calls cannot race the executor's timeline bookkeeping.
+    const timeline: AgentStepRecord[] = [];
+    let lastTimelineStep = 0;
+    let timelineWrite: Promise<void> = Promise.resolve();
+    const emitStep = (step: AgentStepRecord): Promise<void> => {
+      lastTimelineStep = Math.max(lastTimelineStep, step.step);
+      timeline.push(step);
+      const write = timelineWrite.then(() => options.onStep?.(step)).then(() => undefined);
+      // Keep the chain alive after a failed write, but let this caller observe the
+      // failure (the bridge contains it for tool calls; the runner propagates it).
+      timelineWrite = write.catch(() => undefined);
+      return write;
+    };
     const bridge = tools.length > 0
       ? toolBridgeHub!.open({
           tools,
+          // The bridge defaults to a hard cap; forward the task's per-execution
+          // call budget so a lower limit is enforced and a higher one is not
+          // silently reduced.
+          maxCalls: options.limits.maxToolCalls,
+          onCall: (call) => emitStep(call),
+          ...( (options as BudgetedRunAgentOptions).executionBudget
+            ? { reserveBudget: (options as BudgetedRunAgentOptions).executionBudget!.reserveBudget }
+            : {}),
           context: {
             browser: options.browser,
             search: options.search,
@@ -138,13 +172,27 @@ export function createIsolatedOpenCodeRunner(
       throw new Error('Unable to open isolated OpenCode runtime');
     }
     try {
-      const result = await createOpenCodeV2Runner({ ...runtime, store, requiresMcp: Boolean(bridge) })(options, lease);
-      if (!bridge) return result;
+      const runnerOptions: RunAgentOptions = {
+        ...options,
+        async onStep(step) {
+          // The runner's only step is the terminal `opencode` summary. Place it
+          // after every call the bridge has accepted, including calls whose tool
+          // result is still being written/observed.
+          const synthetic = step.tool === 'opencode'
+            ? { ...step, step: Math.max(step.step, lastTimelineStep + 1, (bridge?.sequence ?? 0) + 1) }
+            : step;
+          await emitStep(synthetic);
+        },
+      };
+      const result = await createOpenCodeV2Runner({ ...runtime, store, requiresMcp: Boolean(bridge) })(runnerOptions, lease);
+      const steps = [...timeline].sort((left, right) => left.step - right.step);
+      if (!bridge) return { ...result, steps };
       // Structured output and research results come from validated tool calls.
       // OpenCode only emits the final text, so the bridge is the source of truth
       // for sources, e-mail blocks and memory proposals.
       return {
         ...result,
+        steps,
         sources: mergeSources(result.sources, bridge.sources),
         emailBlocks: bridge.emailBlocks.length > 0 ? bridge.emailBlocks : result.emailBlocks,
         memoryOps: mergeByKey(result.memoryOps, bridge.memoryOps, (op) => op.semanticKey ?? op.content),

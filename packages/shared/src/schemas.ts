@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_LIMITS, limitsSchema } from './limits.js';
 import { memorySettingsSchema, DEFAULT_MEMORY_SETTINGS } from './memory.js';
 import { emailBlocksSchema } from './email-blocks.js';
 import { scheduleSchema } from './schedule.js';
@@ -228,6 +229,8 @@ export const systemSettingsSchema = z.object({
   defaultModel: z.string().max(120).optional(),
   maxConcurrentExecutionsPerUser: z.number().int().min(1).max(10).default(2),
   maxTaskExecutionsPerDay: z.number().int().min(1).max(500).default(50),
+  /** Global per-run budgets. Administrators may only lower the finite hard caps. */
+  agentLimits: limitsSchema.default(DEFAULT_LIMITS),
   browserAllowHttp: z.boolean().default(true),
   browserAllowedPorts: z.array(z.number().int().min(1).max(65535)).default([80, 443]),
   searchProvider: z.enum(['searxng', 'none']).default('searxng'),

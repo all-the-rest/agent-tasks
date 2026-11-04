@@ -94,7 +94,7 @@ afterAll(async () => {
   await harness.close();
 });
 
-async function seedTask(options: { limits?: Record<string, number>; allowWebResearch?: boolean; baseUrl?: string; notification?: 'none' | 'email'; apiKey?: string; model?: string; supportsTools?: boolean; memoryMode?: 'auto' | 'suggest' | 'off' } = {}): Promise<{ taskId: string; executionId: string; ownerId: string; providerId: string }> {
+async function seedTask(options: { limits?: Record<string, number>; agentLimits?: Record<string, number>; allowWebResearch?: boolean; baseUrl?: string; notification?: 'none' | 'email' | 'email_on_change'; apiKey?: string; model?: string; supportsTools?: boolean; memoryMode?: 'auto' | 'suggest' | 'off' } = {}): Promise<{ taskId: string; executionId: string; ownerId: string; providerId: string }> {
   const model = options.model ?? 'mock-researcher';
   const owner = await harness.db.pool.query(`insert into "user" (id, name, email, email_verified, role) values ($1,'Owner',$2,true,'USER') returning id`, [randomUUID(), `owner-${randomUUID()}@example.com`]);
   const ownerId = owner.rows[0].id;
@@ -111,7 +111,7 @@ async function seedTask(options: { limits?: Record<string, number>; allowWebRese
   await harness.db.pool.query(
     `insert into system_settings (id, values) values (1, $1)
      on conflict (id) do update set values = excluded.values`,
-    [JSON.stringify({ searchProvider: 'none', defaultTimezone: 'Europe/Vienna', allowRegistration: false, maxConcurrentExecutionsPerUser: 2, maxTaskExecutionsPerDay: 50, browserAllowHttp: true, browserAllowedPorts: [80, 443] })],
+    [JSON.stringify({ searchProvider: 'none', defaultTimezone: 'Europe/Vienna', allowRegistration: false, maxConcurrentExecutionsPerUser: 2, maxTaskExecutionsPerDay: 50, browserAllowHttp: true, browserAllowedPorts: [80, 443], ...(options.agentLimits ? { agentLimits: options.agentLimits } : {}) })],
   );
 
   const taskId = randomUUID();
@@ -276,10 +276,20 @@ describe('provisioned execution integration (fake runtime and provider, real Exe
     expect(row.report.sources[0].url).toMatch(/^https:\/\//);
     expect(row.usage.totalTokens).toBeGreaterThan(0);
 
-    const steps = await harness.db.pool.query('select tool, ok from execution_steps where execution_id = $1 order by step', [executionId]);
-    expect(steps.rows.map((step) => step.tool)).toEqual(['opencode']);
+    const steps = await harness.db.pool.query('select step, tool, ok from execution_steps where execution_id = $1 order by step', [executionId]);
+    // Each real MCP call is its own timeline row, followed by the synthetic
+    // OpenCode summary. Step numbers are unique and ordered.
+    expect(steps.rows.map((step) => step.tool)).toEqual(['search_web', 'open_url', 'opencode']);
+    expect(steps.rows.map((step) => step.step)).toEqual([1, 2, 3]);
     expect(steps.rows.every((step) => step.ok)).toBe(true);
     expect(openCode.toolCalls.filter((call) => call.executionId === executionId).map((call) => call.name)).toEqual(['search_web', 'open_url']);
+
+    const budget = await harness.db.pool.query(
+      'select calls, pages, searches, output_bytes from execution_budget_counters where execution_id = $1',
+      [executionId],
+    );
+    expect(budget.rows[0]).toMatchObject({ calls: 2, pages: 1, searches: 1 });
+    expect(Number(budget.rows[0].output_bytes)).toBeGreaterThan(0);
 
     const sources = await harness.db.pool.query('select url, confidence from execution_sources where execution_id = $1', [executionId]);
     expect(sources.rows.length).toBeGreaterThan(0);
@@ -287,6 +297,43 @@ describe('provisioned execution integration (fake runtime and provider, real Exe
 
     const task = await harness.db.pool.query('select last_run_at from tasks where id = $1', [taskId]);
     expect(task.rows[0].last_run_at).not.toBeNull();
+  }, 120_000);
+
+  it('applies saved admin limits through the durable ledger, never task-owned values', async () => {
+    const { executionId } = await seedTask({ agentLimits: {
+      maxDurationSec: 60,
+      maxAgentSteps: 6,
+      maxPageVisits: 0,
+      maxOutputBytes: 1_000,
+      maxToolCalls: 3,
+      maxSearchQueries: 1,
+    } });
+    openCode.plans.set(executionId, { searchQuery: 'bounded query', openUrls: ['https://example.com/'] });
+    await makeExecutor().handle(executionId);
+
+    const steps = await harness.db.pool.query(
+      'select tool, ok from execution_steps where execution_id = $1 order by step',
+      [executionId],
+    );
+    expect(steps.rows.map((step) => [step.tool, step.ok])).toEqual([
+      ['search_web', true],
+      ['open_url', false],
+      ['opencode', true],
+    ]);
+    const budget = await harness.db.pool.query(
+      'select calls, pages, searches, output_bytes, max_calls, max_pages, max_searches, max_output_bytes from execution_budget_counters where execution_id = $1',
+      [executionId],
+    );
+    expect(budget.rows[0]).toMatchObject({
+      calls: 2,
+      pages: 0,
+      searches: 1,
+      max_calls: 3,
+      max_pages: 0,
+      max_searches: 1,
+    });
+    expect(Number(budget.rows[0].max_output_bytes)).toBe(1_000);
+    expect(Number(budget.rows[0].output_bytes)).toBeLessThanOrEqual(1_000);
   }, 120_000);
 
   it('visits three distinct public pages and persists every one as a source', async () => {

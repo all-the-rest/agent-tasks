@@ -7,12 +7,14 @@ import { eq } from 'drizzle-orm';
 import { AppError, toPublicError, WEB_CSP_DIRECTIVES } from '@agent-tasks/shared';
 import { user } from '@agent-tasks/database';
 import type { AppContext } from './context.js';
+import { TRUSTED_SIGNUP_HEADER } from './auth.js';
 import { requestSerializer } from './lib/log-redaction.js';
 import { claimInvitation, registerSetupRoutes, releaseInvitation } from './routes/setup.js';
 import type { ClaimedInvitation } from './routes/setup.js';
 import { registerMeRoutes, registerAdminRoutes } from './routes/admin.js';
 import { registerProviderRoutes } from './routes/providers.js';
 import { registerTaskRoutes } from './routes/tasks.js';
+import { registerTaskShareRoutes } from './routes/task-shares.js';
 import { registerMemoryRoutes } from './routes/memory.js';
 import { isSpaNavigation, registerWebApp, resolveWebRoot } from './static.js';
 import { isUnlimitedHealthCheck, proxyTrust } from './http-policy.js';
@@ -50,7 +52,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   });
   await app.register(rateLimit, {
     global: true,
-    max: 300,
+    max: context.env.RATE_LIMIT_API_MAX,
     timeWindow: '1 minute',
     // The container healthcheck must not consume the per-IP budget; every other
     // request, including the SPA, is limited. Only the in-container loopback
@@ -60,16 +62,45 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   });
 
   /**
+   * A share token is a bearer secret in the URL. Every response on a tokenized
+   * path — the SPA shell, the public JSON read and each error branch — must stay
+   * out of caches, out of Referer headers and out of search indexes. `no-store`
+   * also keeps a revoked link from being served by an intermediary that cached
+   * the successful response.
+   */
+  const isSharePath = (url: string): boolean => {
+    const path = url.split('?')[0] ?? '';
+    return path.startsWith('/share/') || path.startsWith('/api/shares/');
+  };
+  const protectShareReply = (reply: FastifyReply): void => {
+    reply.header('cache-control', 'no-store');
+    reply.header('referrer-policy', 'no-referrer');
+    reply.header('x-robots-tag', 'noindex, nofollow');
+  };
+
+  /**
    * CSRF for our own routes: Better Auth checks Origin on /api/auth/*, the app
    * routes need the same guard because the session travels in a cookie. SameSite=Lax
    * is the second layer, this is the first.
    */
   const trustedOrigins = new Set([context.env.PUBLIC_BASE_URL.replace(/\/$/, ''), 'http://localhost:5173', 'http://localhost:8080']);
-  app.addHook('onRequest', async (request) => {
+  app.addHook('onRequest', async (request, reply) => {
+    if (isSharePath(request.url)) protectShareReply(reply);
     if (request.url.startsWith('/api/auth')) return;
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return;
     const origin = request.headers.origin;
     if (origin && !trustedOrigins.has(origin)) throw AppError.forbidden('request origin is not allowed');
+  });
+
+  /**
+   * The static handler sets `Referrer-Policy` and `Cache-Control` for index.html
+   * after onRequest has run. It does not know the URL is a bearer link, so the
+   * share policy must win after every handler, including the SPA fallback and the
+   * error handler.
+   */
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (isSharePath(request.url)) protectShareReply(reply);
+    return payload;
   });
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
@@ -136,6 +167,10 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
     }
 
     const headers = fromNodeHeaders(request.headers);
+    // Never trust this marker from a client; only a successfully claimed invite
+    // makes this sign-up eligible for the verified-onboarding path.
+    headers.delete(TRUSTED_SIGNUP_HEADER);
+    if (claimed) headers.set(TRUSTED_SIGNUP_HEADER, 'true');
     let body: string | undefined;
     if (request.method !== 'GET' && request.method !== 'HEAD' && request.body !== undefined) {
       body = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
@@ -177,6 +212,7 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   await registerMeRoutes(app, context);
   await registerProviderRoutes(app, context);
   await registerTaskRoutes(app, context);
+  await registerTaskShareRoutes(app, context);
   await registerMemoryRoutes(app, context);
   await registerAdminRoutes(app, context);
   // Registered last so the API routes keep precedence over the SPA wildcard.

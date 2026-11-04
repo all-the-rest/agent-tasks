@@ -16,9 +16,9 @@
     "@agent-tasks/database": "workspace:*",
     "@agent-tasks/shared": "workspace:*",
     "pg": "catalog:",
-    "pg-boss": "^12.38.0",
+    "pg-boss": "catalog:",
     "zod": "catalog:",
-    "drizzle-orm": "^0.45.4",
+    "drizzle-orm": "catalog:",
     "nodemailer": "^10.0.6"
   },
   "devDependencies": {

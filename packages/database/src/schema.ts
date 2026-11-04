@@ -13,7 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import type { TaskEndCondition } from '@agent-tasks/shared';
+import type { TaskEndCondition, TaskShareSnapshot } from '@agent-tasks/shared';
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
@@ -224,6 +224,35 @@ export const tasks = pgTable(
   ],
 );
 
+/**
+ * Public share links carry a frozen, definition-only snapshot. The bearer token
+ * is shown once at creation and only its SHA-256 hash is stored, so a database
+ * leak cannot be replayed. Revocation is a soft delete so the owner keeps an
+ * audit trail; revoking never touches tasks already adopted from the link.
+ */
+export const taskShares = pgTable(
+  'task_shares',
+  {
+    id: uuid('id').primaryKey(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** Denormalised owner for owner-scoped listing; the foreign key cascades. */
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    snapshot: jsonb('snapshot').$type<TaskShareSnapshot>().notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('task_shares_token_unique').on(table.tokenHash),
+    index('task_shares_task_idx').on(table.taskId, table.createdAt),
+    index('task_shares_owner_idx').on(table.ownerId, table.createdAt),
+  ],
+);
+
 export const executions = pgTable(
   'executions',
   {
@@ -294,6 +323,51 @@ export const executionSteps = pgTable(
     resultPreview: text('result_preview'),
   },
   (table) => [index('execution_steps_execution_idx').on(table.executionId, table.step)],
+);
+
+/**
+ * Durable per-execution budget counters.
+ *
+ * The worker's OpenCode bridge used to count tool calls, page visits and search
+ * queries in memory, so a pg-boss retry or a crash recovery started the run with
+ * a fresh allowance. These rows are keyed by execution (never by attempt), which
+ * makes a reservation survive both. The maxima are pinned on the first
+ * reservation and can only tighten afterwards, so a retry can never widen a
+ * budget. `max_output_bytes` is nullable: null means the run accounts output
+ * without a cumulative cap.
+ *
+ * Reservations are performed by `reserveExecutionBudget` in
+ * `execution-budget.ts`; it validates the caller against the execution's owner,
+ * worker and active lease before touching a counter.
+ */
+export const executionBudgetCounters = pgTable(
+  'execution_budget_counters',
+  {
+    executionId: uuid('execution_id')
+      .primaryKey()
+      .references(() => executions.id, { onDelete: 'cascade' }),
+    /** Denormalised owner for owner-scoped reads; always taken from the execution row. */
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    calls: integer('calls').notNull().default(0),
+    pages: integer('pages').notNull().default(0),
+    searches: integer('searches').notNull().default(0),
+    outputBytes: bigint('output_bytes', { mode: 'number' }).notNull().default(0),
+    maxCalls: integer('max_calls').notNull(),
+    maxPages: integer('max_pages').notNull(),
+    maxSearches: integer('max_searches').notNull(),
+    maxOutputBytes: bigint('max_output_bytes', { mode: 'number' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('execution_budget_counters_owner_idx').on(table.ownerId),
+    check(
+      'execution_budget_counters_non_negative',
+      sql`${table.calls} >= 0 and ${table.pages} >= 0 and ${table.searches} >= 0 and ${table.outputBytes} >= 0 and ${table.maxCalls} >= 0 and ${table.maxPages} >= 0 and ${table.maxSearches} >= 0 and (${table.maxOutputBytes} is null or ${table.maxOutputBytes} >= 0)`,
+    ),
+  ],
 );
 
 export const executionSources = pgTable(
@@ -552,10 +626,12 @@ export const schema = {
   providerCredentials,
   providerModels,
   tasks,
+  taskShares,
   executions,
   executionOpenCodeSessions,
   executionSteps,
   executionSources,
+  executionBudgetCounters,
   memories,
   memoryRevisions,
   memoryTombstones,

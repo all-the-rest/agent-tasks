@@ -1,4 +1,10 @@
 import type { ExecutionReport } from './schemas.js';
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import { gfmFromMarkdown, gfmToMarkdown } from 'mdast-util-gfm';
+import { gfm } from 'micromark-extension-gfm';
+import { toMarkdown } from 'mdast-util-to-markdown';
+import { visit } from 'unist-util-visit';
+import type { Root } from 'mdast';
 
 /** Strips control characters and caps length — used before text reaches storage or logs. */
 export function sanitizeText(value: string, maxLength = 20_000): string {
@@ -92,11 +98,48 @@ export function checkReportLinks(
     if (normalized) allowed.add(normalized);
   }
   const removed: string[] = [];
-  const sanitized = markdown.replace(/\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (whole, text: string, target: string) => {
-    const normalized = normalizedUrl(target);
-    if (normalized && allowed.has(normalized)) return whole;
-    removed.push(target);
-    return text.length > 0 ? text : 'source';
+  const tree = fromMarkdown(markdown, {
+    extensions: [gfm()],
+    mdastExtensions: [gfmFromMarkdown()],
   });
-  return { markdown: sanitized, removed };
+  const definitions = new Map<string, string>();
+  visit(tree, 'definition', (node) => {
+    definitions.set(node.identifier.toLowerCase(), node.url);
+  });
+  visit(tree, (node, index, parent) => {
+    if ((node.type !== 'linkReference' && node.type !== 'imageReference') || !parent || index === undefined) return;
+    const url = definitions.get(node.identifier.toLowerCase());
+    const replacement = url
+      ? node.type === 'linkReference'
+        ? { type: 'link' as const, url, title: null, children: node.children }
+        : { type: 'image' as const, url, title: null, alt: node.alt }
+      : { type: 'text' as const, value: node.type === 'imageReference' ? (node.alt || 'image') : toMarkdown({ type: 'root', children: node.children } as Root, { extensions: [gfmToMarkdown()] }).trim() || 'source' };
+    parent.children.splice(index, 1, replacement);
+  });
+  visit(tree, (node, index, parent) => {
+    if (node.type === 'image') {
+      // A page URL is not a trusted image host. Embedding it can leak the
+      // report viewer's IP/referrer and load arbitrary remote content. This is a
+      // rendering-safety decision, not uncertainty about a cited source link.
+      if (parent && index !== undefined) {
+        parent.children.splice(index, 1, { type: 'text', value: node.alt || 'image' });
+      }
+      return;
+    }
+    if (node.type !== 'link') return;
+    const normalized = normalizedUrl(node.url);
+    if (normalized && allowed.has(normalized)) return;
+
+    removed.push(node.url);
+    if (!parent || index === undefined) return;
+    const label = toMarkdown({
+      type: 'root',
+      children: node.children,
+    } as Root, { extensions: [gfmToMarkdown()] }).trim();
+    parent.children.splice(index, 1, { type: 'text', value: label || 'source' });
+  });
+  return {
+    markdown: toMarkdown(tree, { extensions: [gfmToMarkdown()] }).trimEnd(),
+    removed,
+  };
 }

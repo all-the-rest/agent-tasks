@@ -39,6 +39,22 @@ describe('SPA served by the API image', () => {
     }
   });
 
+  it('keeps the SPA shell for a tokenized share URL uncached and referrer-free', async () => {
+    const token = 'A'.repeat(43);
+    const response = await harness.app.inject({
+      method: 'GET',
+      url: `/share/${token}`,
+      headers: { accept: 'text/html,application/xhtml+xml' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.headers['content-type']).toMatch(/text\/html/);
+    // The static handler writes its own no-cache/strict-origin policy after
+    // onRequest; the share policy has to win for the final document response.
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.headers['x-robots-tag']).toBe('noindex, nofollow');
+  });
+
   it('keeps the JSON 404 contract for API routes and missing assets', async () => {
     const api = await harness.app.inject({
       method: 'GET',

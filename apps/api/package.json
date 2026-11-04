@@ -19,11 +19,11 @@
     "@fastify/static": "^10.1.8",
     "@types/nodemailer": "^7.0.2",
     "better-auth": "^1.7.14",
-    "drizzle-orm": "^0.45.4",
+    "drizzle-orm": "catalog:",
     "fastify": "catalog:",
     "nodemailer": "^10.0.6",
     "pg": "catalog:",
-    "pg-boss": "^12.38.0",
+    "pg-boss": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

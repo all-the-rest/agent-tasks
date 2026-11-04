@@ -608,7 +608,8 @@ test('edits and deletes a memory so later executions respect the change', async 
   // The tombstone blocks the deleted finding, so the fake runtime no longer sees a
   // TASK MEMORY block; the still-accepted recommendation is injected as before.
   await expect(page.getByText(/Existing tracked recommendations were recognized/).first()).toBeVisible();
-  const deletedReport = await page.locator('#main-content').textContent();
+  const currentReportHeading = page.getByRole('heading', { name: 'Current report', exact: true });
+  const deletedReport = await currentReportHeading.locator('..').textContent();
   expect(deletedReport).not.toContain('Previous task memory was provided to this run');
   expect(deletedReport).toContain('Existing tracked recommendations were recognized');
   expect(editedRunId).toMatch(/^[0-9a-f-]{36}$/);

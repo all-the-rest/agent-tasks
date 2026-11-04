@@ -75,8 +75,10 @@ than 16 characters. "Default" is the code default, not the compose fallback.
 | `LOG_LEVEL` | api, worker, browser-runner | `info` | no; `fatal`, `error`, `warn`, `info`, `debug` or `trace`; compose forwards it to api and worker only |
 | `TRUST_PROXY` | api | `false` in code, `true` in `compose.yaml` (the stack always sits behind a reverse proxy) | no; exactly `true` or `false`; when enabled the API trusts exactly one proxy hop |
 | `COOKIE_SECURE` | api | `false` | no; exactly `true` or `false` |
-| `RATE_LIMIT_SIGNIN_MAX` | api | `5` | no, 1–1000; forwarded by `compose.yaml` |
-| `RATE_LIMIT_WINDOW_SECONDS` | api | `60` | no, 10–3600; forwarded by `compose.yaml` |
+| `RATE_LIMIT_API_MAX` | api | `300` | no, 1–10000; global HTTP requests per minute and IP, including the SPA; forwarded by both Compose files |
+| `RATE_LIMIT_SIGNIN_MAX` | api | `5` | no, 1–1000; forwarded by both Compose files |
+| `RATE_LIMIT_SESSION_MAX` | api | `600` | no, 1–10000 session reads per window and IP; forwarded by both Compose files |
+| `RATE_LIMIT_WINDOW_SECONDS` | api | `60` | no, 10–3600; forwarded by both Compose files |
 | `RUN_MIGRATIONS` | api | unset (migrations skipped) | no; `compose.yaml` sets `"true"`, and only the exact string `true` runs them |
 | `AGENT_TASKS_ENABLE_CODEX` | ai-providers (Codex) | unset (disabled) | no; `1` opts in; forwarded by `compose.yaml` (default `0`). The worker rejects the `codex` provider kind, so this only affects admin health checks and library tests |
 
@@ -112,7 +114,7 @@ These are read by `compose.yaml`, not by the application:
 | `HTTP_BIND` | `127.0.0.1` | Host interface for the API/SPA port. Keep loopback for a host reverse proxy; use `0.0.0.0` for a remote Docker daemon or a proxy container outside the compose network |
 | `HTTP_PORT` | `8080` | Published host port; `PUBLIC_BASE_URL` must use the same port |
 | `IMAGE_PREFIX` | `ghcr.io/all-the-rest/agent-tasks` | |
-| `IMAGE_TAG` | `latest` | Release selector |
+| `IMAGE_TAG` | `latest` in local/root Compose; production example uses `0` | Release selector. `deploy.sh` rejects an unset or `latest` effective tag; production must choose a published release tag such as `0`, `0.1.0` or `sha-<short>` |
 | `BROWSER_MEMORY_LIMIT` | `1g` | Container limit for browser-runner |
 | `BROWSER_CPUS` | `1.0` | CPU limit for browser-runner |
 | `OPENCODE_MEMORY_LIMIT` | `1g` | Container memory ceiling for the profile-gated provisioned runtime |
@@ -404,6 +406,10 @@ may leave both empty because the administrator already exists (remove the exampl
 `ADMIN_EMAIL` as well). Set
 `IMAGE_PREFIX=ghcr.io/all-the-rest/agent-tasks`, choose `IMAGE_TAG=0` for
 Watchtower, and set `COMPOSE_PROFILES=search` only when SearXNG is configured.
+The deploy preflight rejects an effective `latest` or missing release tag rather
+than allowing Compose's `latest` fallback: `latest` can cross a breaking major.
+The floating major tag `0` remains supported as the documented Watchtower
+policy; use a full version or `sha-<short>` to freeze to a specific release.
 `deploy.sh` never creates or overwrites this file. Before changing the active
 stack it verifies root:root/0600, rejects an implicit `compose.override.*` file
 and a host `.env` that sets `COMPOSE_FILE` or `COMPOSE_PROJECT_NAME` (the values
@@ -821,7 +827,8 @@ procedure under [Deploy, backup and rollback](#deploy-backup-and-rollback).
 | Runner answers `401` | `RUNNER_TOKEN` differs between worker and browser-runner; compose passes one variable to both |
 | Browser executions fail with policy errors | `RUNNER_ALLOWED_PORTS`, `RUNNER_ALLOW_HTTP`, runner logs (`GET /v1/blocked` with the token) |
 | Search returns no results | the `search` profile is not active, or `SEARXNG_URL` points at the wrong host |
-| 429 on sign-in | the sign-in limit is 5 per window by default; `RATE_LIMIT_SIGNIN_MAX` only applies after it is added to the api environment |
+| 429 on sign-in | the sign-in limit is 5 per window by default; set `RATE_LIMIT_SIGNIN_MAX` in `.env` to adjust it |
+| 429 on an API or page request | the global per-IP limit is 300 requests per minute by default; set `RATE_LIMIT_API_MAX` to tune it without disabling request protection |
 | Cookies not persisted | `COOKIE_SECURE` vs. plain HTTP, `PUBLIC_BASE_URL` mismatch |
 | Port 8080 already in use | change `HTTP_PORT` and `PUBLIC_BASE_URL` together |
 | Deploy stops with "webnet is missing" or "is not the required 172.18.0.0/16" | the proxy stack did not create `webnet`, or its IPAM entry is not exactly subnet `172.18.0.0/16` with gateway `172.18.0.1`; `0.0.0.0/0` and other subnets are rejected. Inspect it with `docker network inspect webnet`; do not delete or recreate a network that Caddy is attached to |

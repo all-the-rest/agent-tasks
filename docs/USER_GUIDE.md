@@ -65,6 +65,23 @@ an immediate manual run, **Pause** to stop future schedules and **Edit** to
 change the definition. A task can have at most one queued or running execution
 at a time.
 
+### Share a task
+
+**Share** on the task detail page creates a public link with a frozen copy of the
+task definition: title, prompt, schedule and timezone. The link is a bearer
+secret — anyone who has it can read that definition — so share it deliberately
+and revoke it when it is no longer needed.
+
+- The snapshot never includes the description, system instructions, provider or
+  model, credentials, memory, limits or run history.
+- Changes made after sharing are not included; create a new link for a newer
+  definition.
+- **Revoke** stops the link immediately. Copies that someone already adopted are
+  independent tasks and keep working.
+- A signed-in visitor can **Copy task** from the link. They choose their own
+  provider and model, so the copy runs with their credentials; the original
+  memory and history are never copied.
+
 ## Memory
 
 Every account has a **global memory** and every task has a **task memory**.
@@ -151,7 +168,11 @@ single-use and expire after seven days. Disable an account to revoke access; the
 last administrator cannot be removed.
 
 The **Allow open registration** setting decides whether `/register` is available.
-When it is off, accounts only exist through invitations.
+When it is off, accounts only exist through invitations. Public sign-ups receive a
+verification link and can sign in after confirming the address; invited accounts
+created from the invitation link are ready immediately. In production, configure
+`SMTP_URL` before enabling open registration; the API refuses the setting without
+SMTP so new users cannot be stranded without a verification link.
 
 ### Providers
 

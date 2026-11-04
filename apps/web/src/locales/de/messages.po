@@ -19,6 +19,12 @@ msgstr "Akteur"
 msgid "admin.addProvider"
 msgstr "Anbieter hinzufügen"
 
+msgid "admin.agentLimitsHint"
+msgstr "Globale Grenzen für jeden Lauf. Aufgabenbesitzer können diese Werte nicht ändern."
+
+msgid "admin.agentLimitsTitle"
+msgstr "Agent-Ausführungsgrenzen"
+
 msgid "admin.allowRegistration"
 msgstr "Offene Registrierung erlauben"
 
@@ -169,6 +175,24 @@ msgstr "OpenAI-kompatibel"
 msgid "admin.lastUpdated"
 msgstr "Zuletzt aktualisiert"
 
+msgid "admin.maxAgentDuration"
+msgstr "Maximale Dauer (Sekunden)"
+
+msgid "admin.maxAgentOutputBytes"
+msgstr "Maximale Ausgabe (Bytes)"
+
+msgid "admin.maxAgentPageVisits"
+msgstr "Maximale Seitenaufrufe"
+
+msgid "admin.maxAgentSearchQueries"
+msgstr "Maximale Suchanfragen"
+
+msgid "admin.maxAgentSteps"
+msgstr "Maximale Agent-Schritte"
+
+msgid "admin.maxAgentToolCalls"
+msgstr "Maximale Tool-Aufrufe"
+
 msgid "admin.maxConcurrent"
 msgstr "Gleichzeitige Ausführungen pro Benutzer"
 
@@ -295,6 +319,9 @@ msgstr "Letzte Ausführungen"
 msgid "admin.refreshModels"
 msgstr "Modelle aktualisieren"
 
+msgid "admin.registrationSmtpHint"
+msgstr "In der Produktion benötigt die offene Registrierung SMTP, damit neue Nutzer ihre E-Mail-Adresse bestätigen können."
+
 msgid "admin.revoke"
 msgstr "Widerrufen"
 
@@ -415,6 +442,9 @@ msgstr "Administrator anlegen"
 msgid "auth.creating"
 msgstr "Wird angelegt…"
 
+msgid "auth.emailNotVerified"
+msgstr "Bestätige zuerst deine E-Mail-Adresse. Der Link ist in deinem Postfach."
+
 msgid "auth.emailPlaceholder"
 msgstr "du@beispiel.at"
 
@@ -478,6 +508,12 @@ msgstr "Konto erstellen"
 msgid "auth.registering"
 msgstr "Konto wird erstellt…"
 
+msgid "auth.resendVerification"
+msgstr "Bestätigungs-E-Mail erneut senden"
+
+msgid "auth.resendingVerification"
+msgstr "Wird gesendet…"
+
 msgid "auth.sessionExpired"
 msgstr "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an."
 
@@ -534,6 +570,21 @@ msgstr "Backup-Code verwenden"
 
 msgid "auth.useTotpCode"
 msgstr "Authenticator-Code verwenden"
+
+msgid "auth.verificationLostHint"
+msgstr "Keine E-Mail erhalten oder ist der Link abgelaufen? Fordere einen neuen an."
+
+msgid "auth.verificationResendFailed"
+msgstr "Die Anfrage konnte nicht gesendet werden. Bitte versuche es später erneut."
+
+msgid "auth.verificationResendThrottled"
+msgstr "Zu viele Anfragen. Bitte warte einige Minuten und versuche es dann erneut."
+
+msgid "auth.verificationResent"
+msgstr "Falls die Adresse noch bestätigt werden muss, ist ein neuer Link unterwegs. Prüfe auch den Spam-Ordner."
+
+msgid "auth.verificationSent"
+msgstr "Prüfe {email} auf den Bestätigungslink und melde dich dann an."
 
 msgid "common.actions"
 msgstr "Aktionen"
@@ -802,6 +853,36 @@ msgstr "Abbruch angefordert."
 msgid "executions.cancelling"
 msgstr "Wird abgebrochen…"
 
+msgid "executions.changeStatuses.changed"
+msgstr "Geändert"
+
+msgid "executions.changeStatuses.first"
+msgstr "Erster Bericht"
+
+msgid "executions.changeStatuses.unchanged"
+msgstr "Unverändert"
+
+msgid "executions.changeStatuses.unknown"
+msgstr "Unbekannt"
+
+msgid "executions.comparison"
+msgstr "Vergleich mit früherem Bericht"
+
+msgid "executions.comparisonEmpty"
+msgstr "Die vorherige Ausführung enthält keinen Bericht zum Vergleichen."
+
+msgid "executions.comparisonFailed"
+msgstr "Der vorherige Ausführungsbericht konnte nicht geladen werden."
+
+msgid "executions.comparisonLoading"
+msgstr "Vorheriger Bericht wird geladen…"
+
+msgid "executions.comparisonStatus"
+msgstr "Berichtsänderung"
+
+msgid "executions.currentReport"
+msgstr "Aktueller Bericht"
+
 msgid "executions.detailTitle"
 msgstr "Ausführungsdetails"
 
@@ -858,6 +939,12 @@ msgstr "Keine Schritte aufgezeichnet."
 
 msgid "executions.noVisitedSites"
 msgstr "Es wurden keine Seiten besucht."
+
+msgid "executions.openPreviousExecution"
+msgstr "Vorherige Ausführung öffnen ({id})"
+
+msgid "executions.previousReport"
+msgstr "Vorheriger Bericht"
 
 msgid "executions.report"
 msgstr "Bericht"
@@ -1909,6 +1996,111 @@ msgstr "Modell auswählen"
 msgid "tasks.selectProvider"
 msgstr "Anbieter auswählen"
 
+msgid "tasks.share.active"
+msgstr "Aktiv"
+
+msgid "tasks.share.adopt"
+msgstr "Aufgabe übernehmen"
+
+msgid "tasks.share.adoptHint"
+msgstr "Wähle einen deiner Anbieter. Die Kopie läuft mit deinen Zugangsdaten und startet ohne die Erinnerungen oder den Verlauf des Originals."
+
+msgid "tasks.share.adoptTitle"
+msgstr "In meine Aufgaben übernehmen"
+
+msgid "tasks.share.adopted"
+msgstr "Aufgabe in deine Aufgaben übernommen."
+
+msgid "tasks.share.adopting"
+msgstr "Wird übernommen…"
+
+msgid "tasks.share.copied"
+msgstr "Link kopiert."
+
+msgid "tasks.share.copy"
+msgstr "Link kopieren"
+
+msgid "tasks.share.create"
+msgstr "Freigabelink erstellen"
+
+msgid "tasks.share.createdAt"
+msgstr "Erstellt"
+
+msgid "tasks.share.createdMsg"
+msgstr "Freigabelink erstellt."
+
+msgid "tasks.share.creating"
+msgstr "Link wird erstellt…"
+
+msgid "tasks.share.invalid"
+msgstr "Dieser Freigabelink ist nicht verfügbar oder wurde widerrufen."
+
+msgid "tasks.share.links"
+msgstr "Freigabelinks"
+
+msgid "tasks.share.model"
+msgstr "Modell"
+
+msgid "tasks.share.noLinks"
+msgstr "Noch kein Freigabelink."
+
+msgid "tasks.share.noProviders"
+msgstr "Kein nutzbarer Anbieter konfiguriert. Lege zuerst einen unter Anbieter an."
+
+msgid "tasks.share.open"
+msgstr "Teilen"
+
+msgid "tasks.share.openTasks"
+msgstr "Meine Aufgaben öffnen"
+
+msgid "tasks.share.provider"
+msgstr "Anbieter"
+
+msgid "tasks.share.publicHint"
+msgstr "Geteilt werden nur Titel, Prompt, Zeitplan und Zeitzone. Erinnerungen, Zugangsdaten und der Ausführungsverlauf sind nicht enthalten."
+
+msgid "tasks.share.publicSubtitle"
+msgstr "Eine eingefrorene Aufgabendefinition, geteilt von einem Agent-Tasks-Nutzer."
+
+msgid "tasks.share.publicTitle"
+msgstr "Geteilte Aufgabe"
+
+msgid "tasks.share.revoke"
+msgstr "Widerrufen"
+
+msgid "tasks.share.revokeBody"
+msgstr "Diesen Link widerrufen? Wer die Aufgabe bereits übernommen hat, behält seine Kopie; der Link funktioniert sofort nicht mehr."
+
+msgid "tasks.share.revokeConfirm"
+msgstr "Link widerrufen"
+
+msgid "tasks.share.revokeTitle"
+msgstr "Freigabelink widerrufen"
+
+msgid "tasks.share.revoked"
+msgstr "Widerrufen"
+
+msgid "tasks.share.revokedMsg"
+msgstr "Freigabelink widerrufen."
+
+msgid "tasks.share.selectModel"
+msgstr "Modell auswählen"
+
+msgid "tasks.share.selectProvider"
+msgstr "Anbieter auswählen"
+
+msgid "tasks.share.signIn"
+msgstr "Anmelden, um diese Aufgabe zu übernehmen"
+
+msgid "tasks.share.title"
+msgstr "Aufgabe teilen"
+
+msgid "tasks.share.typeLabel"
+msgstr "Geplante Aufgabe"
+
+msgid "tasks.share.warning"
+msgstr "Änderungen nach dem Teilen werden nicht übernommen. Systemanweisungen, Erinnerungen, Zugangsdaten und der Ausführungsverlauf werden nie geteilt."
+
 msgid "tasks.status.active"
 msgstr "Aktiv"
 
@@ -1920,6 +2112,48 @@ msgstr "Pausiert"
 
 msgid "tasks.subtitle"
 msgstr "Geplante Rechercheaufgaben und ihre Grenzen."
+
+msgid "tasks.suggestions.deadlineSweep.prompt"
+msgstr "Prüfe jeden Werktagmorgen die Fristen für [Projekt] und schicke mir eine kurze Liste, was diese Woche fällig ist und was zuerst Aufmerksamkeit braucht."
+
+msgid "tasks.suggestions.deadlineSweep.title"
+msgstr "Fristen im Blick"
+
+msgid "tasks.suggestions.priceWatch.prompt"
+msgstr "Prüfe täglich den öffentlichen Preis von [Produkt] und melde dich nur bei einer Änderung, inklusive altem und neuem Betrag."
+
+msgid "tasks.suggestions.priceWatch.title"
+msgstr "Preisänderungen beobachten"
+
+msgid "tasks.suggestions.sourceCheck.prompt"
+msgstr "Gehe jeden Freitag die Quellen in [Bericht] durch und markiere jede Quelle, die geändert, entfernt oder korrigiert wurde."
+
+msgid "tasks.suggestions.sourceCheck.title"
+msgstr "Quellen prüfen"
+
+msgid "tasks.suggestions.topicBrief.prompt"
+msgstr "Sammle jeden Montagmorgen die wichtigsten Neuigkeiten zu [Thema] und schicke mir eine kurze Übersicht mit den wichtigsten Änderungen und Links."
+
+msgid "tasks.suggestions.topicBrief.title"
+msgstr "Wöchentliche Themenübersicht"
+
+msgid "tasks.suggestionsHelp"
+msgstr "Wähle einen Einstieg, um den Prompt zu füllen. Ersetze den Platzhalter in eckigen Klammern und fahre fort, wenn du bereit bist. Es wird noch nichts angelegt oder geplant."
+
+msgid "tasks.suggestionsHide"
+msgstr "Vorschläge ausblenden"
+
+msgid "tasks.suggestionsShow"
+msgstr "Vorschläge anzeigen"
+
+msgid "tasks.suggestionsTitle"
+msgstr "Vorgeschlagene Aufgaben"
+
+msgid "tasks.suggestionsUse"
+msgstr "Prompt übernehmen"
+
+msgid "tasks.suggestionsUseLabel"
+msgstr "Prompt übernehmen: {title}"
 
 msgid "tasks.systemHelp"
 msgstr "Optionale Vorgaben zu Ton und Format für den Agenten."

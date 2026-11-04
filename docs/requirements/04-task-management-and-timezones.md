@@ -19,4 +19,5 @@ Complete task lifecycle with timezone-aware schedules that survive DST changes.
 ## Evidence
 
 - `packages/shared/test/schedule.test.ts` (DST cases with fixed instants, Europe/Vienna).
-- `apps/api/src/routes/tasks.ts`, `packages/shared/src/schedule.ts`.
+- `apps/api/src/routes/tasks.ts`, `packages/shared/src/schedule.ts`,
+  `apps/web/test/admin-limits.test.tsx`, `test/integration/execution-budget.test.ts`.

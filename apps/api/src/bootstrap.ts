@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { systemSettings, user, userPreferences } from '@agent-tasks/database';
 import { systemSettingsSchema } from '@agent-tasks/shared';
 import type { AppContext } from './context.js';
+import { withTrustedSignup } from './auth.js';
 
 export interface BootstrapResult {
   settings: 'created' | 'exists';
@@ -67,13 +68,13 @@ async function ensureAdmin(context: AppContext): Promise<'created' | 'exists' | 
       const rows = await tx.select({ count: sql<number>`count(*)::int` }).from(user).where(eq(user.role, 'ADMIN'));
       if (Number(rows[0]?.count ?? 0) > 0) return 'exists' as const;
 
-      const created = await context.auth.api.signUpEmail({
+      const created = await withTrustedSignup(() => context.auth.api.signUpEmail({
         body: {
           email: ADMIN_EMAIL,
           password: ADMIN_PASSWORD,
           name: context.env.ADMIN_NAME ?? 'Administrator',
         },
-      });
+      }));
       createdUserId = created.user.id;
       await tx.update(user).set({ role: 'ADMIN', emailVerified: true }).where(eq(user.id, created.user.id));
       await tx
