@@ -19,5 +19,8 @@ Assume every page is hostile and every report is untrusted output.
 
 ## Evidence
 
-Agent-runtime injection test, isolation/CSRF tests, ratchet gates `no-raw-html` and
-`no-baked-secret`.
+Agent-runtime injection test, `services/browser-runner/test/click-policy.test.ts`
+(English/German sensitive controls, phrase boundaries, sensitive link/page/form
+routes), `services/browser-runner/test/browser-click-policy.test.ts` (runner dispatch
+refuses sensitive form targets), isolation/CSRF tests, and ratchet gates `no-raw-html`
+and `no-baked-secret`.
