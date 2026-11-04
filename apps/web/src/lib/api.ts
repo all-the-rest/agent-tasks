@@ -23,6 +23,9 @@ import type {
   SystemSettings,
   Task,
   TaskInput,
+  TaskShare,
+  TaskShareCreated,
+  TaskShareSnapshot,
   TaskStatus,
 } from './types';
 
@@ -158,6 +161,13 @@ export const api = {
       post<SignInResult>('/api/auth/sign-in/email', { email, password }),
     signUp: (input: { name: string; email: string; password: string }) =>
       post<{ user?: { id: string } }>('/api/auth/sign-up/email', input),
+    /**
+     * Requests a fresh verification link. Better Auth answers `{ status: true }`
+     * for unknown and already verified addresses too, with a constant-time floor,
+     * so the UI must not treat that as proof the account exists.
+     */
+    sendVerificationEmail: (email: string) =>
+      post<{ status: boolean }>('/api/auth/send-verification-email', { email }),
     signOut: () => post<void>('/api/auth/sign-out'),
     session: () =>
       get<{ user: SessionUser; session: { id: string; expiresAt: string } } | null>(
@@ -208,6 +218,16 @@ export const api = {
     memoryChanges: (id: string) => get<MemoryChange[]>(`/api/tasks/${id}/memory-changes`),
     memorySuggestions: (id: string) => get<MemorySuggestion[]>(`/api/tasks/${id}/memory-suggestions`),
     recommendationEvents: (id: string) => get<RecommendationEvent[]>(`/api/tasks/${id}/recommendation-events`),
+    shares: (id: string) => get<TaskShare[]>(`/api/tasks/${id}/shares`),
+    createShare: (id: string) => post<TaskShareCreated>(`/api/tasks/${id}/share`),
+    revokeShare: (id: string, shareId: string) =>
+      del(`/api/tasks/${id}/shares/${encodeURIComponent(shareId)}`),
+  },
+
+  shares: {
+    get: (token: string) => get<TaskShareSnapshot>(`/api/shares/${encodeURIComponent(token)}`),
+    adopt: (token: string, input: { providerId: string; model: string }) =>
+      post<Task>(`/api/shares/${encodeURIComponent(token)}/adopt`, input),
   },
 
   memory: {

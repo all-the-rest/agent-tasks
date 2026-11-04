@@ -7,6 +7,9 @@ import { MemoryManager } from '../components/MemoryManager';
 import { MemoryCommandBar } from '../components/MemoryCommandBar';
 import { ConfirmDialog, ErrorAlert, PageHeader, useToast } from '../components/ui';
 import type { MemoryScope } from '../lib/types';
+import { useTablist } from '../lib/tablist';
+
+const MEMORY_TABS = ['global', 'task'] as const;
 
 export function MemoryPage() {
   const { t } = useTranslation();
@@ -17,6 +20,17 @@ export function MemoryPage() {
   const scope: MemoryScope = params.get('scope') === 'task' ? 'task' : 'global';
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { tabProps, panelProps } = useTablist<MemoryScope>(
+    MEMORY_TABS,
+    scope,
+    (nextScope) => {
+      const next = new URLSearchParams(params);
+      if (nextScope === 'task') next.set('scope', 'task');
+      else next.delete('scope');
+      setParams(next, { replace: true });
+    },
+    'memory-scope',
+  );
 
   const stats = useQuery({ queryKey: ['memory-stats'], queryFn: api.memory.stats });
 
@@ -57,7 +71,7 @@ export function MemoryPage() {
         }
       />
 
-      <MemoryCommandBar className="mb-5" />
+      <MemoryCommandBar className="mb-5 md:hidden" />
 
       {error ? (
         <div className="mb-4">
@@ -86,39 +100,37 @@ export function MemoryPage() {
         </div>
       </div>
 
-      <div role="tablist" className="tabs tabs-box mb-5 w-fit">
+      <div role="tablist" aria-label={t('memory.title')} className="tabs tabs-box mb-5 w-fit">
         <button
           type="button"
-          role="tab"
+          {...tabProps('global')}
           className={`tab ${scope === 'global' ? 'tab-active' : ''}`}
-          onClick={() => {
-            const next = new URLSearchParams(params);
-            next.delete('scope');
-            setParams(next, { replace: true });
-          }}
         >
           {t('memory.globalTitle')}
         </button>
         <button
           type="button"
-          role="tab"
+          {...tabProps('task')}
           className={`tab ${scope === 'task' ? 'tab-active' : ''}`}
           title={!taskId ? t('memory.allTaskHint') : undefined}
-          onClick={() => {
-            const next = new URLSearchParams(params);
-            next.set('scope', 'task');
-            setParams(next, { replace: true });
-          }}
         >
           {t('memory.taskTitle')}
         </button>
       </div>
 
-      {scope === 'task' && taskId ? (
-        <MemoryManager scope="task" taskId={taskId} />
-      ) : (
-        <MemoryManager scope="global" />
-      )}
+      <div {...panelProps('global')}>
+        {scope === 'global' ? <MemoryManager scope="global" /> : null}
+      </div>
+
+      <div {...panelProps('task')}>
+        {scope === 'task' ? (
+          taskId ? (
+            <MemoryManager scope="task" taskId={taskId} />
+          ) : (
+            <MemoryManager scope="task" />
+          )
+        ) : null}
+      </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-box border border-base-300 bg-base-100 p-4">
         <div className="text-xs opacity-70">

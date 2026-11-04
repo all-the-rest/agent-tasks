@@ -6,7 +6,7 @@ import { useTranslation } from '../i18n';
 import { ApiError, api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { AuthShell } from '../components/AuthShell';
-import { ErrorAlert, Field, Spinner } from '../components/ui';
+import { ErrorAlert, Field, Spinner, SuccessAlert } from '../components/ui';
 
 interface LocationState {
   from?: string;
@@ -28,6 +28,9 @@ export function LoginPage() {
   const [code, setCode] = useState('');
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sent' | 'throttled' | 'failed'>('idle');
   const [submitting, setSubmitting] = useState(false);
 
   const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 60_000 });
@@ -45,6 +48,8 @@ export function LoginPage() {
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    setNeedsVerification(false);
+    setResendStatus('idle');
     if (!email.trim() || !password) {
       setError(t('validation.required'));
       return;
@@ -66,9 +71,38 @@ export function LoginPage() {
       if (!current) throw new Error(t('auth.loginFailed'));
       navigate(redirectTo, { replace: true });
     } catch (cause) {
-      setError(errorMessage(cause) || t('auth.loginFailed'));
+      if (cause instanceof ApiError && cause.code === 'EMAIL_NOT_VERIFIED') {
+        setError(t('auth.emailNotVerified'));
+        setNeedsVerification(true);
+      } else {
+        setError(errorMessage(cause) || t('auth.loginFailed'));
+      }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  /**
+   * The verification endpoint deliberately answers the same way for unknown,
+   * already verified and unverified addresses. The UI therefore confirms only
+   * that the request was accepted, never whether this address has an account.
+   */
+  const onResendVerification = async () => {
+    const address = email.trim();
+    if (!address) {
+      setError(t('validation.required'));
+      return;
+    }
+    setResendingVerification(true);
+    setResendStatus('idle');
+    try {
+      await api.auth.sendVerificationEmail(address);
+      setResendStatus('sent');
+    } catch (cause) {
+      // 429 is about the client, not the address, so it is safe to distinguish.
+      setResendStatus(cause instanceof ApiError && cause.status === 429 ? 'throttled' : 'failed');
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -212,6 +246,33 @@ export function LoginPage() {
             {submitting ? <span className="loading loading-spinner loading-sm" aria-hidden="true" /> : null}
             {submitting ? t('auth.signingIn') : t('auth.signIn')}
           </button>
+          {needsVerification ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm opacity-70">{t('auth.verificationLostHint')}</p>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm self-start"
+                onClick={onResendVerification}
+                disabled={resendingVerification}
+              >
+                {resendingVerification ? (
+                  <span className="loading loading-spinner loading-sm" aria-hidden="true" />
+                ) : null}
+                {resendingVerification
+                  ? t('auth.resendingVerification')
+                  : t('auth.resendVerification')}
+              </button>
+              {resendStatus === 'sent' ? (
+                <SuccessAlert message={t('auth.verificationResent')} />
+              ) : null}
+              {resendStatus === 'throttled' ? (
+                <ErrorAlert message={t('auth.verificationResendThrottled')} />
+              ) : null}
+              {resendStatus === 'failed' ? (
+                <ErrorAlert message={t('auth.verificationResendFailed')} />
+              ) : null}
+            </div>
+          ) : null}
           {config.data ? (
             <p className="text-center text-xs opacity-50">
               {config.data.appName} · {t('common.version')} {config.data.version}

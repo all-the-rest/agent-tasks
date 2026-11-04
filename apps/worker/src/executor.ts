@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PgBoss } from 'pg-boss';
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import type { Database } from '@agent-tasks/database';
 import {
   applyTaskLearning,
@@ -14,14 +14,14 @@ import {
   tasks,
   user,
   userPreferences,
+  reserveExecutionBudget,
 } from '@agent-tasks/database';
 import { AgentCancelledError } from '@agent-tasks/agent-runtime';
-import type { RunAgentOptions, AgentRunResult } from '@agent-tasks/agent-runtime';
+import type { RunAgentOptions, AgentRunResult, AgentStepRecord } from '@agent-tasks/agent-runtime';
 import { BrowserRunnerClient, NoopSearchProvider, SearxngSearchProvider } from '@agent-tasks/browser-tools';
 import type { SearchProvider } from '@agent-tasks/browser-tools';
 import { ProviderError, SecretBox, contextFor, createProvider, redact, resolveCredential } from '@agent-tasks/ai-providers';
 import {
-  AGENT_RUNTIME_LIMITS,
   buildMemoryContext,
   catalogModelSupportsTools,
   mergeProviderCatalog,
@@ -34,6 +34,7 @@ import {
   systemSettingsSchema,
   taskRequiresTools,
   isExecutableProviderKind,
+  resolveAgentLimits,
 } from '@agent-tasks/shared';
 import type { MemoryCategory, MemoryContextRecord, MemoryScope, RecommendationContextRecord } from '@agent-tasks/shared';
 import { claimExecution, heartbeat, isCancelRequested } from './scheduling.js';
@@ -62,6 +63,131 @@ const MAX_ATTEMPTS = 3;
 /** How long a shutdown waits for aborted executions to settle before pg-boss takes over. */
 export const SHUTDOWN_GRACE_MS = 25_000;
 
+/**
+ * Timeline step numbers are partitioned per execution attempt. A deliberate
+ * retry (`attempt` increments) clears only rows below its segment, while crash
+ * recovery of the same attempt keeps them: that attempt may have already
+ * executed tools whose result is still authoritative in the OpenCode session.
+ * The width is far above the hard per-run tool-call cap (120), so segments can
+ * never overlap.
+ */
+const STEP_SEGMENT = 1_000_000;
+/** The shared `execution_steps` columns are documented as short text. */
+const MAX_STEP_TEXT = 1_000;
+/** Arguments are model-provided; cap each string and the whole JSON payload. */
+const MAX_ARGUMENT_TEXT = 1_000;
+const MAX_ARGUMENT_BYTES = 8_000;
+const MAX_ARGUMENT_DEPTH = 5;
+const MAX_ARGUMENT_ENTRIES = 50;
+
+export function stepSegmentForAttempt(attempt: number): number {
+  const normalized = Number.isFinite(attempt) ? Math.max(1, Math.floor(attempt)) : 1;
+  return (normalized - 1) * STEP_SEGMENT;
+}
+
+/**
+ * Redact values whose header names identify them as credentials. Ordinary metadata
+ * headers (for example `X-Title`) must remain readable in user-visible reports.
+ */
+export function providerHeaderSecrets(config: unknown): string[] {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return [];
+  const headers = (config as { headers?: unknown }).headers;
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) return [];
+  return Object.entries(headers as Record<string, unknown>)
+    .filter(([name, value]) => /(?:auth|api[-_]?key|token|secret|credential|password|private[-_]?key|cookie)/i.test(name)
+      && typeof value === 'string' && value.length > 0)
+    .map(([, value]) => value as string);
+}
+
+function redactedStepText(value: string, secrets: string[]): string {
+  return redact(value, secrets).slice(0, MAX_STEP_TEXT);
+}
+
+function sanitizeArgumentValue(value: unknown, secrets: string[], depth: number): unknown {
+  if (typeof value === 'string') return redact(value, secrets).slice(0, MAX_ARGUMENT_TEXT);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean' || value === null) return value;
+  if (depth >= MAX_ARGUMENT_DEPTH) return '[truncated]';
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, MAX_ARGUMENT_ENTRIES)
+      .map((item) => sanitizeArgumentValue(item, secrets, depth + 1));
+  }
+  if (typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, MAX_ARGUMENT_ENTRIES)) {
+      // `JSON.parse` can create these as own keys; assigning them would mutate
+      // the persisted object's prototype instead of storing a value.
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+      const safeKey = redact(key, secrets).slice(0, 120);
+      result[safeKey] = /(?:secret|token|password|credential|authorization|api[_-]?key|private[_-]?key)/i.test(key)
+        ? '[redacted]'
+        : sanitizeArgumentValue(item, secrets, depth + 1);
+    }
+    return result;
+  }
+  return '[unsupported]';
+}
+
+/**
+ * Tool arguments that are the durable memory itself. Persisting them in the
+ * execution timeline would make a deleted or user-corrected memory readable from
+ * old step history forever, so those fields are never copied into a step. The
+ * validated operation still reaches the memory journal through the normal path.
+ */
+const PRIVATE_TOOLS = new Set(['record_task_memory', 'track_recommendation']);
+
+/**
+ * Turn arbitrary model-supplied arguments into a bounded JSON value. The values
+ * are never trusted: every string is redacted and capped, nesting and entry
+ * counts are bounded, and an oversized payload is replaced by a marker rather
+ * than stored (or logged) in full.
+ */
+export function sanitizeStepArguments(tool: string, value: unknown, secrets: string[]): Record<string, unknown> {
+  const sanitized = sanitizeArgumentValue(value, secrets, 0);
+  const record = sanitized !== null && typeof sanitized === 'object' && !Array.isArray(sanitized)
+    ? (sanitized as Record<string, unknown>)
+    : {};
+  // The entire operation can contain user-editable or later-deleted content,
+  // identifiers, or metadata. Do not retain a partial copy in execution history.
+  const result = PRIVATE_TOOLS.has(tool) ? { redacted: true } : record;
+  let json: string;
+  try {
+    json = JSON.stringify(result);
+  } catch {
+    return { truncated: true };
+  }
+  const bytes = Buffer.byteLength(json, 'utf8');
+  return bytes > MAX_ARGUMENT_BYTES ? { truncated: true, bytes } : result;
+}
+
+/** Why the executor aborted a run; mirrors the runtime's timeout/cancellation split. */
+export type ExecutionAbortReason = 'timeout' | 'cancelled';
+
+/**
+ * Read the executor's abort cause from the controller it passed to the runtime.
+ *
+ * The deadline aborts with `'timeout'`; cancellation polling and shutdown abort
+ * with `'cancelled'`. Any other reason (including a bare `abort()`) is treated as
+ * cancellation, so an unknown abort can never be mistaken for a retryable failure.
+ */
+export function getExecutionAbortReason(signal: AbortSignal): ExecutionAbortReason | null {
+  if (!signal.aborted) return null;
+  return signal.reason === 'timeout' ? 'timeout' : 'cancelled';
+}
+
+/**
+ * A failure observed after the executor aborted is not a provider failure: the
+ * provisioner, browser session setup or runner may fail with a plain error or a
+ * retryable `ProviderError('timeout')` merely because the abort interrupted it.
+ * Classify it by the executor's own cause instead, so a deadline becomes
+ * `timed_out` and a user cancellation stays `cancelled`, neither retried.
+ */
+export function classifyExecutionFailure(error: unknown, reason: ExecutionAbortReason | null): unknown {
+  if (reason === null) return error;
+  return new AgentCancelledError(reason);
+}
+
 export class Executor {
   private readonly secrets: SecretBox;
   private readonly browser: BrowserRunnerClient;
@@ -87,7 +213,7 @@ export class Executor {
    * the caller can log whether the shutdown actually drained or the grace expired.
    */
   async abortAll(graceMs: number = SHUTDOWN_GRACE_MS): Promise<SettleResult> {
-    for (const controller of this.running.values()) controller.abort();
+    for (const controller of this.running.values()) controller.abort('cancelled');
     return settleWithin(this.inFlight, graceMs);
   }
 
@@ -140,19 +266,18 @@ export class Executor {
     const startedAt = new Date();
     const poll = setInterval(() => {
       void isCancelRequested(db, executionId).then((cancelled) => {
-        if (cancelled) abort.abort();
+        if (cancelled) abort.abort('cancelled');
       });
       void heartbeat(db, executionId, LEASE_SECONDS);
     }, 2_000);
 
-    const limits = AGENT_RUNTIME_LIMITS;
-    let deadlineReached = false;
+    const limits = resolveAgentLimits(settings.agentLimits);
     const deadline = setTimeout(() => {
-      deadlineReached = true;
-      abort.abort();
+      abort.abort('timeout');
     }, limits.maxDurationSec * 1_000);
 
     let browserSessionId: string | null = null;
+    let runCompleted = false;
     const knownSecrets: string[] = [];
     try {
       if (task.ownerId !== execution.ownerId) throw new Error('execution owner does not match task owner');
@@ -208,8 +333,10 @@ export class Executor {
       const credential = resolveCredential(credentials, task.ownerId, decrypt);
       // Any credential on this provider may end up in an error message (e.g. a shared key
       // echoed while a personal key is resolved), so redact all of them, not just the one
-      // used for this run.
+      // used for this run. Credential-like config headers may also be echoed by a gateway.
       knownSecrets.push(...collectKnownSecrets(credential.apiKey, credentials, decrypt));
+      knownSecrets.push(...providerHeaderSecrets(providerConfig));
+      knownSecrets.push(...providerHeaderSecrets(providerConfig));
 
       const adapter = createProvider(provider.kind);
       const providerContext = contextFor({ ...provider, config: providerConfig }, credential.apiKey);
@@ -263,7 +390,65 @@ export class Executor {
         memoryContext = built.text;
       }
 
-      const result = await this.deps.openCodeRunner({
+      // The timeline is per attempt but survives crash recovery of that attempt.
+      // Old attempts live in lower step segments and are cleared here; rows of the
+      // current attempt are kept and new calls are appended after their maximum.
+      const segment = stepSegmentForAttempt(execution.attempt);
+      const existingSteps = await db
+        .select({ id: executionSteps.id, step: executionSteps.step, tool: executionSteps.tool })
+        .from(executionSteps)
+        .where(eq(executionSteps.executionId, executionId));
+      const staleIds = existingSteps.filter((row) => row.step < segment).map((row) => row.id);
+      if (staleIds.length > 0) {
+        await db.delete(executionSteps).where(inArray(executionSteps.id, staleIds));
+      }
+      const liveSteps = existingSteps.filter((row) => row.step >= segment);
+      const syntheticIds = new Set(liveSteps.filter((row) => row.tool === 'opencode').map((row) => row.id));
+      const assignedSteps = new Set(liveSteps.map((row) => row.step));
+      const timelineBase = liveSteps.reduce((max, row) => Math.max(max, row.step), segment);
+      let timelineWrite: Promise<void> = Promise.resolve();
+
+      const persistStep = async (step: AgentStepRecord): Promise<void> => {
+        // The runner's numbers are relative to its own run; the persisted number is
+        // placed after the current attempt's existing rows. A repeated number can
+        // never overwrite another row of the same attempt.
+        let target = timelineBase + Math.max(1, Math.floor(step.step));
+        while (assignedSteps.has(target)) target += 1;
+        assignedSteps.add(target);
+
+        const startedAtDate = new Date(step.startedAt);
+        const finishedAtDate = new Date(step.finishedAt);
+        const startedAt = Number.isNaN(startedAtDate.getTime()) ? new Date() : startedAtDate;
+        const finishedAt = Number.isNaN(finishedAtDate.getTime()) ? new Date() : finishedAtDate;
+        if (step.tool === 'opencode' && syntheticIds.size > 0) {
+          // The terminal summary is a singleton per execution: a recovered replay
+          // replaces the old row instead of adding a second synthetic step, and it
+          // must never delete a real tool row that happens to share its number.
+          await db.delete(executionSteps).where(inArray(executionSteps.id, [...syntheticIds]));
+          syntheticIds.clear();
+        }
+        const id = randomUUID();
+        if (step.tool === 'opencode') syntheticIds.add(id);
+        await db.insert(executionSteps).values({
+          id,
+          executionId,
+          step: target,
+          tool: redactedStepText(step.tool, knownSecrets),
+          args: sanitizeStepArguments(step.tool, step.arguments, knownSecrets),
+          ok: step.ok === true,
+          startedAt,
+          finishedAt,
+          durationMs: Number.isFinite(step.durationMs)
+            ? Math.max(0, Math.floor(step.durationMs))
+            : Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+          error: step.error ? redactedStepText(step.error, knownSecrets) : null,
+          resultPreview: PRIVATE_TOOLS.has(step.tool)
+            ? (step.ok ? 'operation recorded' : 'operation rejected')
+            : step.resultPreview ? redactedStepText(step.resultPreview, knownSecrets) : null,
+        });
+      };
+
+      const runOptions = {
         provider: adapter,
         providerContext,
         model: task.model,
@@ -272,36 +457,51 @@ export class Executor {
         systemInstructions: task.systemInstructions,
         timezone: task.timezone,
         allowWebResearch: task.allowWebResearch,
-        allowForms: false,
+        // Search/filter inputs may be filled during research; the model-facing tool
+        // has no submit argument and the browser runner rejects submissions outright.
+        allowForms: task.allowWebResearch,
         emailNotification: task.notification !== 'none',
         memoryEnabled: memoryToolsEnabled,
         memoryContext,
         limits,
+        executionBudget: {
+          reserveBudget: async (counters: Partial<Record<'calls' | 'pages' | 'searches' | 'outputBytes', number>>) => {
+            return reserveExecutionBudget(db, {
+              executionId,
+              ownerId: execution.ownerId,
+              workerId: this.deps.workerId,
+              limits: {
+                maxToolCalls: limits.maxToolCalls,
+                maxPageVisits: limits.maxPageVisits,
+                maxSearchQueries: limits.maxSearchQueries,
+                // This cumulative cap accounts the bytes sent back to OpenCode;
+                // each individual reply is also truncated to this same hard cap.
+                maxOutputBytes: limits.maxOutputBytes,
+              },
+              counters,
+            });
+          },
+        },
         browser: this.browser,
         sessionId: browserSessionId ?? randomUUID(),
         search,
         signal: abort.signal,
-        async onStep(step) {
-          // A reconciled replay must not duplicate durable steps: the step number is
-          // unique within an execution, so replace the row instead of appending.
-          await db
-            .delete(executionSteps)
-            .where(and(eq(executionSteps.executionId, executionId), eq(executionSteps.step, step.step)));
-          await db.insert(executionSteps).values({
-            id: randomUUID(),
-            executionId,
-            step: step.step,
-            tool: step.tool,
-            args: step.arguments,
-            ok: step.ok,
-            startedAt: new Date(step.startedAt),
-            finishedAt: new Date(step.finishedAt),
-            durationMs: step.durationMs,
-            error: step.error ? redact(step.error, knownSecrets).slice(0, 1_000) : null,
-            resultPreview: step.resultPreview ?? null,
-          });
+        onStep(step) {
+          // Parallel tool calls may complete in any order; serialise both the
+          // numbering and the writes so the offset stays a single source of truth.
+          timelineWrite = timelineWrite.then(
+            () => persistStep(step),
+            () => persistStep(step),
+          );
+          return timelineWrite;
         },
-      }, { executionId, ownerId: execution.ownerId, workerId: this.deps.workerId });
+      } as RunAgentOptions & {
+        executionBudget: {
+          reserveBudget(counters: Partial<Record<'calls' | 'pages' | 'searches' | 'outputBytes', number>>): ReturnType<typeof reserveExecutionBudget>;
+        };
+      };
+      const result = await this.deps.openCodeRunner(runOptions, { executionId, ownerId: execution.ownerId, workerId: this.deps.workerId });
+      runCompleted = true;
 
       const finishedAt = new Date();
       // Quiet runs: compare with the previous completed run so the notification
@@ -431,10 +631,12 @@ export class Executor {
         });
       }
     } catch (error) {
-      // The runtime sees this controller as the caller's signal, so an abort caused by our
-      // own deadline comes back as `AgentCancelledError('cancelled')`. Re-label it here:
-      // a deadline is `timed_out`, never retried; a caller cancellation stays cancelled.
-      const failure = deadlineReached && error instanceof AgentCancelledError && error.reason === 'cancelled' ? new AgentCancelledError('timeout') : error;
+      // The runtime, provisioner or browser session may report an abort as a plain
+      // error or as a transient provider failure. Before the run has completed, the
+      // executor's own abort cause is authoritative: a deadline is `timed_out`,
+      // a user/shutdown cancellation is `cancelled`, and neither is ever retried.
+      // A genuine provider timeout with no abort keeps its retryable classification.
+      const failure = classifyExecutionFailure(error, runCompleted ? null : getExecutionAbortReason(abort.signal));
       await this.failExecution(executionId, execution, failure, startedAt, knownSecrets);
     } finally {
       clearInterval(poll);

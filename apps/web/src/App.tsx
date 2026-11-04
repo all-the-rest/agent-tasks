@@ -7,6 +7,7 @@ import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { SetupPage } from './pages/SetupPage';
 import { InvitePage } from './pages/InvitePage';
+import { SharePage } from './pages/SharePage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { TasksPage } from './pages/TasksPage';
@@ -47,6 +48,7 @@ export function App() {
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/setup" element={<SetupPage />} />
                 <Route path="/invite/:token" element={<InvitePage />} />
+                <Route path="/share/:token" element={<SharePage />} />
                 <Route path="/register" element={<RegisterPage />} />
 
                 <Route

@@ -11,7 +11,12 @@ const LABEL = 'com.agent-tasks.runtime';
 const IMAGE = process.env.OPENCODE_RUNTIME_IMAGE ?? 'agent-tasks-opencode:spike';
 const NETWORK_ALIAS = 'opencode-provisioner';
 const API_PORT = 4090;
-const MAX_REQUEST_BYTES = 1_000_000;
+export const MAX_REQUEST_BYTES = 1_000_000;
+// `maxOutputBytes` is a per-run output budget (report and tool payloads), not a
+// transport limit. It must stay independent of MAX_REQUEST_BYTES so accepting
+// the shared 2 MB default never widens request or proxy body admission. Keep in
+// sync with AGENT_RUNTIME_LIMITS.maxOutputBytes in packages/shared/src/limits.ts.
+export const MAX_OUTPUT_BYTES = 2_000_000;
 const MAX_PROXY_RESPONSE_BYTES = 32 * 1024 * 1024;
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
 // Must stay in sync with MODEL_VARIANTS in packages/ai-providers. The worker splits
@@ -440,7 +445,7 @@ function validateInput(value) {
       && (typeof value.model.variant !== 'string' || !MODEL_VARIANTS.includes(value.model.variant))
     || typeof value.systemPrompt !== 'string' || value.systemPrompt.length > 65_536
     || !Number.isInteger(value.maxAgentSteps) || value.maxAgentSteps < 1 || value.maxAgentSteps > 60
-    || !Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > MAX_REQUEST_BYTES
+    || !Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > MAX_OUTPUT_BYTES
     || typeof value.apiKey !== 'undefined' && (typeof value.apiKey !== 'string' || value.apiKey.length > 8_192)
     || typeof value.toolBridge !== 'undefined' && (!value.toolBridge || typeof value.toolBridge !== 'object'
       || typeof value.toolBridge.token !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(value.toolBridge.token)

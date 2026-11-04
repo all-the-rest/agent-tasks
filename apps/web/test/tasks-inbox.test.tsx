@@ -222,4 +222,16 @@ describe('scheduled-task inbox UI', () => {
     expect(screen.getByText('Ungelesen')).toBeTruthy();
     expect(executionsPage).toHaveBeenLastCalledWith('task-active', { cursor: 'executions-page-2' });
   });
+
+  it('shows the change-only e-mail notification instead of "No notification"', async () => {
+    vi.spyOn(api.tasks, 'get').mockResolvedValue(makeTask({ notification: 'email_on_change' }));
+    vi.spyOn(api.tasks, 'executionsPage').mockResolvedValue({ items: [], nextCursor: null });
+    vi.spyOn(api.tasks, 'memorySuggestions').mockResolvedValue([]);
+    vi.spyOn(api.tasks, 'memoryChanges').mockResolvedValue([]);
+
+    renderTaskDetail();
+
+    expect(await screen.findByText('Email me only when the report changes')).toBeTruthy();
+    expect(screen.queryByText('No notification')).toBeNull();
+  });
 });

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, or } from 'drizzle-orm';
 import { providerCredentials, providerModels, providers } from '@agent-tasks/database';
 import { AppError, classifyAddress, codexConfigSchema, compatibleConfigSchema, normalizeHostname, ollamaConfigSchema, providerKindSchema } from '@agent-tasks/shared';
 import { isExecutableProviderKind, mergeProviderCatalog } from '@agent-tasks/shared';
@@ -30,6 +30,19 @@ const SAFE_CONFIG_KEYS = [
 
 const REDACTED_HEADER_VALUE = '***';
 
+function safeProviderBaseUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const url = new URL(value);
+    if (!url.username && !url.password) return value;
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * `config.headers` is the documented place for bearer tokens, so an admin response must
  * never echo it verbatim. Keep the header names (so the shape stays debuggable) and
@@ -40,7 +53,12 @@ export function redactProviderConfig(config: unknown): Record<string, unknown> {
   const source = config as Record<string, unknown>;
   const redacted: Record<string, unknown> = {};
   for (const key of SAFE_CONFIG_KEYS) {
-    if (key in source) redacted[key] = source[key];
+    if (key === 'baseUrl') {
+      const baseUrl = safeProviderBaseUrl(source.baseUrl);
+      if (baseUrl !== undefined) redacted.baseUrl = baseUrl;
+    } else if (key in source) {
+      redacted[key] = source[key];
+    }
   }
   const headers = source.headers;
   if (headers && typeof headers === 'object' && !Array.isArray(headers)) {
@@ -172,7 +190,7 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
         executable: isExecutableProviderKind(provider.kind),
         isDefault: provider.isDefault,
         // Only non-secret, browser-safe configuration leaves the server.
-        baseUrl: typeof config.baseUrl === 'string' ? config.baseUrl : undefined,
+        baseUrl: safeProviderBaseUrl(config.baseUrl),
         // Preselected catalog model for new tasks (admin choice, not a secret).
         defaultModel: typeof config.defaultModel === 'string' ? config.defaultModel : undefined,
         hasCredential: credentials.some((credential) => credential.providerId === provider.id && (credential.ownerId === null || credential.ownerId === me.id)),
@@ -323,7 +341,16 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
      * The unique index `provider_credentials_scope_unique` is a plain btree index, so
      * `ON CONFLICT (provider_id, owner_id, label)` never fires for shared rows because
      * Postgres treats NULL owner ids as distinct. Locking the provider row serialises
-     * concurrent writers, then read-then-update keeps exactly one shared row per label.
+     * concurrent writers, then read-then-update keeps exactly one shared row.
+     *
+     * Older releases appended a row on every save, so a database upgraded from them may
+     * still hold several shared rows for this provider. `resolveCredential` picks the
+     * first one without ordering, which means an outdated key can stay in use forever.
+     * The rotation therefore updates the newest row and deletes the remaining shared
+     * rows for the provider inside the same locked transaction. A shared credential is
+     * a single active key per provider (`resolveCredential` ignores the label), and the
+     * admin DELETE route already removes every shared label at once. Personal
+     * credentials (`owner_id NOT NULL`) and other providers are never touched.
      */
     await db.transaction(async (tx) => {
       const locked = await tx.select({ id: providers.id }).from(providers).where(eq(providers.id, providerId)).limit(1).for('update');
@@ -331,10 +358,23 @@ export async function registerProviderRoutes(app: FastifyInstance, context: AppC
       const existing = await tx
         .select({ id: providerCredentials.id })
         .from(providerCredentials)
-        .where(and(eq(providerCredentials.providerId, providerId), isNull(providerCredentials.ownerId), eq(providerCredentials.label, label)))
+        .where(and(eq(providerCredentials.providerId, providerId), isNull(providerCredentials.ownerId)))
+        .orderBy(desc(providerCredentials.updatedAt), desc(providerCredentials.createdAt), desc(providerCredentials.id))
         .limit(1);
       if (existing[0]) {
-        await tx.update(providerCredentials).set({ ciphertext, updatedAt: new Date() }).where(eq(providerCredentials.id, existing[0].id));
+        await tx
+          .update(providerCredentials)
+          .set({ label, ciphertext, updatedAt: new Date() })
+          .where(eq(providerCredentials.id, existing[0].id));
+        await tx
+          .delete(providerCredentials)
+          .where(
+            and(
+              eq(providerCredentials.providerId, providerId),
+              isNull(providerCredentials.ownerId),
+              ne(providerCredentials.id, existing[0].id),
+            ),
+          );
       } else {
         await tx.insert(providerCredentials).values({ id: randomUUID(), providerId, ownerId: null, label, ciphertext });
       }

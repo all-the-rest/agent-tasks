@@ -19,6 +19,12 @@ msgstr "Actor"
 msgid "admin.addProvider"
 msgstr "Add provider"
 
+msgid "admin.agentLimitsHint"
+msgstr "Global limits for each run. Task owners cannot change these values."
+
+msgid "admin.agentLimitsTitle"
+msgstr "Agent execution limits"
+
 msgid "admin.allowRegistration"
 msgstr "Allow open registration"
 
@@ -169,6 +175,24 @@ msgstr "OpenAI-compatible"
 msgid "admin.lastUpdated"
 msgstr "Last updated"
 
+msgid "admin.maxAgentDuration"
+msgstr "Maximum duration (seconds)"
+
+msgid "admin.maxAgentOutputBytes"
+msgstr "Maximum output (bytes)"
+
+msgid "admin.maxAgentPageVisits"
+msgstr "Maximum page visits"
+
+msgid "admin.maxAgentSearchQueries"
+msgstr "Maximum search queries"
+
+msgid "admin.maxAgentSteps"
+msgstr "Maximum agent steps"
+
+msgid "admin.maxAgentToolCalls"
+msgstr "Maximum tool calls"
+
 msgid "admin.maxConcurrent"
 msgstr "Concurrent executions per user"
 
@@ -295,6 +319,9 @@ msgstr "Recent executions"
 msgid "admin.refreshModels"
 msgstr "Refresh models"
 
+msgid "admin.registrationSmtpHint"
+msgstr "In production, open registration requires SMTP so new users can verify their e-mail address."
+
 msgid "admin.revoke"
 msgstr "Revoke"
 
@@ -415,6 +442,9 @@ msgstr "Create administrator"
 msgid "auth.creating"
 msgstr "Creating…"
 
+msgid "auth.emailNotVerified"
+msgstr "Verify your e-mail address first. Check your inbox for the link."
+
 msgid "auth.emailPlaceholder"
 msgstr "you@example.com"
 
@@ -478,6 +508,12 @@ msgstr "Create your account"
 msgid "auth.registering"
 msgstr "Creating account…"
 
+msgid "auth.resendVerification"
+msgstr "Resend verification email"
+
+msgid "auth.resendingVerification"
+msgstr "Sending…"
+
 msgid "auth.sessionExpired"
 msgstr "Your session expired. Please sign in again."
 
@@ -534,6 +570,21 @@ msgstr "Use a backup code"
 
 msgid "auth.useTotpCode"
 msgstr "Use an authenticator code"
+
+msgid "auth.verificationLostHint"
+msgstr "No email, or the link has expired? Request a new one."
+
+msgid "auth.verificationResendFailed"
+msgstr "The request could not be sent. Please try again later."
+
+msgid "auth.verificationResendThrottled"
+msgstr "Too many requests. Please wait a few minutes and try again."
+
+msgid "auth.verificationResent"
+msgstr "If the address still needs verification, a new link is on its way. Check your inbox and spam folder."
+
+msgid "auth.verificationSent"
+msgstr "Check {email} for the verification link, then sign in."
 
 msgid "common.actions"
 msgstr "Actions"
@@ -802,6 +853,36 @@ msgstr "Cancellation requested."
 msgid "executions.cancelling"
 msgstr "Cancelling…"
 
+msgid "executions.changeStatuses.changed"
+msgstr "Changed"
+
+msgid "executions.changeStatuses.first"
+msgstr "First report"
+
+msgid "executions.changeStatuses.unchanged"
+msgstr "Unchanged"
+
+msgid "executions.changeStatuses.unknown"
+msgstr "Unknown"
+
+msgid "executions.comparison"
+msgstr "Historical report comparison"
+
+msgid "executions.comparisonEmpty"
+msgstr "The previous execution has no report to compare."
+
+msgid "executions.comparisonFailed"
+msgstr "Could not load the previous execution report."
+
+msgid "executions.comparisonLoading"
+msgstr "Loading previous report…"
+
+msgid "executions.comparisonStatus"
+msgstr "Report change"
+
+msgid "executions.currentReport"
+msgstr "Current report"
+
 msgid "executions.detailTitle"
 msgstr "Execution detail"
 
@@ -858,6 +939,12 @@ msgstr "No steps recorded."
 
 msgid "executions.noVisitedSites"
 msgstr "No pages were visited."
+
+msgid "executions.openPreviousExecution"
+msgstr "Open previous execution ({id})"
+
+msgid "executions.previousReport"
+msgstr "Previous report"
 
 msgid "executions.report"
 msgstr "Report"
@@ -1909,6 +1996,111 @@ msgstr "Select a model"
 msgid "tasks.selectProvider"
 msgstr "Select a provider"
 
+msgid "tasks.share.active"
+msgstr "Active"
+
+msgid "tasks.share.adopt"
+msgstr "Copy task"
+
+msgid "tasks.share.adoptHint"
+msgstr "Choose one of your providers. The copy runs with your credentials and starts without the original memory or history."
+
+msgid "tasks.share.adoptTitle"
+msgstr "Copy to my tasks"
+
+msgid "tasks.share.adopted"
+msgstr "Task copied to your tasks."
+
+msgid "tasks.share.adopting"
+msgstr "Copying…"
+
+msgid "tasks.share.copied"
+msgstr "Link copied."
+
+msgid "tasks.share.copy"
+msgstr "Copy link"
+
+msgid "tasks.share.create"
+msgstr "Create share link"
+
+msgid "tasks.share.createdAt"
+msgstr "Created"
+
+msgid "tasks.share.createdMsg"
+msgstr "Share link created."
+
+msgid "tasks.share.creating"
+msgstr "Creating link…"
+
+msgid "tasks.share.invalid"
+msgstr "This share link is unavailable or has been revoked."
+
+msgid "tasks.share.links"
+msgstr "Share links"
+
+msgid "tasks.share.model"
+msgstr "Model"
+
+msgid "tasks.share.noLinks"
+msgstr "No share link yet."
+
+msgid "tasks.share.noProviders"
+msgstr "No usable provider is configured. Add one under Providers first."
+
+msgid "tasks.share.open"
+msgstr "Share"
+
+msgid "tasks.share.openTasks"
+msgstr "Open my tasks"
+
+msgid "tasks.share.provider"
+msgstr "Provider"
+
+msgid "tasks.share.publicHint"
+msgstr "Only the title, prompt, schedule and timezone are shared. Memories, credentials and run history are not included."
+
+msgid "tasks.share.publicSubtitle"
+msgstr "A frozen task definition shared by an Agent Tasks user."
+
+msgid "tasks.share.publicTitle"
+msgstr "Shared task"
+
+msgid "tasks.share.revoke"
+msgstr "Revoke"
+
+msgid "tasks.share.revokeBody"
+msgstr "Revoke this link? Anyone who already adopted the task keeps their copy; the link stops working immediately."
+
+msgid "tasks.share.revokeConfirm"
+msgstr "Revoke link"
+
+msgid "tasks.share.revokeTitle"
+msgstr "Revoke share link"
+
+msgid "tasks.share.revoked"
+msgstr "Revoked"
+
+msgid "tasks.share.revokedMsg"
+msgstr "Share link revoked."
+
+msgid "tasks.share.selectModel"
+msgstr "Select a model"
+
+msgid "tasks.share.selectProvider"
+msgstr "Select a provider"
+
+msgid "tasks.share.signIn"
+msgstr "Sign in to copy this task"
+
+msgid "tasks.share.title"
+msgstr "Share task"
+
+msgid "tasks.share.typeLabel"
+msgstr "Scheduled task"
+
+msgid "tasks.share.warning"
+msgstr "Changes made after sharing are not included. System instructions, memories, credentials and run history are never shared."
+
 msgid "tasks.status.active"
 msgstr "Active"
 
@@ -1920,6 +2112,48 @@ msgstr "Paused"
 
 msgid "tasks.subtitle"
 msgstr "Scheduled research jobs and their guardrails."
+
+msgid "tasks.suggestions.deadlineSweep.prompt"
+msgstr "Every weekday morning, review the deadlines for [project] and send me a short list of what is due this week and what needs attention first."
+
+msgid "tasks.suggestions.deadlineSweep.title"
+msgstr "Deadline sweep"
+
+msgid "tasks.suggestions.priceWatch.prompt"
+msgstr "Check the public price of [product] every day and report only when it changes, including the old and new amount."
+
+msgid "tasks.suggestions.priceWatch.title"
+msgstr "Price change watch"
+
+msgid "tasks.suggestions.sourceCheck.prompt"
+msgstr "Every Friday, revisit the sources cited in [report] and flag any source that was changed, removed or corrected."
+
+msgid "tasks.suggestions.sourceCheck.title"
+msgstr "Source check"
+
+msgid "tasks.suggestions.topicBrief.prompt"
+msgstr "Every Monday morning, collect the most important news about [topic] and send me a short brief with the key changes and links."
+
+msgid "tasks.suggestions.topicBrief.title"
+msgstr "Weekly topic brief"
+
+msgid "tasks.suggestionsHelp"
+msgstr "Pick a starting point to fill the prompt. Replace the bracketed placeholder, then continue when you are ready. Nothing is created or scheduled yet."
+
+msgid "tasks.suggestionsHide"
+msgstr "Hide suggestions"
+
+msgid "tasks.suggestionsShow"
+msgstr "Show suggestions"
+
+msgid "tasks.suggestionsTitle"
+msgstr "Suggested tasks"
+
+msgid "tasks.suggestionsUse"
+msgstr "Use prompt"
+
+msgid "tasks.suggestionsUseLabel"
+msgstr "Use prompt: {title}"
 
 msgid "tasks.systemHelp"
 msgstr "Optional tone and format rules for the agent."

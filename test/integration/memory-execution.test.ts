@@ -132,10 +132,11 @@ describe('automatic task learning across provisioned fake executions', () => {
     const global = await harness.db.pool.query('select count(*)::int as count from memories where owner_id = $1 and scope = $2', [ownerId, 'global']);
     expect(global.rows[0].count).toBe(0);
 
-    // The provisioned runtime records one execution step; the validated memory
-    // operations are applied by the worker after the run and journaled separately.
+    // Every validated memory proposal is an MCP call and therefore a timeline
+    // row, followed by the synthetic OpenCode summary. The worker still applies
+    // and journals the operations only after the run succeeds.
     const steps = await harness.db.pool.query(`select tool, ok from execution_steps where execution_id = $1 order by step`, [executionId]);
-    expect(steps.rows.map((step) => step.tool)).toEqual(['opencode']);
+    expect(steps.rows.map((step) => step.tool)).toEqual(['record_task_memory', 'track_recommendation', 'opencode']);
     expect(steps.rows.every((step) => step.ok)).toBe(true);
 
     const changes = await harness.db.pool.query('select action from memory_changes where execution_id = $1', [executionId]);
@@ -224,12 +225,24 @@ describe('automatic task learning across provisioned fake executions', () => {
     expect(lastPrompt).not.toContain(corrected);
     expect(lastPrompt).not.toContain('alpha price is 42 units');
 
-    // Execution steps record only the runtime invocation; memory proposals live in
-    // the journal, so nothing can replay a memory from step history after deletion.
+    // Memory calls are now observable timeline rows, but their private payload is
+    // never copied into step history: deleting or correcting a memory must not
+    // leave its content readable (or replayable) from an old execution.
     const historical = await harness.db.pool.query(
-      `select count(*)::int as count from execution_steps where tool in ('record_task_memory', 'track_recommendation')`,
+      `select tool, args::text as args, coalesce(error, '') as error, coalesce(result_preview, '') as preview
+       from execution_steps where tool in ('record_task_memory', 'track_recommendation')`,
     );
-    expect(historical.rows[0].count).toBe(0);
+    expect(historical.rows.length).toBeGreaterThan(0);
+    const stored = historical.rows
+      .map((row: { args: string; error: string; preview: string }) => `${row.args}\n${row.error}\n${row.preview}`)
+      .join('\n');
+    expect(stored).not.toContain(MEMORY_TEXT);
+    expect(stored).not.toContain(corrected);
+    expect(stored).not.toContain('alpha price is 42 units');
+    for (const row of historical.rows as Array<{ tool: string; args: string }>) {
+      const args = JSON.parse(row.args) as Record<string, unknown>;
+      expect(args).toEqual({ redacted: true });
+    }
 
     const recommendationAfter = await harness.db.pool.query('select status from recommendations where id = $1', [recommendationId]);
     expect(recommendationAfter.rows[0].status).toBe('accepted');

@@ -33,6 +33,10 @@ within 72 hours and to publish a fix and advisory within 30 days for confirmed i
   invitation. Otherwise it requires a valid, unused invite for that address. The
   `ALLOW_REGISTRATION` environment variable seeds this setting on a fresh database;
   changing it later requires updating the database setting in the admin UI.
+- Public sign-ups must confirm the mailed link before Better Auth issues a session
+  (`requireEmailVerification`). Accounts created through the trusted setup, environment
+  bootstrap or invitation paths are provisioned verified. The upgrade migration marks
+  accounts that predate this rule verified once, so enforcing it cannot lock them out.
 - The first administrator is created once with a deployment-provided `SETUP_TOKEN`;
   after that the setup endpoint returns `409`.
 - Passwords are hashed by Better Auth (scrypt-based) with a minimum length of 12.
@@ -54,6 +58,14 @@ credentials and every admin endpoint.
 
 Background execution re-proves ownership: the worker loads the task by id from the
 database and uses `task.ownerId` — never an id from a request body.
+
+Task share links are the one deliberate unauthenticated read. Creating, listing and
+revoking a link is owner-scoped; the public route accepts only a 32-byte random
+bearer token whose SHA-256 hash is stored, and serves a closed snapshot of title,
+prompt, schedule and timezone. Revoked, unknown and malformed tokens answer the same
+404, responses are `no-store`/`noindex`, and adopting a snapshot requires a session
+plus the adopter's own executable provider and model. Memory, history, credentials
+and the source task id are never reachable from a share.
 
 ## Secrets
 
@@ -118,9 +130,9 @@ the real boundary. A per-execution container launcher is the documented next ste
 
 ## Known limitations
 
-- Email verification is optional (`requireEmailVerification: false` by default).
-  Invitations are addressed to the invited mailbox, but the administrator also
-  receives the link, so they do not prove address ownership; enable email
-  verification if that matters.
+- Invitation links are bearer credentials: whoever uses the link can create the
+  invited account. The link is mailed to the invited address, but an administrator
+  who forwards it also transfers that control; public sign-ups, by contrast, verify
+  mailbox ownership through the confirmation link.
 - The Codex adapter is experimental and disabled by default.
 - Authenticated website research is intentionally out of scope for the first release.

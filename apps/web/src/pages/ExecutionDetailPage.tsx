@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
+import { checkReportLinks } from '@agent-tasks/shared/report';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
@@ -17,8 +18,10 @@ import {
 } from '../components/ui';
 import type { Execution, ExecutionSource, ExecutionStep } from '../lib/types';
 import { EmailBlocksPreview } from '../components/EmailBlocksPreview';
+import { useTablist } from '../lib/tablist';
 
 type Tab = 'report' | 'timeline' | 'sources' | 'memory';
+const EXECUTION_TABS = ['report', 'timeline', 'sources', 'memory'] as const;
 
 interface VisitedSite {
   url: string;
@@ -30,9 +33,11 @@ interface VisitedSite {
 function collectVisited(steps: ExecutionStep[], sources: ExecutionSource[]): VisitedSite[] {
   const seen = new Map<string, VisitedSite>();
   for (const step of steps) {
+    if (!step.ok || !['open_url', 'click_element', 'navigate_back'].includes(step.tool)) continue;
     const raw = step.args?.url;
     if (typeof raw !== 'string' || !raw) continue;
     const known = sources.find((source) => source.url === raw);
+    if (!known) continue;
     seen.set(raw, {
       url: raw,
       title: known?.title,
@@ -91,6 +96,7 @@ export function ExecutionDetailPage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [tab, setTab] = useState<Tab>('report');
+  const { tabProps, panelProps } = useTablist<Tab>(EXECUTION_TABS, tab, setTab, 'execution');
   const [cancelOpen, setCancelOpen] = useState(false);
   const [retryOpen, setRetryOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -103,6 +109,12 @@ export function ExecutionDetailPage() {
       const status = query.state.data?.status;
       return status === 'queued' || status === 'running' ? 5_000 : false;
     },
+  });
+  const previousExecutionId = execution.data?.report?.change?.previousExecutionId;
+  const previousExecution = useQuery({
+    queryKey: ['execution', previousExecutionId],
+    queryFn: () => api.executions.get(previousExecutionId ?? ''),
+    enabled: Boolean(previousExecutionId),
   });
   const memoryReview = useQuery({
     queryKey: ['execution-memory', id],
@@ -153,6 +165,18 @@ export function ExecutionDetailPage() {
     () => collectVisited(data?.steps ?? [], data?.report?.sources ?? []),
     [data?.steps, data?.report?.sources],
   );
+  const currentReportMarkdown = useMemo(
+    () => data?.report ? checkReportLinks(data.report.markdown, data.report.sources).markdown : '',
+    [data?.report?.markdown, data?.report?.sources],
+  );
+  const currentReportSummary = useMemo(
+    () => data?.report ? checkReportLinks(data.report.summary, data.report.sources).markdown : '',
+    [data?.report?.summary, data?.report?.sources],
+  );
+  const previousReportMarkdown = useMemo(() => {
+    const report = previousExecution.data?.report;
+    return report ? checkReportLinks(report.markdown, report.sources).markdown : '';
+  }, [previousExecution.data?.report?.markdown, previousExecution.data?.report?.sources]);
 
   if (execution.isLoading) return <Spinner label={t('common.loadingPage')} />;
   if (execution.isError || !data) return <ErrorAlert message={t('errors.notFound')} />;
@@ -262,16 +286,12 @@ export function ExecutionDetailPage() {
       ) : null}
 
       <div className="tabs tabs-box mb-4 w-full flex-wrap sm:w-auto" role="tablist" aria-label={t('executions.detailTitle')}>
-        {(['report', 'timeline', 'sources', 'memory'] as const).map((value) => (
+        {EXECUTION_TABS.map((value) => (
           <button
             key={value}
             type="button"
-            role="tab"
-            id={`tab-${value}`}
-            aria-selected={tab === value}
-            aria-controls={`panel-${value}`}
+            {...tabProps(value)}
             className={`tab ${tab === value ? 'tab-active' : ''}`}
-            onClick={() => setTab(value)}
           >
             {value === 'report'
               ? t('executions.report')
@@ -286,22 +306,78 @@ export function ExecutionDetailPage() {
         ))}
       </div>
 
-      {tab === 'report' ? (
-        <section
-          role="tabpanel"
-          id="panel-report"
-          aria-labelledby="tab-report"
-          className="card border border-base-300 bg-base-100 shadow-sm"
-        >
+      <section
+        {...panelProps('report')}
+        className="card border border-base-300 bg-base-100 shadow-sm"
+      >
           <div className="card-body p-5 sm:p-7">
             {data.report ? (
               <>
-                <p className="mb-3 rounded-lg bg-base-200 p-3 text-sm font-medium">{data.report.summary}</p>
-                <div className="report-prose text-sm leading-relaxed">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                    {data.report.markdown}
-                  </ReactMarkdown>
+                <div className="mb-3 rounded-lg bg-base-200 p-3">
+                  <div className="report-prose text-sm font-medium leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                      {currentReportSummary}
+                    </ReactMarkdown>
+                  </div>
                 </div>
+                {previousExecutionId ? (
+                  <section
+                    aria-labelledby="report-comparison-title"
+                    className="mb-5 rounded-lg border border-base-300 p-4"
+                  >
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h2 id="report-comparison-title" className="text-base font-semibold">
+                          {t('executions.comparison')}
+                        </h2>
+                        {data.report.change ? (
+                          <p className="mt-1 text-xs opacity-70">
+                            {t('executions.comparisonStatus')}:{' '}
+                            {t(`executions.changeStatuses.${data.report.change.status}`)}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Link className="link link-primary text-sm" to={`/executions/${previousExecutionId}`}>
+                        {t('executions.openPreviousExecution', { id: previousExecutionId.slice(0, 8) })}
+                      </Link>
+                    </div>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <article className="min-w-0 rounded-lg bg-base-200/50 p-3">
+                        <h3 className="mb-2 text-sm font-semibold">{t('executions.previousReport')}</h3>
+                        {previousExecution.isLoading ? (
+                          <Spinner label={t('executions.comparisonLoading')} />
+                        ) : previousExecution.isError ? (
+                          <ErrorAlert
+                            message={t('executions.comparisonFailed')}
+                            onRetry={() => void previousExecution.refetch()}
+                          />
+                        ) : previousExecution.data?.report ? (
+                          <div className="report-prose text-sm leading-relaxed">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                              {previousReportMarkdown}
+                            </ReactMarkdown>
+                          </div>
+                        ) : (
+                          <p className="text-sm opacity-60">{t('executions.comparisonEmpty')}</p>
+                        )}
+                      </article>
+                      <article className="min-w-0 rounded-lg bg-base-200/50 p-3">
+                        <h3 className="mb-2 text-sm font-semibold">{t('executions.currentReport')}</h3>
+                        <div className="report-prose text-sm leading-relaxed">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                            {currentReportMarkdown}
+                          </ReactMarkdown>
+                        </div>
+                      </article>
+                    </div>
+                  </section>
+                ) : (
+                  <div className="report-prose text-sm leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+                      {currentReportMarkdown}
+                    </ReactMarkdown>
+                  </div>
+                )}
                 {data.report.uncertainty.length > 0 ? (
                   <div className="mt-5 rounded-lg border border-warning/40 bg-warning/10 p-3">
                     <h3 className="text-sm font-semibold">{t('executions.uncertainty')}</h3>
@@ -327,10 +403,8 @@ export function ExecutionDetailPage() {
             )}
           </div>
         </section>
-      ) : null}
 
-      {tab === 'timeline' ? (
-        <section role="tabpanel" id="panel-timeline" aria-labelledby="tab-timeline" className="flex flex-col gap-5">
+      <section {...panelProps('timeline')} className="flex flex-col gap-5">
           {steps.length === 0 ? (
             <p className="rounded-box border border-dashed border-base-300 bg-base-100 p-8 text-center text-sm opacity-60">
               {canCancel ? t('executions.waiting') : t('executions.noSteps')}
@@ -371,10 +445,8 @@ export function ExecutionDetailPage() {
             </div>
           </div>
         </section>
-      ) : null}
 
-      {tab === 'sources' ? (
-        <section role="tabpanel" id="panel-sources" aria-labelledby="tab-sources" className="flex flex-col gap-5">
+      <section {...panelProps('sources')} className="flex flex-col gap-5">
           <div className="card border border-base-300 bg-base-100 shadow-sm">
             <div className="card-body p-5">
               <h2 className="card-title text-base">{t('executions.sources')}</h2>
@@ -417,10 +489,8 @@ export function ExecutionDetailPage() {
             </div>
           </div>
         </section>
-      ) : null}
 
-      {tab === 'memory' ? (
-        <section role="tabpanel" id="panel-memory" aria-labelledby="tab-memory" className="flex flex-col gap-5">
+      <section {...panelProps('memory')} className="flex flex-col gap-5">
           <div className="card border border-base-300 bg-base-100 shadow-sm">
             <div className="card-body gap-3 p-5">
               <h2 className="card-title text-base">{t('memory.executionChanges')}</h2>
@@ -495,7 +565,6 @@ export function ExecutionDetailPage() {
             </div>
           </div>
         </section>
-      ) : null}
 
       <ConfirmDialog
         open={cancelOpen}

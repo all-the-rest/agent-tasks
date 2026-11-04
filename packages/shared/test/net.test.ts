@@ -38,6 +38,22 @@ describe('url policy', () => {
     expect(checked.port).toBe(443);
   });
 
+  it('accepts a bracketed public IPv6 literal and returns it bare', () => {
+    const checked = checkUrl('https://[2606:4700:4700::1111]/dns-query?name=example.com');
+    expect(checked.hostname).toBe('2606:4700:4700::1111');
+    expect(checked.url.hostname).toBe('[2606:4700:4700::1111]');
+    expect(checked.url.href).toBe('https://[2606:4700:4700::1111]/dns-query?name=example.com');
+    expect(checked.port).toBe(443);
+  });
+
+  it('accepts a bracketed public IPv6 literal on an explicitly allowed port', () => {
+    const checked = checkUrl('http://[2001:4860:4860::8888]:8080/status', { allowedPorts: [8080] });
+    expect(checked.hostname).toBe('2001:4860:4860::8888');
+    expect(checked.url.hostname).toBe('[2001:4860:4860::8888]');
+    expect(checked.port).toBe(8080);
+    expect(() => checkUrl('http://[2001:4860:4860::8888]:8443/')).toThrow(/port 8443/);
+  });
+
   it.each([
     'http://localhost/admin',
     'http://127.0.0.1:8080/',
@@ -46,12 +62,34 @@ describe('url policy', () => {
     'http://10.0.0.5/',
     'http://[::1]/',
     'http://[fe80::1]/',
+    'http://[::]/',
+    'http://[fd00::1]/',
+    'http://[fd00:ec2::254]/',
+    'http://[2001:db8::1]/',
+    'http://[2002::1]/',
+    'http://[ff02::1]/',
+    'http://[::ffff:127.0.0.1]/',
+    'http://[::ffff:10.0.0.1]/',
+    'http://[::ffff:169.254.169.254]/',
+    'http://[64:ff9b::a00:1]/',
+    'http://[64:ff9b::7f00:1]/',
     'http://host.docker.internal:5432/',
     'file:///etc/passwd',
     'ftp://example.com/',
     'javascript:alert(1)',
     'https://user:pass@example.com/',
   ])('blocks %s', (url) => {
+    expect(() => checkUrl(url)).toThrow(NetworkPolicyError);
+  });
+
+  it.each([
+    'http://[2606:4700:4700::1111/',
+    'http://2606:4700:4700::1111]/',
+    'http://[]/',
+    'http://[not-an-ip]/',
+    'http://[example.com]/',
+    'http://[[::1]]/',
+  ])('rejects malformed bracketed host %s', (url) => {
     expect(() => checkUrl(url)).toThrow(NetworkPolicyError);
   });
 
@@ -63,5 +101,21 @@ describe('url policy', () => {
   it('normalises IDN hosts to punycode', () => {
     expect(normalizeHostname('BÜCHER.example')).toBe('xn--bcher-kva.example');
     expect(normalizeHostname('bad host')).toBeNull();
+  });
+
+  it('strips brackets only from valid IPv6 literals', () => {
+    expect(normalizeHostname('[2606:4700:4700::1111]')).toBe('2606:4700:4700::1111');
+    expect(normalizeHostname('[::1]')).toBe('::1');
+    expect(normalizeHostname('[::FFFF:127.0.0.1]')).toBe('::ffff:127.0.0.1');
+    expect(normalizeHostname('[fe80::1]')).toBe('fe80::1');
+  });
+
+  it('rejects malformed bracket forms instead of guessing', () => {
+    expect(normalizeHostname('[2606:4700:4700::1111')).toBeNull();
+    expect(normalizeHostname('2606:4700:4700::1111]')).toBeNull();
+    expect(normalizeHostname('[]')).toBeNull();
+    expect(normalizeHostname('[example.com]')).toBeNull();
+    expect(normalizeHostname('[2606:4700:4700::1111]:443')).toBeNull();
+    expect(normalizeHostname('[[::1]]')).toBeNull();
   });
 });

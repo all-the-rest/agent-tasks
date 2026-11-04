@@ -1,7 +1,10 @@
 import { createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runtimeConfig, providerRequestHeaders, createProvisionerServer, allowedOpenCodeRoute } from '../server.mjs';
+import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
+import {
+  runtimeConfig, providerRequestHeaders, createProvisionerServer, allowedOpenCodeRoute, MAX_REQUEST_BYTES, MAX_OUTPUT_BYTES,
+} from '../server.mjs';
 import { HttpOpenCodeProvisioner } from '../../../apps/worker/src/http-opencode-provisioner.js';
 
 const token = 'unit-test-provisioner-token-0123456789abcdef';
@@ -57,6 +60,46 @@ describe('isolated OpenCode provisioner service', () => {
     expect(provision.mock.calls[0]?.[0]).toMatchObject({
       lease, apiKey: 'fake-key', model: { id: 'model-a' }, toolBridge: bridge,
     });
+  });
+
+  it('accepts the shared output budget at the real request boundary', async () => {
+    let baseUrl = '';
+    const provision = vi.fn(async (request) => ({
+      state: { executionId: request.lease.executionId },
+      response: {
+        baseUrl: `${baseUrl}/v1/runtime/${request.lease.executionId}/`,
+        password: 'p'.repeat(64), directory: '/workspace',
+        model: { providerID: 'agent_tasks', id: request.model.id },
+      },
+    }));
+    baseUrl = await listen(createProvisionerServer({ token, provision }));
+    // The shared default is deliberately larger than the HTTP body cap; the
+    // provisioner must validate it against its separate output budget instead.
+    expect(AGENT_RUNTIME_LIMITS.maxOutputBytes).toBeGreaterThan(MAX_REQUEST_BYTES);
+    expect(AGENT_RUNTIME_LIMITS.maxOutputBytes).toBeLessThanOrEqual(MAX_OUTPUT_BYTES);
+    const client = new HttpOpenCodeProvisioner(baseUrl, token);
+    await client.open({
+      lease, providerKind: 'openai-compatible',
+      providerContext: { apiKey: 'fake-key', config: input.provider },
+      model: { id: 'model-a' }, systemPrompt: 'test',
+      maxAgentSteps: AGENT_RUNTIME_LIMITS.maxAgentSteps,
+      maxOutputBytes: AGENT_RUNTIME_LIMITS.maxOutputBytes,
+    });
+    expect(provision).toHaveBeenCalledOnce();
+    expect(provision.mock.calls[0]?.[0].maxOutputBytes).toBe(AGENT_RUNTIME_LIMITS.maxOutputBytes);
+  });
+
+  it('keeps the output budget and request body caps separate', async () => {
+    const provision = vi.fn();
+    const baseUrl = await listen(createProvisionerServer({ token, provision }));
+    const post = (body: unknown) => globalThis.fetch(`${baseUrl}/v1/runtimes/open`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect((await post({ ...input, maxOutputBytes: MAX_OUTPUT_BYTES + 1 })).status).toBe(502);
+    expect((await post({ ...input, padding: 'x'.repeat(MAX_REQUEST_BYTES) })).status).toBe(502);
+    expect(provision).not.toHaveBeenCalled();
   });
 
   it('carries model#variant as a separate reasoning effort through the real request contract', async () => {

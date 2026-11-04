@@ -8,7 +8,7 @@ Chromium must not become a pivot into the host or the private network.
 
 ## Acceptance criteria
 
-- [x] Separate service, non-root, no capabilities, read-only root, pids/memory limits
+- [x] Separate service, non-root, read-only root and pids/memory limits; capabilities dropped except `CAP_SYS_CHROOT` for the Chromium user-namespace sandbox
 - [x] No published port, no Docker socket, no host networking
 - [x] Chromium sandbox enabled in the supported deployment
 - [x] Fresh `BrowserContext` per execution, downloads disabled, non-http(s) aborted

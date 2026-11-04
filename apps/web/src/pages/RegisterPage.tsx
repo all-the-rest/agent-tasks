@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router';
+import { Link, Navigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { AuthShell } from '../components/AuthShell';
-import { ErrorAlert, Field, Spinner } from '../components/ui';
+import { ErrorAlert, Field, Spinner, SuccessAlert } from '../components/ui';
 
 /**
  * Open registration. Only reachable as a usable form when the instance setting
@@ -15,8 +15,7 @@ import { ErrorAlert, Field, Spinner } from '../components/ui';
  */
 export function RegisterPage() {
   const { t } = useTranslation();
-  const { user, loading, refresh } = useAuth();
-  const navigate = useNavigate();
+  const { user, loading } = useAuth();
   const config = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 60_000 });
 
   const [name, setName] = useState('');
@@ -24,6 +23,7 @@ export function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (loading) {
@@ -64,6 +64,7 @@ export function RegisterPage() {
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    setNotice(null);
     if (!name.trim() || !email.trim() || !password) {
       setError(t('validation.required'));
       return;
@@ -78,12 +79,14 @@ export function RegisterPage() {
     }
     setSubmitting(true);
     try {
-      await api.auth.signUp({ name: name.trim(), email: email.trim(), password });
-      // Sign in explicitly: autoSignIn behaviour is provider-dependent.
-      await api.auth.signIn(email.trim(), password);
-      const current = await refresh();
-      if (!current) throw new Error(t('auth.registerFailed'));
-      navigate('/', { replace: true });
+      const address = email.trim();
+      await api.auth.signUp({ name: name.trim(), email: address, password });
+      // Public sign-ups must prove the mailbox before a session is issued.
+      setNotice(t('auth.verificationSent', { email: address }));
+      setName('');
+      setEmail('');
+      setPassword('');
+      setConfirm('');
     } catch (cause) {
       setError(errorMessage(cause) || t('auth.registerFailed'));
     } finally {
@@ -103,6 +106,7 @@ export function RegisterPage() {
     >
       <form className="flex flex-col gap-3" onSubmit={onSubmit} noValidate>
         {error ? <ErrorAlert message={error} /> : null}
+        {notice ? <SuccessAlert message={notice} /> : null}
         <Field label={t('common.name')} htmlFor="register-name" required>
           <input
             id="register-name"

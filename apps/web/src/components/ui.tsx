@@ -1,5 +1,7 @@
 import {
+  cloneElement,
   createContext,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -100,6 +102,22 @@ export function StatusBadge({ status }: { status: ExecutionStatus }) {
   return <span className={`badge badge-sm whitespace-nowrap ${statusClass[status]}`}>{t(`status.${status}`)}</span>;
 }
 
+interface FieldControlProps {
+  'aria-describedby'?: string;
+  'aria-invalid'?: boolean | 'false' | 'true';
+  'aria-required'?: boolean | 'false' | 'true';
+}
+
+/**
+ * Adds the ids of the rendered hint/error paragraphs to the control. A caller's
+ * own `aria-describedby` stays intact and is merged instead of overwritten, so
+ * controls that already point at custom help text keep it.
+ */
+function mergeIds(...values: Array<string | undefined>): string | undefined {
+  const ids = values.flatMap((value) => value?.split(/\s+/).filter(Boolean) ?? []);
+  return ids.length > 0 ? Array.from(new Set(ids)).join(' ') : undefined;
+}
+
 export function Field({
   label,
   htmlFor,
@@ -117,20 +135,34 @@ export function Field({
   children: ReactNode;
   className?: string;
 }) {
+  const hintId = hint ? `${htmlFor}-hint` : undefined;
+  const errorId = error ? `${htmlFor}-error` : undefined;
+  const describedBy = mergeIds(hintId, errorId);
+  // Only DOM controls are cloned: a fragment or a custom component does not
+  // necessarily pass ARIA attributes through to the element that has the id.
+  const control =
+    isValidElement<FieldControlProps>(children) && typeof children.type === 'string'
+      ? cloneElement(children, {
+          'aria-describedby': mergeIds(children.props['aria-describedby'], describedBy),
+          'aria-invalid': error ? true : children.props['aria-invalid'],
+          'aria-required': required ? true : children.props['aria-required'],
+        })
+      : children;
+
   return (
     <div className={`flex w-full flex-col gap-1.5 ${className}`}>
       <label className="flex items-center gap-1 text-sm font-medium" htmlFor={htmlFor}>
         <span>{label}</span>
         {required ? <span className="text-error" aria-hidden="true">*</span> : null}
       </label>
-      {children}
+      {control}
       {hint ? (
-        <p className="text-xs leading-relaxed opacity-65" id={`${htmlFor}-hint`}>
+        <p className="text-xs leading-relaxed opacity-65" id={hintId}>
           {hint}
         </p>
       ) : null}
       {error ? (
-        <p className="text-xs font-medium text-error" role="alert" id={`${htmlFor}-error`}>
+        <p className="text-xs font-medium text-error" role="alert" id={errorId}>
           {error}
         </p>
       ) : null}
@@ -138,9 +170,71 @@ export function Field({
   );
 }
 
+interface ModalStackEntry {
+  root: { current: HTMLDivElement | null };
+  onClose: () => void;
+}
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+/**
+ * Stack of open dialogs. Only the last entry reacts to Escape and Tab, so a
+ * confirmation rendered above another dialog cannot be closed together with
+ * the dialog underneath it.
+ */
+const modalStack: ModalStackEntry[] = [];
+/**
+ * Element focused before the outermost dialog opened. It is kept until the
+ * stack is empty so that stacked dialogs closing in an arbitrary order (or in
+ * one commit) still hand focus back to the control that started the flow.
+ */
+let externalFocus: HTMLElement | null = null;
+
+function focusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) =>
+      element.tabIndex >= 0 &&
+      !element.hasAttribute('hidden') &&
+      element.getAttribute('aria-hidden') !== 'true',
+  );
+}
+
+function isUsableFocusTarget(element: HTMLElement | null): element is HTMLElement {
+  return element !== null && element.isConnected && !element.closest('[role="dialog"]');
+}
+
+function restoreFocus(previousFocus: HTMLElement | null): void {
+  const topmost = modalStack[modalStack.length - 1];
+  if (topmost) {
+    const root = topmost.root.current;
+    // The closed dialog was stacked above this one: the remembered element is
+    // still visible inside the remaining dialog and is the natural target.
+    if (root && previousFocus && root.contains(previousFocus)) {
+      previousFocus.focus();
+      return;
+    }
+    const target = root ? (focusableElements(root)[0] ?? root) : null;
+    target?.focus();
+    return;
+  }
+  const target = isUsableFocusTarget(externalFocus) ? externalFocus : previousFocus;
+  externalFocus = null;
+  // The remembered element may belong to a dialog that unmounted in the same
+  // commit. Never restore focus behind a modal; dead markup is skipped too.
+  if (isUsableFocusTarget(target)) target.focus();
+}
+
 export function Modal({
   open,
   title,
+  description,
   onClose,
   children,
   footer,
@@ -148,13 +242,16 @@ export function Modal({
 }: {
   open: boolean;
   title: string;
+  description?: string;
   onClose: () => void;
-  children: ReactNode;
+  children?: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
 }) {
   const { t } = useTranslation();
   const titleId = useId();
+  const descriptionId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   // Keep the latest callback without making the focus effect re-run on every
   // parent render: a re-run would steal focus back to the close button after
@@ -166,25 +263,80 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return;
+    const entry: ModalStackEntry = { root: rootRef, onClose: () => onCloseRef.current() };
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (modalStack.length === 0) externalFocus = previousFocus;
+    modalStack.push(entry);
     closeRef.current?.focus();
+
+    const isTopmost = () => modalStack[modalStack.length - 1] === entry;
+
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!isTopmost()) return;
       if (event.key === 'Escape') {
         event.preventDefault();
+        event.stopPropagation();
         onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const root = rootRef.current;
+      if (!root) return;
+      const focusable = focusableElements(root);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+        root.focus();
+        return;
+      }
+      const active = document.activeElement;
+      const inside = active instanceof HTMLElement && root.contains(active);
+      if (event.shiftKey) {
+        if (!inside || active === first) {
+          event.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+      if (!inside || active === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
+
+    const onFocusIn = (event: FocusEvent) => {
+      if (!isTopmost()) return;
+      const root = rootRef.current;
+      const target = event.target;
+      if (!root || !(target instanceof Node) || root.contains(target)) return;
+      (focusableElements(root)[0] ?? root).focus();
+    };
+
     document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('focusin', onFocusIn);
+
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      previousFocus?.focus();
+      document.removeEventListener('focusin', onFocusIn);
+      const index = modalStack.indexOf(entry);
+      if (index >= 0) modalStack.splice(index, 1);
+      restoreFocus(previousFocus);
     };
   }, [open]);
 
   if (!open) return null;
 
   return (
-    <div className="modal modal-open" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <div
+      ref={rootRef}
+      className="modal modal-open"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
+      tabIndex={-1}
+    >
       <div className={`modal-box ${wide ? 'max-w-3xl' : ''}`}>
         <h2 id={titleId} className="pr-10 text-lg font-bold">
           {title}
@@ -198,7 +350,14 @@ export function Modal({
         >
           ✕
         </button>
-        <div className="py-4">{children}</div>
+        <div className="py-4">
+          {description ? (
+            <p id={descriptionId} className="text-sm opacity-80">
+              {description}
+            </p>
+          ) : null}
+          {children}
+        </div>
         {footer ? <div className="modal-action flex-wrap">{footer}</div> : null}
       </div>
       <div className="modal-backdrop cursor-default" aria-hidden="true" onClick={onClose} />
@@ -230,6 +389,7 @@ export function ConfirmDialog({
     <Modal
       open={open}
       title={title}
+      description={body}
       onClose={onClose}
       footer={
         <>
@@ -247,9 +407,7 @@ export function ConfirmDialog({
           </button>
         </>
       }
-    >
-      <p className="text-sm opacity-80">{body}</p>
-    </Modal>
+    />
   );
 }
 

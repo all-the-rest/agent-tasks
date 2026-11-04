@@ -9,7 +9,7 @@ credentials — by id, body, or role.
 
 ## Acceptance criteria
 
-- [x] Every query is scoped with `owner_id = session.user.id`
+- [x] Every private task, execution, report, memory and credential query is owner-scoped; public share reads return only the immutable snapshot authorized by that share token
 - [x] Client-supplied `ownerId`/`id` is ignored on create
 - [x] Malformed ids return 404 instead of a database error
 - [x] Administrator role grants no access to user tasks, executions or credentials

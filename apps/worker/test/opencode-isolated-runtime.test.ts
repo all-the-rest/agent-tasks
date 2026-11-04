@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RunAgentOptions } from '@agent-tasks/agent-runtime';
+import type { AgentStepRecord, RunAgentOptions } from '@agent-tasks/agent-runtime';
 import type { BrowserRunnerClient, SearchProvider } from '@agent-tasks/browser-tools';
 import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
 import { createIsolatedOpenCodeRunner } from '../src/opencode-isolated-runtime.js';
@@ -82,9 +82,125 @@ describe('isolated OpenCode runtime integration', () => {
         return { client: new OpenCodeV2Client({ baseUrl: 'http://test.invalid', password: 'test', fetch: fetchMock }), directory: '/isolated', model: { providerID: 'provider', id: 'model' }, release: vi.fn(async () => undefined) };
       });
       const runner = createIsolatedOpenCodeRunner({ open }, store, hub);
-      const result = await runner({ ...options('owner-key'), emailNotification: true }, { executionId: 'execution-bridge', ownerId: 'owner', workerId: 'worker' });
+      const onStep = vi.fn();
+      const result = await runner(
+        { ...options('owner-key'), emailNotification: true, onStep },
+        { executionId: 'execution-bridge', ownerId: 'owner', workerId: 'worker' },
+      );
       expect(result.markdown).toBe('answer');
       expect(result.emailBlocks.map((block) => block.type)).toEqual(['heading', 'paragraph']);
+      expect(onStep.mock.calls.map(([step]) => [step.step, step.tool])).toEqual([
+        [1, 'compose_email'],
+        [2, 'opencode'],
+      ]);
+      expect(result.steps.map((step) => [step.step, step.tool])).toEqual([
+        [1, 'compose_email'],
+        [2, 'opencode'],
+      ]);
+    } finally {
+      await hub.close();
+    }
+  });
+
+  it('numbers parallel MCP calls once each and places the synthetic step after them', async () => {
+    const hub = await createToolBridgeHub({ port: 0 });
+    try {
+      const mappings = new Map<string, OpenCodeSessionMapping>();
+      const store = {
+        access: vi.fn(async (lease: OpenCodeExecutionLease, candidate?: OpenCodeSessionMapping) => {
+          if (candidate && !mappings.has(lease.executionId)) mappings.set(lease.executionId, candidate);
+          return mappings.get(lease.executionId) ?? null;
+        }),
+        claimPrompt: vi.fn(async () => true),
+      } as unknown as OpenCodeSessionStore;
+      const open = vi.fn<IsolatedOpenCodeProvisioner['open']>(async ({ toolBridge }) => {
+        const token = toolBridge?.token ?? '';
+        const call = (id: number, dsl: string) => fetch(hub.url, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'add_email_block', arguments: { type: 'paragraph', text: dsl } } }),
+        });
+        // Both requests are in flight before either finishes; the bridge must still
+        // give them distinct numbers and emit one record per invocation.
+        const responses = await Promise.all([call(1, 'first'), call(2, 'second')]);
+        expect(responses.every((response) => response.status === 200)).toBe(true);
+        const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+          const path = (url as URL).pathname;
+          const data = path === '/api/mcp' ? [{ name: 'agent_tasks_tools', status: { status: 'connected' } }]
+            : path === '/api/session' ? { id: 'ses_parallel' }
+              : path.endsWith('/message') ? [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'answer' }] }] : {};
+          return new Response(JSON.stringify({ data }));
+        });
+        return { client: new OpenCodeV2Client({ baseUrl: 'http://test.invalid', password: 'test', fetch: fetchMock }), directory: '/isolated', model: { providerID: 'provider', id: 'model' }, release: vi.fn(async () => undefined) };
+      });
+      const runner = createIsolatedOpenCodeRunner({ open }, store, hub);
+      const onStep = vi.fn();
+      const result = await runner(
+        { ...options('owner-key'), emailNotification: true, onStep },
+        { executionId: 'execution-parallel', ownerId: 'owner', workerId: 'worker' },
+      );
+
+      const emitted = (onStep.mock.calls as Array<[AgentStepRecord]>).map(([step]) => [step.step, step.tool]);
+      expect([...emitted].sort((left, right) => left[0]! - right[0]!)).toEqual([
+        [1, 'add_email_block'],
+        [2, 'add_email_block'],
+        [3, 'opencode'],
+      ]);
+      // The terminal summary is emitted after every tool response and carries the
+      // highest number, never one that could replace a real call row.
+      expect(emitted.at(-1)).toEqual([3, 'opencode']);
+      expect(result.emailBlocks).toHaveLength(2);
+      expect(result.steps.map((step) => step.step)).toEqual([1, 2, 3]);
+      expect(result.steps.at(-1)?.tool).toBe('opencode');
+    } finally {
+      await hub.close();
+    }
+  });
+
+  it('forwards the task tool-call budget into the per-execution bridge', async () => {
+    const hub = await createToolBridgeHub({ port: 0 });
+    try {
+      const mappings = new Map<string, OpenCodeSessionMapping>();
+      const store = {
+        access: vi.fn(async (lease: OpenCodeExecutionLease, candidate?: OpenCodeSessionMapping) => {
+          if (candidate && !mappings.has(lease.executionId)) mappings.set(lease.executionId, candidate);
+          return mappings.get(lease.executionId) ?? null;
+        }),
+        claimPrompt: vi.fn(async () => true),
+      } as unknown as OpenCodeSessionStore;
+      const call = async (token: string, id: number): Promise<{ result: { isError: boolean; content: Array<{ text: string }> } }> => {
+        const response = await fetch(hub.url, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'compose_email', arguments: { dsl: 'hello' } } }),
+        });
+        expect(response.status).toBe(200);
+        const text = await response.text();
+        const data = text.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('');
+        return JSON.parse(data) as { result: { isError: boolean; content: Array<{ text: string }> } };
+      };
+      const open = vi.fn<IsolatedOpenCodeProvisioner['open']>(async ({ toolBridge }) => {
+        const token = toolBridge?.token ?? '';
+        expect((await call(token, 1)).result.isError).toBe(false);
+        const refused = await call(token, 2);
+        expect(refused.result.isError).toBe(true);
+        expect(refused.result.content[0]?.text).toContain('tool call budget exhausted (1)');
+        const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+          const path = (url as URL).pathname;
+          const data = path === '/api/mcp' ? [{ name: 'agent_tasks_tools', status: { status: 'connected' } }]
+            : path === '/api/session' ? { id: 'ses_limited' }
+              : path.endsWith('/message') ? [{ type: 'assistant', finish: 'stop', content: [{ type: 'text', text: 'answer' }] }] : {};
+          return new Response(JSON.stringify({ data }));
+        });
+        return { client: new OpenCodeV2Client({ baseUrl: 'http://test.invalid', password: 'test', fetch: fetchMock }), directory: '/isolated', model: { providerID: 'provider', id: 'model' }, release: vi.fn(async () => undefined) };
+      });
+      const runner = createIsolatedOpenCodeRunner({ open }, store, hub);
+      const result = await runner({
+        ...options('owner-key'),
+        emailNotification: true,
+        limits: { ...AGENT_RUNTIME_LIMITS, maxToolCalls: 1 },
+      }, { executionId: 'execution-limited', ownerId: 'owner', workerId: 'worker' });
+      expect(result.markdown).toBe('answer');
     } finally {
       await hub.close();
     }

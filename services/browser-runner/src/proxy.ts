@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { Agent, createServer, request as httpRequest } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { connect } from 'node:net';
 import type { Socket } from 'node:net';
@@ -12,6 +12,8 @@ export interface EgressProxyOptions {
   /** Called for every blocked request; never contains credentials. */
   onBlock?: (host: string, reason: string) => void;
   lookupFn?: (host: string) => Promise<Array<{ address: string; family: number }>>;
+  /** Test seam for simulating a checked public destination without outbound networking. */
+  connectFn?: (options: { host: string; port: number; timeout?: number }, connectionListener?: () => void) => Socket;
 }
 
 export interface EgressProxy {
@@ -21,6 +23,17 @@ export interface EgressProxy {
 }
 
 const CONNECT_TIMEOUT_MS = 10_000;
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'proxy-connection',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
 
 /**
  * Best-effort host for the block log. A malformed request target must not throw
@@ -59,6 +72,7 @@ function splitHostPort(authority: string, fallbackPort: number): { host: string;
 export async function startEgressProxy(options: EgressProxyOptions): Promise<EgressProxy> {
   const blocked: EgressProxy['blocked'] = [];
   const lookupFn = options.lookupFn ?? ((host: string) => lookup(host, { all: true, verbatim: true }));
+  const connectFn = options.connectFn ?? connect;
 
   const deny = (response: ServerResponse | Socket, host: string, reason: string): void => {
     blocked.push({ host, reason, at: Date.now() });
@@ -75,8 +89,11 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
 
   const validatedTarget = async (host: string, port: number, raw: string): Promise<string> => {
     if (!options.allowedPorts.includes(port)) throw new NetworkPolicyError(`port ${port} is not allowed`, raw);
-    checkUrl(`https://${isIP(host) === 6 ? `[${host}]` : host}:${port}/`, { allowedPorts: options.allowedPorts, allowHttp: true });
-    const addresses = await resolvePublicAddresses(host, lookupFn);
+    const checked = checkUrl(`https://${isIP(host) === 6 ? `[${host}]` : host}:${port}/`, { allowedPorts: options.allowedPorts, allowHttp: true });
+    // `checkUrl` returns the bare IPv6 literal; an absolute-form HTTP request
+    // reaches us with brackets still attached. Resolve the normalised host so a
+    // public literal is pinned directly instead of being looked up as a name.
+    const addresses = await resolvePublicAddresses(checked.hostname, lookupFn);
     const first = addresses[0];
     if (!first) throw new NetworkPolicyError(`host ${host} did not resolve`, raw);
     return first;
@@ -92,20 +109,37 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
         const port = target.port ? Number(target.port) : 80;
         const address = await validatedTarget(target.hostname, port, request.url);
 
-        const upstream = connect({ host: address, port, timeout: CONNECT_TIMEOUT_MS }, () => {
-          const headers = Object.entries(request.headers)
-            .filter(([key]) => !['proxy-connection', 'proxy-authorization'].includes(key.toLowerCase()))
-            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value ?? ''}`)
-            .join('\r\n');
-          upstream.write(`${request.method ?? 'GET'} ${target.pathname}${target.search} HTTP/1.1\r\n${headers}\r\n\r\n`);
-          request.pipe(upstream);
-          upstream.pipe(response);
+        const agent = new Agent({ keepAlive: false });
+        agent.createConnection = (_connectionOptions, callback) => {
+          const upstream = connectFn({ host: address, port, timeout: CONNECT_TIMEOUT_MS });
+          if (callback) upstream.once('connect', () => callback(null, upstream));
+          return upstream;
+        };
+        const upstream = httpRequest(target, {
+          method: request.method,
+          headers: Object.fromEntries(
+            Object.entries(request.headers).filter(([key]) => !HOP_BY_HOP_HEADERS.has(key.toLowerCase())),
+          ),
+          agent,
         });
-        upstream.on('timeout', () => upstream.destroy(new Error('upstream timeout')));
+        upstream.setTimeout(CONNECT_TIMEOUT_MS, () => upstream.destroy(new Error('upstream timeout')));
+        upstream.on('response', (upstreamResponse) => {
+          const headers = Object.fromEntries(
+            Object.entries(upstreamResponse.headers).filter(
+              ([key, value]) => value !== undefined && !HOP_BY_HOP_HEADERS.has(key.toLowerCase()),
+            ),
+          );
+          response.writeHead(upstreamResponse.statusCode ?? 502, headers);
+          upstreamResponse.pipe(response);
+          upstreamResponse.once('end', () => agent.destroy());
+        });
         upstream.on('error', () => {
+          agent.destroy();
           if (!response.headersSent) response.writeHead(502);
           response.end();
         });
+        response.once('close', () => upstream.destroy());
+        request.pipe(upstream);
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'blocked';
         deny(response, hostOf(request.url), reason);
@@ -119,7 +153,7 @@ export async function startEgressProxy(options: EgressProxyOptions): Promise<Egr
       try {
         const { host, port } = splitHostPort(authority, 443);
         const address = await validatedTarget(host, port, authority);
-        const upstream = connect({ host: address, port, timeout: CONNECT_TIMEOUT_MS }, () => {
+        const upstream = connectFn({ host: address, port, timeout: CONNECT_TIMEOUT_MS }, () => {
           clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
           if (head.length > 0) upstream.write(head);
           upstream.pipe(clientSocket);

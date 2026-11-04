@@ -79,6 +79,42 @@ function cursorPaginationEnabled(pagination: string | undefined, cursor: string 
   return pagination === 'cursor';
 }
 
+/**
+ * Legacy offsets use the same integer bounds as cursor pagination but keep the
+ * historical default and clamp larger requests to the page-size ceiling.
+ * A missing value stays valid, so old clients keep their response shape.
+ */
+function legacyPageLimit(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw AppError.badRequest('invalid pagination limit');
+  }
+  return Math.min(limit, 100);
+}
+
+/** A malformed `before` timestamp must be a client error, not a database cast failure. */
+function parseBeforeTimestamp(value: string | undefined): Date | undefined {
+  if (value === undefined) return undefined;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) throw AppError.badRequest('invalid pagination timestamp');
+  const date = new Date(timestamp);
+  // Date.parse normalizes impossible ISO calendar days (for example February 31)
+  // into the following month. Reject those instead of silently changing the bound.
+  const isoDate = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value);
+  if (isoDate) {
+    const [, year, month, day] = isoDate;
+    if (
+      date.getUTCFullYear() !== Number(year) ||
+      date.getUTCMonth() + 1 !== Number(month) ||
+      date.getUTCDate() !== Number(day)
+    ) {
+      throw AppError.badRequest('invalid pagination timestamp');
+    }
+  }
+  return date;
+}
+
 function parseSchedule(input: unknown): ParsedSchedule {
   const parsed = scheduleSchema.safeParse(input);
   if (!parsed.success) throw AppError.badRequest('invalid schedule', parsed.error.issues);
@@ -107,9 +143,9 @@ function scheduleIdentity(schedule: ParsedSchedule): string {
   }
 }
 
-function omitTaskLimits<T extends { limits: unknown }>(task: T): Omit<T, 'limits'>;
-function omitTaskLimits<T extends { limits: unknown }>(task: T | undefined): Omit<T, 'limits'> | undefined;
-function omitTaskLimits<T extends { limits: unknown }>(task: T | undefined): Omit<T, 'limits'> | undefined {
+export function omitTaskLimits<T extends { limits: unknown }>(task: T): Omit<T, 'limits'>;
+export function omitTaskLimits<T extends { limits: unknown }>(task: T | undefined): Omit<T, 'limits'> | undefined;
+export function omitTaskLimits<T extends { limits: unknown }>(task: T | undefined): Omit<T, 'limits'> | undefined {
   if (!task) return undefined;
   const { limits, ...response } = task;
   void limits;
@@ -169,7 +205,7 @@ async function assertProviderUsable(context: AppContext, userId: string, provide
  * user an actionable response instead of a failed execution later. A completion
  * e-mail does not need model tools: the worker sends it itself.
  */
-async function assertTaskExecutable(
+export async function assertTaskExecutable(
   context: AppContext,
   userId: string,
   providerId: string,
@@ -218,7 +254,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     }
     const cursorPagination = cursorPaginationEnabled(request.query.pagination, request.query.cursor);
     const cursor = cursorPagination ? decodePageCursor(request.query.cursor) : undefined;
-    const limit = cursorPagination ? cursorPageLimit(request.query.limit, 50) : Math.min(Number(request.query.limit ?? 50), 100);
+    const limit = cursorPagination ? cursorPageLimit(request.query.limit, 50) : legacyPageLimit(request.query.limit, 50);
     const conditions = [eq(tasks.ownerId, me.id)];
     if (status === 'active') conditions.push(eq(tasks.enabled, true), isNull(tasks.completedAt));
     if (status === 'paused') conditions.push(eq(tasks.enabled, false), isNull(tasks.completedAt));
@@ -306,8 +342,9 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         scheduledRunCount: 0,
         completedAt: endConditionReached ? now : null,
         timezone: schedule.timezone,
-        // Keep fixed limits in the legacy column for compatibility. The worker now
-        // passes these fixed bounds directly instead of administrator-configurable values.
+        // Keep hard ceilings in the legacy column for compatibility. The worker
+        // resolves effective run budgets from administrator settings and clamps them
+        // to the same hard ceilings.
         limits: AGENT_RUNTIME_LIMITS,
         allowWebResearch: parsed.data.allowWebResearch,
         notification: parsed.data.notification,
@@ -627,8 +664,8 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       throw AppError.badRequest('before cannot be combined with cursor pagination');
     }
     const cursor = cursorPagination ? decodePageCursor(request.query.cursor) : undefined;
-    const limit = cursorPagination ? cursorPageLimit(request.query.limit, 20) : Math.min(Number(request.query.limit ?? 20), 100);
-    const before = request.query.before ? new Date(request.query.before) : null;
+    const limit = cursorPagination ? cursorPageLimit(request.query.limit, 20) : legacyPageLimit(request.query.limit, 20);
+    const before = parseBeforeTimestamp(request.query.before);
     const conditions = [eq(executions.taskId, taskId), eq(executions.ownerId, me.id)];
     if (before) conditions.push(lt(executions.createdAt, before));
     if (cursor) {
@@ -670,7 +707,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
 
   app.get<{ Querystring: { limit?: string; status?: string } }>('/api/executions', async (request) => {
     const me = await requireUser(context, request);
-    const limit = Math.min(Number(request.query.limit ?? 25), 100);
+    const limit = legacyPageLimit(request.query.limit, 25);
     const conditions = [eq(executions.ownerId, me.id)];
     if (request.query.status) conditions.push(eq(executions.status, request.query.status));
     return db

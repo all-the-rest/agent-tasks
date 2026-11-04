@@ -2,6 +2,9 @@ import { compatibleConfigSchema } from '../src/schemas.js';
 import { describe, expect, it } from 'vitest';
 import {
   AGENT_RUNTIME_LIMITS,
+  DEFAULT_LIMITS,
+  HARD_LIMITS,
+  resolveAgentLimits,
   systemSettingsSchema,
   taskEndConditionSchema,
   taskInputSchema,
@@ -46,10 +49,30 @@ describe('PATCH schemas do not apply create defaults', () => {
     expect(update).toEqual({});
   });
 
-  it('does not expose legacy per-agent limits as administrator settings', () => {
-    const settings = systemSettingsSchema.parse({ agentLimits: { maxDurationSec: 600 } });
-    expect(settings).not.toHaveProperty('agentLimits');
-    expect(AGENT_RUNTIME_LIMITS).toMatchObject({ maxDurationSec: 3600, maxAgentSteps: 60 });
+  it('defaults global agent limits to the finite hard caps and lets admins lower them', () => {
+    expect(DEFAULT_LIMITS).toEqual(HARD_LIMITS);
+    expect(AGENT_RUNTIME_LIMITS).toEqual(HARD_LIMITS);
+    expect(systemSettingsSchema.parse({}).agentLimits).toEqual(HARD_LIMITS);
+    expect(systemSettingsSchema.parse({ agentLimits: { maxDurationSec: 600 } }).agentLimits)
+      .toMatchObject({ ...HARD_LIMITS, maxDurationSec: 600 });
+    expect(systemSettingsSchema.safeParse({ agentLimits: { maxDurationSec: HARD_LIMITS.maxDurationSec + 1 } }).success)
+      .toBe(false);
+  });
+
+  it('resolves stored limits defensively without ever exceeding a hard cap', () => {
+    expect(resolveAgentLimits(undefined)).toEqual(HARD_LIMITS);
+    expect(resolveAgentLimits({ maxAgentSteps: 12, maxPageVisits: 0 })).toEqual({
+      ...HARD_LIMITS,
+      maxAgentSteps: 12,
+      maxPageVisits: 0,
+    });
+    // Corrupt persisted values fall back or clamp; the resolver never throws.
+    expect(resolveAgentLimits({ maxDurationSec: 'soon', maxToolCalls: 10_000 })).toEqual({
+      ...HARD_LIMITS,
+      maxToolCalls: HARD_LIMITS.maxToolCalls,
+    });
+    expect(resolveAgentLimits({ maxDurationSec: 1 })).toMatchObject({ maxDurationSec: 30 });
+    expect(resolveAgentLimits('not-an-object')).toEqual(HARD_LIMITS);
   });
 
   it('leaves omitted preference fields absent on update', () => {

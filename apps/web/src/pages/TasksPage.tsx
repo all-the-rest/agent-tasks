@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useNavigationType } from 'react-router';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
@@ -13,6 +13,7 @@ import {
   taskPromptDraftFromState,
   taskPromptDraftState,
 } from '../lib/task-prompt-draft';
+import { TASK_SUGGESTION_IDS } from '../lib/task-suggestions';
 import {
   ConfirmDialog,
   EmptyState,
@@ -50,6 +51,8 @@ function TasksPageForOwner({ ownerId }: { ownerId: string | null }) {
       ? currentTaskPromptDraft(ownerId) ?? taskPromptDraftFromState(location.state, ownerId)
       : '',
   );
+  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const tasks = useInfiniteQuery({
     queryKey: ['tasks', taskStatus],
     initialPageParam: null as string | null,
@@ -120,6 +123,31 @@ function TasksPageForOwner({ ownerId }: { ownerId: string | null }) {
     return needle ? rows.filter((task) => task.title.toLowerCase().includes(needle)) : rows;
   }, [tasks.data, filter]);
 
+  // Suggestions are discovery help for an established active list. A status
+  // filter with no tasks keeps its empty state, and suggestions never appear
+  // on paused or completed views.
+  const showSuggestions = taskStatus === 'active' &&
+    (tasks.data?.pages.some((page) => page.items.length > 0) ?? false);
+
+  const updatePromptDraft = (nextPrompt: string) => {
+    setPromptDraft(nextPrompt);
+    if (!ownerId) return;
+    // Suggestions and manual edits share one owner-scoped path: memory for the
+    // current owner and router history state only, never storage or the URL.
+    rememberTaskPromptDraft(ownerId, nextPrompt);
+    navigate(`${location.pathname}${location.search}${location.hash}`, {
+      replace: true,
+      state: taskPromptDraftState(ownerId, nextPrompt),
+    });
+  };
+
+  const applySuggestion = (suggestionPrompt: string) => {
+    updatePromptDraft(suggestionPrompt);
+    // Move the caret into the draft so a keyboard or touch selection can edit
+    // the bracketed placeholder immediately.
+    composerRef.current?.focus();
+  };
+
   if (tasks.isPending) return <Spinner label={t('common.loadingPage')} />;
   if (tasks.isError && !tasks.data) {
     return (
@@ -172,23 +200,14 @@ function TasksPageForOwner({ ownerId }: { ownerId: string | null }) {
                 {t('tasks.promptComposerLabel')}
               </label>
               <textarea
+                ref={composerRef}
                 id="task-prompt-composer"
                 className="textarea min-h-24 w-full"
                 rows={3}
                 maxLength={TASK_PROMPT_MAX_LENGTH}
                 aria-describedby="task-prompt-composer-help"
                 value={promptDraft}
-                onChange={(event) => {
-                  const nextPrompt = event.target.value;
-                  setPromptDraft(nextPrompt);
-                  if (ownerId) {
-                    rememberTaskPromptDraft(ownerId, nextPrompt);
-                    navigate(`${location.pathname}${location.search}${location.hash}`, {
-                      replace: true,
-                      state: taskPromptDraftState(ownerId, nextPrompt),
-                    });
-                  }
-                }}
+                onChange={(event) => updatePromptDraft(event.target.value)}
               />
             </div>
             <button type="submit" className="btn btn-primary mt-6 w-full sm:w-auto" disabled={!promptDraft.trim()}>
@@ -198,27 +217,77 @@ function TasksPageForOwner({ ownerId }: { ownerId: string | null }) {
         </div>
       </section>
 
+      {showSuggestions ? (
+        <section
+          className="mb-5 rounded-box border border-base-300 bg-base-100 shadow-sm"
+          aria-labelledby="task-suggestions-title"
+        >
+          <div className="flex items-start justify-between gap-3 px-5 pt-4">
+            <h2 id="task-suggestions-title" className="text-base font-semibold">
+              {t('tasks.suggestionsTitle')}
+            </h2>
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs shrink-0"
+              aria-expanded={suggestionsOpen}
+              aria-controls="task-suggestions-content"
+              onClick={() => setSuggestionsOpen((open) => !open)}
+            >
+              {suggestionsOpen ? t('tasks.suggestionsHide') : t('tasks.suggestionsShow')}
+            </button>
+          </div>
+          {suggestionsOpen ? (
+            <div id="task-suggestions-content" className="px-5 pb-5">
+              <p className="mt-1 text-sm opacity-70">{t('tasks.suggestionsHelp')}</p>
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {TASK_SUGGESTION_IDS.map((id) => {
+                  const title = t(`tasks.suggestions.${id}.title`);
+                  const suggestionPrompt = t(`tasks.suggestions.${id}.prompt`);
+                  return (
+                    <li
+                      key={id}
+                      className="flex flex-col gap-2 rounded-box border border-base-200 p-3 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold">{title}</h3>
+                        <p className="mt-1 text-xs opacity-70">{suggestionPrompt}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm shrink-0 self-start"
+                        aria-label={t('tasks.suggestionsUseLabel', { title })}
+                        onClick={() => applySuggestion(suggestionPrompt)}
+                      >
+                        + {t('tasks.suggestionsUse')}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {actionError ? (
         <div className="mb-4">
           <ErrorAlert message={actionError} />
         </div>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          <div className="w-full max-w-xs">
-            <label className="sr-only" htmlFor="task-filter">
-              {t('tasks.searchPlaceholder')}
-            </label>
-            <input
-              id="task-filter"
-              type="search"
-              className="input input-sm w-full"
-              placeholder={t('tasks.searchPlaceholder')}
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-            />
-          </div>
+      <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
+        <div className="col-span-2 w-full max-w-xs sm:col-span-1">
+          <label className="sr-only" htmlFor="task-filter">
+            {t('tasks.searchPlaceholder')}
+          </label>
+          <input
+            id="task-filter"
+            type="search"
+            className="input input-sm w-full"
+            placeholder={t('tasks.searchPlaceholder')}
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+          />
         </div>
         <label className="sr-only" htmlFor="task-status-filter">
           {t('tasks.filterStatus')}

@@ -78,11 +78,16 @@ interface TaskFixture extends ProviderFixture {
   taskTitle: string;
 }
 
+interface ExecutionFixture extends TaskFixture {
+  executionId: string;
+}
+
 const MOCK_MODEL_ID = 'ui-review-mock-model';
 const MOCK_PROVIDER_BASE_URL = 'http://ui-review-mock:1/v1';
 const MOCK_CREDENTIAL_LABEL = 'ui-review-screenshots';
 const providerCache = new Map<string, Promise<ProviderFixture>>();
 const taskCache = new Map<string, Promise<TaskFixture>>();
+const executionCache = new Map<string, Promise<ExecutionFixture>>();
 
 function workerScope(context: UiReviewSeedContext): string {
   const project = context.projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -217,10 +222,138 @@ function taskSeed(context: UiReviewSeedContext): Promise<Record<string, string>>
   });
 }
 
+function executionSeed(context: UiReviewSeedContext): Promise<Record<string, string>> {
+  const scope = workerScope(context);
+  return cached(executionCache, scope, async () => {
+    const task = await taskSeed(context);
+    const run = await apiRequest<{ executionId?: string }>(
+      context.page,
+      'POST',
+      `/api/tasks/${encodeURIComponent(task.taskId)}/run`,
+    );
+    const executionId = run.executionId;
+    if (!executionId) throw new Error('Screenshot execution did not return an execution id');
+
+    const deadline = Date.now() + 75_000;
+    while (Date.now() < deadline) {
+      const execution = await apiRequest<{ status: string }>(
+        context.page,
+        'GET',
+        `/api/executions/${encodeURIComponent(executionId)}`,
+      );
+      if (execution.status === 'completed') return { ...task, executionId };
+      if (['failed', 'cancelled', 'timed_out'].includes(execution.status)) {
+        throw new Error(`Screenshot execution finished as ${execution.status}`);
+      }
+      await context.page.waitForTimeout(250);
+    }
+    throw new Error('Screenshot execution did not complete within 75 seconds');
+  }).then(({ executionId }) => ({ executionId }));
+}
+
+async function loginAsReviewAdmin(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.getByLabel(/^Email\b/i).fill(process.env.E2E_ADMIN_EMAIL ?? process.env.ADMIN_EMAIL ?? 'admin@example.com');
+  await page
+    .getByLabel(/^Password\b/i)
+    .fill(process.env.E2E_ADMIN_PASSWORD ?? process.env.ADMIN_PASSWORD ?? 'local-admin-password');
+  await page.getByRole('button', { name: /^(Sign in|Anmelden)$/i }).click();
+  await page.getByRole('heading', { level: 1, name: /^(Dashboard|Übersicht)$/i }).waitFor();
+}
+
+async function logoutReviewAdmin(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^(Signed in as|Angemeldet als)$/i }).click();
+  await page.getByRole('button', { name: /^(Sign out|Abmelden)$/i }).click();
+  await page.getByRole('heading', { name: /^(Welcome back|Willkommen zurück)$/i }).waitFor();
+}
+
+async function invitationSeed(context: UiReviewSeedContext): Promise<Record<string, string>> {
+  await loginAsReviewAdmin(context.page);
+  const invitation = await apiRequest<{ token: string }>(context.page, 'POST', '/api/admin/invitations', {
+    email: `ui-review-${workerScope(context)}-${randomUUID()}@example.test`,
+    role: 'USER',
+  });
+  await logoutReviewAdmin(context.page);
+  return { token: invitation.token };
+}
+
+async function shareSeed(context: UiReviewSeedContext): Promise<Record<string, string>> {
+  const task = await taskSeed(context);
+  const share = await apiRequest<{ token: string }>(
+    context.page,
+    'POST',
+    `/api/tasks/${encodeURIComponent(task.taskId)}/share`,
+  );
+  return { token: share.token };
+}
+
 export const uiReviewConfig: UiReviewConfig = {
   outputDir: 'test-results/ui-screenshots',
   expectedTitle: 'Agent Tasks',
   routes: [
+    {
+      name: 'login',
+      path: '/login',
+      states: ['empty', 'filled'],
+      auth: 'guest',
+      nav: [{ kind: 'goto', path: '/login', reason: 'Review the logged-out sign-in form.' }],
+      prepare: {
+        filled: [
+          { kind: 'fill', selector: '#login-email', value: 'person@example.test' },
+          { kind: 'fill', selector: '#login-password', value: 'example-password-only' },
+        ],
+      },
+      note: 'Filled credentials are inert and are never submitted.',
+    },
+    {
+      name: 'setup',
+      path: '/setup',
+      states: ['filled'],
+      auth: 'guest',
+      nav: [{ kind: 'goto', path: '/setup', reason: 'Review the post-bootstrap setup state.' }],
+      note: 'This isolated review stack is already configured, so the route correctly shows setup is closed.',
+    },
+    {
+      name: 'register',
+      path: '/register',
+      states: ['filled'],
+      auth: 'guest',
+      nav: [{ kind: 'goto', path: '/register', reason: 'Review the registration policy state.' }],
+      note: 'Public registration is disabled in the isolated stack; the route explains that policy.',
+    },
+    {
+      name: 'invitation',
+      path: '/invite/:token',
+      states: ['filled'],
+      auth: 'none',
+      seeds: { filled: invitationSeed },
+      nav: [{ kind: 'goto', path: '/invite/:token', reason: 'Review a real, unused invitation form.' }],
+      prepare: {
+        filled: [
+          { kind: 'fill', selector: '#invite-name', value: 'UI Review User' },
+          { kind: 'fill', selector: '#invite-password', value: 'example-password-only' },
+          { kind: 'fill', selector: '#invite-confirm', value: 'example-password-only' },
+        ],
+      },
+      note: 'The invitation is synthetic, remains unaccepted, and is stored only in the isolated review database.',
+    },
+    {
+      name: 'share-page',
+      path: '/share/:token',
+      states: ['filled'],
+      auth: 'admin',
+      seeds: { filled: shareSeed },
+      nav: [{ kind: 'goto', path: '/share/:token', reason: 'Review the frozen task snapshot and adopt controls.' }],
+      note: 'The share uses the screenshot fixture task and does not submit an adoption.',
+    },
+    {
+      name: 'dashboard',
+      path: '/',
+      states: ['filled'],
+      auth: 'admin',
+      nav: [{ kind: 'goto', path: '/', reason: 'Review the authenticated dashboard.' }],
+      note: 'A zero-task account is not created because the stack uses a shared administrator; the dashboard is captured with its fixture task.',
+    },
     {
       name: 'admin-providers',
       path: '/admin/providers',
@@ -246,9 +379,10 @@ export const uiReviewConfig: UiReviewConfig = {
       seeds: { filled: taskSeed, empty: taskSeed },
       nav: [{ kind: 'click', scope: 'complementary', role: 'link', href: '/tasks' }],
       prepare: {
+        filled: [{ kind: 'select', selector: '#task-status-filter', value: 'paused' }],
         empty: [{ kind: 'fill', selector: '#task-filter', value: 'ui-review-no-matching-task' }],
       },
-      note: 'The empty capture is the zero-results filter view. A true zero-task account is omitted because this harness uses a shared admin and must not delete existing user data.',
+      note: 'The filled fixture is paused, so the status filter selects it; empty is the zero-results title-filter view. A true zero-task account is omitted because this harness uses a shared admin and must not delete existing user data.',
     },
     {
       name: 'create-task',
@@ -256,10 +390,7 @@ export const uiReviewConfig: UiReviewConfig = {
       states: ['empty', 'filled'],
       auth: 'admin',
       seeds: { empty: providerSeed, filled: providerSeed },
-      nav: [
-        { kind: 'click', scope: 'complementary', role: 'link', href: '/tasks' },
-        { kind: 'click', scope: 'main', role: 'link', href: '/tasks/new' },
-      ],
+      nav: [{ kind: 'goto', path: '/tasks/new', reason: 'Review the new-task form without submitting it.' }],
       prepare: {
         filled: [
           { kind: 'fill', selector: '#task-title', value: 'Weekly limits review' },
@@ -277,11 +408,8 @@ export const uiReviewConfig: UiReviewConfig = {
       states: ['filled'],
       auth: 'admin',
       seeds: { filled: taskSeed },
-      nav: [
-        { kind: 'click', scope: 'complementary', role: 'link', href: '/tasks' },
-        { kind: 'click', scope: 'main', role: 'link', nameFrom: 'taskTitle' },
-      ],
-      note: 'Omitted empty state: task detail requires a persisted task; the fixture is resolved by its deterministic title.',
+      nav: [{ kind: 'goto', path: '/tasks/:taskId', reason: 'Review the seeded paused task details.' }],
+      note: 'Omitted empty state: task detail requires a persisted task; its id is resolved from the seeded fixture.',
     },
     {
       name: 'edit-task',
@@ -289,12 +417,94 @@ export const uiReviewConfig: UiReviewConfig = {
       states: ['filled'],
       auth: 'admin',
       seeds: { filled: taskSeed },
+      nav: [{ kind: 'goto', path: '/tasks/:taskId/edit', reason: 'Review the seeded task edit form without saving it.' }],
+      note: 'Omitted empty state: edit requires an existing task; its id is resolved from the seeded fixture.',
+    },
+    {
+      name: 'memory-global-empty',
+      path: '/memory',
+      states: ['empty'],
+      auth: 'admin',
+      nav: [{ kind: 'goto', path: '/memory', reason: 'Review the empty global-memory collection.' }],
+      note: 'The isolated stack starts with no global memories; task-memory content is captured separately.',
+    },
+    {
+      name: 'memory-task-filled',
+      path: '/memory?scope=task',
+      states: ['filled'],
+      auth: 'admin',
+      seeds: { filled: executionSeed },
+      nav: [{ kind: 'goto', path: '/memory?scope=task', reason: 'Review fixture task memory after one deterministic fake run.' }],
+      note: 'The fake runtime creates synthetic task memory; no live provider is called.',
+    },
+    {
+      name: 'executions-empty',
+      path: '/executions',
+      states: ['empty'],
+      auth: 'admin',
       nav: [
-        { kind: 'click', scope: 'complementary', role: 'link', href: '/tasks' },
-        { kind: 'click', scope: 'main', role: 'link', nameFrom: 'taskTitle' },
-        { kind: 'click', scope: 'main', role: 'link', href: '/tasks/:taskId/edit' },
+        { kind: 'goto', path: '/executions', reason: 'Open the execution list.' },
+        { kind: 'click', scope: 'main', role: 'button', name: 'Failed' },
       ],
-      note: 'Omitted empty state: edit requires an existing task and follows the task detail Edit link.',
+      note: 'The failed-status filter has no fixture failures and captures the zero-result state.',
+    },
+    {
+      name: 'executions-filled',
+      path: '/executions',
+      states: ['filled'],
+      auth: 'admin',
+      seeds: { filled: executionSeed },
+      nav: [{ kind: 'goto', path: '/executions', reason: 'Review the completed deterministic fixture execution.' }],
+    },
+    {
+      name: 'execution-detail',
+      path: '/executions/:executionId',
+      states: ['filled'],
+      auth: 'admin',
+      seeds: { filled: executionSeed },
+      nav: [{ kind: 'goto', path: '/executions/:executionId', reason: 'Review the completed execution report and timeline.' }],
+    },
+    {
+      name: 'settings',
+      path: '/settings',
+      states: ['filled'],
+      auth: 'admin',
+      nav: [{ kind: 'goto', path: '/settings', reason: 'Review account settings and preferences.' }],
+    },
+    {
+      name: 'admin-users',
+      path: '/admin/users',
+      states: ['filled'],
+      auth: 'admin',
+      nav: [{ kind: 'goto', path: '/admin/users', reason: 'Review administrator user and invitation management.' }],
+    },
+    {
+      name: 'admin-audit',
+      path: '/admin/audit',
+      states: ['filled'],
+      auth: 'admin',
+      nav: [{ kind: 'goto', path: '/admin/audit', reason: 'Review the populated audit log.' }],
+    },
+    {
+      name: 'admin-monitoring',
+      path: '/admin/monitoring',
+      states: ['filled'],
+      auth: 'admin',
+      nav: [{ kind: 'goto', path: '/admin/monitoring', reason: 'Review runtime and queue monitoring.' }],
+    },
+    {
+      name: 'share-invalid',
+      path: '/share/ui-review-invalid-token',
+      states: ['empty'],
+      auth: 'guest',
+      nav: [{ kind: 'goto', path: '/share/ui-review-invalid-token', reason: 'Review the safe not-found state for a dead share token.' }],
+    },
+    {
+      name: 'not-found',
+      path: '/ui-review-not-found',
+      states: ['empty'],
+      auth: 'admin',
+      nav: [{ kind: 'goto', path: '/ui-review-not-found', reason: 'Review the authenticated not-found page.' }],
     },
   ],
 };

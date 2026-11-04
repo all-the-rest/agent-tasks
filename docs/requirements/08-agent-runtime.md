@@ -14,9 +14,12 @@ A real execution loop that researches instead of answering from memory.
 - [x] Administrator-configured global limits enforced per step, tool call, page visit, search query, output size, duration; defaults use finite hard maxima
 - [x] Retrieved content wrapped as untrusted data
 - [x] Sources collected, deduplicated and persisted with confidence labels
-- [x] Final answer stored as Markdown with summary, sources and uncertainty
+- [ ] Final answer stored as Markdown with summary, sources and uncertainty
+  (partial: summary and sources are stored; the runtime records uncertainty for
+  unverified citation links, but does not extract model-authored uncertainty prose)
 
 ## Evidence
 
-`packages/agent-runtime/test/runtime.test.ts` (7 tests) and the end-to-end execution test
-(real Chromium, real page, persisted report).
+`packages/agent-runtime/test/runtime.test.ts`,
+`apps/worker/test/opencode-tool-bridge.test.ts`,
+`test/integration/execution-budget.test.ts` and the execution integration tests.

@@ -208,6 +208,9 @@ export async function registerAdminRoutes(app: FastifyInstance, context: AppCont
     const admin = await requireAdmin(context, request);
     const parsed = systemSettingsSchema.safeParse(request.body);
     if (!parsed.success) throw AppError.badRequest('invalid settings', parsed.error.issues);
+    if (env.NODE_ENV === 'production' && parsed.data.allowRegistration && mailer.kind !== 'smtp') {
+      throw AppError.badRequest('open registration requires SMTP_URL in production so users can verify their e-mail addresses');
+    }
     await saveSettings(db, parsed.data);
     context.invalidateSettings();
     await context.audit({ actorId: admin.id, action: AUDIT_ACTIONS.settingsUpdated, targetType: 'settings', metadata: parsed.data });

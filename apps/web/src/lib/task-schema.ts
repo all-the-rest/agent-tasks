@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { taskEndConditionSchema } from '@agent-tasks/shared';
+import { taskEndConditionSchema } from '@agent-tasks/shared/task-end-condition';
 import type { TaskInput } from './types';
 import { schedulePayload } from './schedule';
 
