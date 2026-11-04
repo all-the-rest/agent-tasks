@@ -153,7 +153,10 @@ function stubFakeDom(
   image: FakeImageElement,
   trackedListeners = new WeakSet<object>(),
   trackedShadowRoots = new WeakMap<object, object>(),
+  nativeProperties = new WeakMap<object, Record<string, unknown>>(),
 ): void {
+  const originalArrayFrom = Array.from;
+  const callOriginalArrayFrom = Function.prototype.call.bind(originalArrayFrom, Array) as <T>(items: Iterable<T> | ArrayLike<T>) => T[];
   const originalGetAttribute = FakeDomElement.prototype.getAttribute;
   const callOriginalGetAttribute = Function.prototype.call.bind(originalGetAttribute);
   const originalFakeMatches = FakeDomElement.prototype.matches;
@@ -180,6 +183,12 @@ function stubFakeDom(
     __agentTasksMatchesElement: (target: Element, selector: string) => originalMatches(target as unknown as FakeDomElement, selector),
     __agentTasksGetTextContent: (target: Node) => (target as unknown as FakeDomElement).textContent ?? null,
     __agentTasksGetProperty: (target: object, property: PropertyKey) => Reflect.get(target, property),
+    __agentTasksArrayFrom: callOriginalArrayFrom,
+    __agentTasksGetNativeProperty: (target: object, property: string) => {
+      const values = nativeProperties.get(target);
+      if (values && Object.hasOwn(values, property)) return values[property];
+      return Reflect.get(target, property);
+    },
     __agentTasksGetComposedParent: (target: Element) => {
       const current = target as unknown as FakeDomElement;
       if (current.assignedSlot) return current.assignedSlot as unknown as Element;
@@ -213,6 +222,8 @@ function setupPool(options: {
   } | null;
   blockedInteractionCounts?: number[];
   armInteractionSucceeds?: boolean;
+  clickInspection?: () => unknown;
+  formInspection?: () => unknown;
 } = {}) {
   const click = vi.fn().mockResolvedValue(undefined);
   const locatorClick = vi.fn().mockResolvedValue(undefined);
@@ -232,6 +243,7 @@ function setupPool(options: {
       if (argument && typeof argument === 'object' && 'fingerprint' in argument) {
         return options.armInteractionSucceeds ?? true;
       }
+      if (options.clickInspection) return options.clickInspection();
       return {
         kind: 'click',
         pageUrl: options.pageUrl ?? 'https://shop.example/cart',
@@ -264,6 +276,7 @@ function setupPool(options: {
     title: vi.fn().mockResolvedValue('Cart'),
     evaluate: vi.fn().mockImplementation(async (_fn: unknown, argument?: unknown) => {
       if (argument === null) {
+        if (options.formInspection) return options.formInspection();
         return options.formSubmission
           ? {
             kind: 'form',
@@ -320,6 +333,69 @@ describe('BrowserPool click policy wiring', () => {
     expect(context.addInitScript).toHaveBeenCalledWith(expect.stringContaining('installInteractionListenerTracking'));
   });
 
+  it('captures Array.from and native form getters before page code runs', () => {
+    class FakeTarget {
+      addEventListener(): void {}
+    }
+    class FakeEvent {
+      composedPath(): EventTarget[] { return []; }
+      preventDefault(): void {}
+      stopImmediatePropagation(): void {}
+    }
+    class FakeNode {
+      get textContent(): string { return ''; }
+    }
+    class FakeElement extends FakeNode {
+      attachShadow(): ShadowRoot { return { host: this } as unknown as ShadowRoot; }
+      getAttribute(): string | null { return null; }
+      matches(): boolean { return false; }
+    }
+    class FakeForm extends FakeElement {
+      get action(): string { return 'https://shop.example/checkout'; }
+      get method(): string { return 'post'; }
+      get elements(): HTMLFormControlsCollection { return [] as unknown as HTMLFormControlsCollection; }
+    }
+    class FakeInput extends FakeElement {
+      get value(): string { return 'delete_account'; }
+    }
+    const fakeWindow = new FakeTarget();
+    vi.stubGlobal('EventTarget', FakeTarget);
+    vi.stubGlobal('Event', FakeEvent);
+    vi.stubGlobal('Node', FakeNode);
+    vi.stubGlobal('Element', FakeElement);
+    vi.stubGlobal('HTMLFormElement', FakeForm);
+    vi.stubGlobal('HTMLInputElement', FakeInput);
+    vi.stubGlobal('HTMLButtonElement', class FakeButton extends FakeElement {});
+    vi.stubGlobal('HTMLSelectElement', class FakeSelect extends FakeElement {});
+    vi.stubGlobal('HTMLTextAreaElement', class FakeTextArea extends FakeElement {});
+    vi.stubGlobal('HTMLOptionElement', class FakeOption extends FakeElement {});
+    vi.stubGlobal('HTMLLabelElement', class FakeLabel extends FakeElement {});
+    vi.stubGlobal('window', fakeWindow);
+    vi.stubGlobal('document', { activeElement: null });
+
+    installInteractionListenerTracking('native-getter-test', () => null);
+
+    const form = new FakeForm();
+    const input = new FakeInput();
+    Object.defineProperty(form, 'action', { value: 'https://shop.example/products' });
+    Object.defineProperty(input, 'value', { value: 'safe' });
+    const access = window as Window & {
+      __agentTasksArrayFrom?: <T>(items: Iterable<T> | ArrayLike<T>) => T[];
+      __agentTasksGetNativeProperty?: (target: object, property: string) => unknown;
+    };
+    const originalArrayFrom = Array.from;
+    const getNativeProperty = access.__agentTasksGetNativeProperty;
+    const arrayFrom = access.__agentTasksArrayFrom;
+    const tamperedArrayFrom = vi.spyOn(Array, 'from').mockImplementation(() => []);
+    const result = arrayFrom?.([1, 2, 3]);
+    tamperedArrayFrom.mockRestore();
+
+    expect(getNativeProperty?.(form, 'action')).toBe('https://shop.example/checkout');
+    expect(getNativeProperty?.(input, 'value')).toBe('delete_account');
+    expect(result).toEqual([1, 2, 3]);
+    expect(Array.from).toBe(originalArrayFrom);
+  });
+
   it('blocks sensitive HTTP navigation redirect hops but allows safe and non-navigation redirects', async () => {
     const { context } = await setupPool();
     const routeHandler = vi.mocked(context.route).mock.calls[0]?.[1];
@@ -363,6 +439,95 @@ describe('BrowserPool click policy wiring', () => {
     expect(safe.abort).not.toHaveBeenCalled();
     expect(asset.continueRequest).toHaveBeenCalledOnce();
     expect(direct.continueRequest).toHaveBeenCalledOnce();
+  });
+
+  it('blocks a sensitive control when the page replaces Array.from', async () => {
+    const image = new FakeImageElement('');
+    const checkout = new FakeAnchorElement({ href: 'https://shop.example/checkout' }, 'Continue');
+    stubFakeDom(null, image);
+    const { pool, id, click } = await setupPool({
+      clickInspection: () => inspectBrowserPolicy(checkout as unknown as Element),
+    });
+    const arrayFrom = vi.spyOn(Array, 'from').mockImplementation(() => []);
+
+    let result;
+    try {
+      result = await pool.act(id, { action: 'click_element', selector: '#continue' });
+    } finally {
+      arrayFrom.mockRestore();
+    }
+
+    expect(result).toMatchObject({ ok: false, action: 'click_element' });
+    expect(click).not.toHaveBeenCalled();
+  });
+
+  it('blocks a submit when the form action property is shadowed with a safe URL', async () => {
+    const image = new FakeImageElement('');
+    const activeField = new FakeInputElement(null, 'text', 'hello', 'message');
+    const nativeAction = 'https://shop.example/checkout';
+    const form = {
+      action: 'https://shop.example/products',
+      method: 'get',
+      elements: [activeField],
+    };
+    Object.defineProperty(activeField, 'form', { value: form, configurable: true });
+    const nativeProperties = new WeakMap<object, Record<string, unknown>>([
+      [form, { action: nativeAction, method: 'get', elements: [activeField] }],
+      [activeField, { form, type: 'text', name: 'message', value: 'hello', disabled: false }],
+    ]);
+    stubFakeDom(activeField, image, new WeakSet<object>(), new WeakMap<object, object>(), nativeProperties);
+    const formInspection = () => inspectBrowserPolicy(null);
+    const { pool, id, page } = await setupPool({
+      formInspection,
+      clickInspection: () => inspectBrowserPolicy(activeField as unknown as Element),
+    });
+
+    const result = await pool.act(id, {
+      action: 'fill_form',
+      fields: [{ selector: '#message', value: 'hello' }],
+      submit: true,
+    });
+
+    expect(formInspection()).toMatchObject({ kind: 'form', formAction: nativeAction });
+    expect(result).toMatchObject({ ok: false, action: 'fill_form' });
+    expect(page.keyboard.press).not.toHaveBeenCalled();
+  });
+
+  it('blocks a submit when a hidden action field value is shadowed', async () => {
+    const image = new FakeImageElement('');
+    const hiddenAction = new FakeInputElement(null, 'hidden', 'safe', 'metadata');
+    const activeField = new FakeInputElement(null, 'text', 'hello', 'message');
+    const form = {
+      action: 'https://shop.example/api/submit',
+      method: 'get',
+      elements: [hiddenAction, activeField],
+    };
+    Object.defineProperty(hiddenAction, 'form', { value: form, configurable: true });
+    Object.defineProperty(activeField, 'form', { value: form, configurable: true });
+    const nativeProperties = new WeakMap<object, Record<string, unknown>>([
+      [form, { action: 'https://shop.example/api/submit', method: 'post', elements: [hiddenAction, activeField] }],
+      [hiddenAction, { form, type: 'hidden', name: 'action', value: 'delete_account', disabled: false, checked: true }],
+      [activeField, { form, type: 'text', name: 'message', value: 'hello', disabled: false }],
+    ]);
+    stubFakeDom(activeField, image, new WeakSet<object>(), new WeakMap<object, object>(), nativeProperties);
+    const formInspection = () => inspectBrowserPolicy(null);
+    const { pool, id, page } = await setupPool({
+      formInspection,
+      clickInspection: () => inspectBrowserPolicy(activeField as unknown as Element),
+    });
+
+    const result = await pool.act(id, {
+      action: 'fill_form',
+      fields: [{ selector: '#message', value: 'hello' }],
+      submit: true,
+    });
+
+    expect(formInspection()).toMatchObject({
+      kind: 'form',
+      fields: expect.arrayContaining([{ name: 'action', value: 'delete_account' }]),
+    });
+    expect(result).toMatchObject({ ok: false, action: 'fill_form' });
+    expect(page.keyboard.press).not.toHaveBeenCalled();
   });
 
   it('records ordinary interaction listeners before page code runs', () => {
@@ -434,12 +599,14 @@ describe('BrowserPool click policy wiring', () => {
     const clickTarget = new FakeEventTarget();
     const loadTarget = new FakeEventTarget();
     const formDataTarget = new FakeEventTarget();
+    const invalidTarget = new FakeEventTarget();
     const lifecycleTarget = new FakeEventTarget();
     const pageClickHandler = vi.fn();
     const pageBeforeUnloadHandler = vi.fn();
     clickTarget.addEventListener('click', () => undefined);
     loadTarget.addEventListener('load', () => undefined);
     formDataTarget.addEventListener('formdata', () => undefined);
+    invalidTarget.addEventListener('invalid', () => undefined);
     lifecycleTarget.addEventListener('beforeunload', () => undefined);
     clickTarget.addEventListener('click', pageClickHandler);
     fakeWindow.addEventListener('beforeunload', pageBeforeUnloadHandler);
@@ -460,6 +627,7 @@ describe('BrowserPool click policy wiring', () => {
     expect(hasListener?.(clickTarget as unknown as EventTarget, 'click')).toBe(true);
     expect(hasListener?.(clickTarget as unknown as EventTarget, 'beforeunload')).toBe(false);
     expect(hasListener?.(formDataTarget as unknown as EventTarget, 'formdata')).toBe(true);
+    expect(hasListener?.(invalidTarget as unknown as EventTarget, 'invalid')).toBe(true);
     expect(hasListener?.(lifecycleTarget as unknown as EventTarget, 'beforeunload')).toBe(true);
     expect(hasListener?.(loadTarget as unknown as EventTarget)).toBe(false);
     expect(Object.getOwnPropertyDescriptor(FakeEventTarget.prototype, 'addEventListener'))
@@ -538,13 +706,21 @@ describe('BrowserPool click policy wiring', () => {
     class FakePolicyEvent {
       defaultPrevented = false;
       stopped = false;
+      private readonly submitterValue: Element | null | undefined;
+
       constructor(
         readonly type: string,
         private readonly path: EventTarget[],
         readonly isTrusted = true,
         readonly key?: string,
-        readonly submitter?: Element | null,
-      ) {}
+        submitter?: Element | null,
+      ) {
+        this.submitterValue = submitter;
+      }
+
+      get submitter(): Element | null {
+        return this.submitterValue ?? null;
+      }
 
       composedPath(): EventTarget[] {
         return this.path;
@@ -559,7 +735,15 @@ describe('BrowserPool click policy wiring', () => {
       }
     }
     class FakeElement extends FakeTarget {
-      form: FakeElement | null = null;
+      private formValue: FakeElement | null = null;
+
+      get form(): FakeElement | null {
+        return this.formValue;
+      }
+
+      set form(value: FakeElement | null) {
+        this.formValue = value;
+      }
 
       getAttribute(_name: string): string | null {
         return null;
@@ -581,12 +765,15 @@ describe('BrowserPool click policy wiring', () => {
     class FakeSelect extends FakeElement {}
     class FakeTextArea extends FakeElement {}
     class FakeButton extends FakeElement {
-      readonly type = 'submit';
+      get type(): string {
+        return 'submit';
+      }
     }
     const fakeWindow = new FakeTarget();
     const fakeDocument = Object.assign(new FakeTarget(), { activeElement: null as FakeElement | null });
     vi.stubGlobal('EventTarget', FakeTarget);
     vi.stubGlobal('Event', FakePolicyEvent);
+    vi.stubGlobal('SubmitEvent', FakePolicyEvent);
     vi.stubGlobal('Element', FakeElement);
     vi.stubGlobal('HTMLInputElement', FakeInput);
     vi.stubGlobal('HTMLButtonElement', FakeButton);
@@ -677,6 +864,24 @@ describe('BrowserPool click policy wiring', () => {
       fakeWindow as unknown as EventTarget,
     ], true, undefined, safeSubmitter as unknown as Element);
     fakeWindow.dispatch(reusedSubmit);
+    const spoofedClick = new FakePolicyEvent('click', [
+      safeSubmitter as unknown as EventTarget,
+      safeSubmitForm as unknown as EventTarget,
+      fakeDocument as unknown as EventTarget,
+      fakeWindow as unknown as EventTarget,
+    ]);
+    arm?.(safeSubmitter as unknown as Element, 'private-token', JSON.stringify(clickIntent));
+    fakeWindow.dispatch(spoofedClick);
+    const spoofedSubmit = new FakePolicyEvent('submit', [
+      safeSubmitForm as unknown as EventTarget,
+      fakeDocument as unknown as EventTarget,
+      fakeWindow as unknown as EventTarget,
+    ], true, undefined, otherSubmitter as unknown as Element);
+    Object.defineProperty(FakePolicyEvent.prototype, 'submitter', {
+      configurable: true,
+      get: () => safeSubmitter,
+    });
+    fakeWindow.dispatch(spoofedSubmit);
 
     expect(clickArmed).toBe(true);
     expect(formArmed).toBe(true);
@@ -690,6 +895,8 @@ describe('BrowserPool click policy wiring', () => {
     expect(unrelatedSubmit.defaultPrevented).toBe(true);
     expect(authorizedSubmit.defaultPrevented).toBe(false);
     expect(reusedSubmit.defaultPrevented).toBe(true);
+    expect(spoofedSubmit.submitter).toBe(safeSubmitter);
+    expect(spoofedSubmit.defaultPrevented).toBe(true);
   });
 
   it('marks registered click handlers as unverified script behavior', () => {
