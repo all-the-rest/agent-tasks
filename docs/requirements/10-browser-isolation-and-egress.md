@@ -19,6 +19,6 @@ Chromium must not become a pivot into the host or the private network.
 
 ## Evidence
 
-- `services/browser-runner/test/egress.test.ts` (7 tests incl. rebinding fixture).
+- `services/browser-runner/test/egress.test.ts` (9 tests incl. rebinding and redirect fixtures).
 - `docs/security/browser-isolation.md`.
 - Sandbox could not be exercised on this host (no user namespaces); see VERIFICATION_REPORT.

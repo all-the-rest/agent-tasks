@@ -23,7 +23,7 @@ workspace, reproducible builds and CI that fails on a red gate.
 ```
 pnpm typecheck   # 10 projects, exit 0
 pnpm lint        # exit 0
-ratchet check    # 5 of 5 gates passed
+ratchet check    # 11 of 11 gates passed
 ```
 
 Workflows: `.github/workflows/ci.yml`.
