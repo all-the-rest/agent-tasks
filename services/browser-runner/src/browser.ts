@@ -47,7 +47,7 @@ export function installInteractionListenerTracking(
     'auxclick', 'blur', 'change', 'click', 'contextmenu', 'dblclick', 'focus', 'focusin', 'focusout', 'formdata',
     'input', 'keydown', 'keypress', 'keyup', 'mousedown', 'mouseenter', 'mouseleave', 'mousemove',
     'mouseout', 'mouseover', 'mouseup', 'pointerdown', 'pointerenter', 'pointerleave', 'pointermove',
-    'pointerout', 'pointerover', 'pointerup', 'submit', 'touchcancel', 'touchend', 'touchmove', 'touchstart',
+    'invalid', 'pointerout', 'pointerover', 'pointerup', 'submit', 'touchcancel', 'touchend', 'touchmove', 'touchstart',
     'beforeunload', 'hashchange', 'pagehide', 'pageshow', 'popstate', 'unload', 'visibilitychange',
   ];
   const interactionEvents = new Set(eventTypes);
@@ -85,6 +85,7 @@ export function installInteractionListenerTracking(
   const originalAttachShadow = Element.prototype.attachShadow;
   const originalGetAttribute = Element.prototype.getAttribute;
   const originalMatches = Element.prototype.matches;
+  const arrayFrom = Function.prototype.call.bind(Array.from, Array) as <T>(items: Iterable<T> | ArrayLike<T>) => T[];
   const callOriginalAddEventListener = Function.prototype.call.bind(originalAddEventListener);
   const callOriginalAttachShadow = Function.prototype.call.bind(originalAttachShadow);
   const callOriginalGetAttribute = Function.prototype.call.bind(originalGetAttribute);
@@ -95,6 +96,59 @@ export function installInteractionListenerTracking(
   const callNativeTextContentGetter = nativeTextContentGetter
     ? Function.prototype.call.bind(nativeTextContentGetter)
     : null;
+  type NativeGetter = (target: object) => unknown;
+  const captureGetter = (prototype: object | undefined, property: string): NativeGetter | null => {
+    let current = prototype ?? null;
+    while (current) {
+      const getter = Object.getOwnPropertyDescriptor(current, property)?.get;
+      if (getter) return Function.prototype.call.bind(getter) as NativeGetter;
+      current = Object.getPrototypeOf(current) as object | null;
+    }
+    return null;
+  };
+  const nativePropertyGetters = Object.create(null) as Record<string, NativeGetter[]>;
+  const captureNativeProperty = (prototype: object | undefined, property: string): void => {
+    const getter = captureGetter(prototype, property);
+    if (!getter) return;
+    const getters = nativePropertyGetters[property] ?? (nativePropertyGetters[property] = []);
+    getters.push(getter);
+  };
+  const captureProperties = (prototype: object | undefined, properties: string[]): void => {
+    for (const property of properties) captureNativeProperty(prototype, property);
+  };
+  const getNativeSubmitter = captureGetter(
+    typeof SubmitEvent === 'undefined' ? undefined : SubmitEvent.prototype,
+    'submitter',
+  );
+  captureProperties(typeof HTMLFormElement === 'undefined' ? undefined : HTMLFormElement.prototype, ['action', 'method', 'elements']);
+  captureProperties(typeof HTMLInputElement === 'undefined' ? undefined : HTMLInputElement.prototype, [
+    'form', 'type', 'formAction', 'formMethod', 'name', 'value', 'disabled', 'checked', 'labels',
+  ]);
+  captureProperties(typeof HTMLButtonElement === 'undefined' ? undefined : HTMLButtonElement.prototype, [
+    'form', 'type', 'formAction', 'formMethod', 'name', 'value', 'disabled', 'labels',
+  ]);
+  captureProperties(typeof HTMLSelectElement === 'undefined' ? undefined : HTMLSelectElement.prototype, [
+    'form', 'name', 'disabled', 'multiple', 'value', 'selectedOptions', 'labels',
+  ]);
+  captureProperties(typeof HTMLTextAreaElement === 'undefined' ? undefined : HTMLTextAreaElement.prototype, [
+    'form', 'name', 'value', 'disabled', 'labels',
+  ]);
+  captureProperties(typeof HTMLOptionElement === 'undefined' ? undefined : HTMLOptionElement.prototype, [
+    'value', 'disabled', 'selected',
+  ]);
+  captureProperties(typeof HTMLLabelElement === 'undefined' ? undefined : HTMLLabelElement.prototype, ['control']);
+  const getTrustedProperty = (target: object, property: string): unknown => {
+    const getters = nativePropertyGetters[property];
+    if (!getters) return undefined;
+    for (let index = 0; index < getters.length; index += 1) {
+      try {
+        return getters[index]?.(target);
+      } catch {
+        // Try the next native interface getter; only the matching element brand succeeds.
+      }
+    }
+    return undefined;
+  };
   const callComposedPath = Function.prototype.call.bind(Event.prototype.composedPath);
   const callPreventDefault = Function.prototype.call.bind(Event.prototype.preventDefault);
   const callStopImmediatePropagation = Function.prototype.call.bind(Event.prototype.stopImmediatePropagation);
@@ -117,10 +171,8 @@ export function installInteractionListenerTracking(
     : node.textContent;
   const formForActiveElement = (active: Element | null): HTMLFormElement | null => {
     if (!active) return null;
-    if (active instanceof HTMLInputElement
-      || active instanceof HTMLButtonElement
-      || active instanceof HTMLSelectElement
-      || active instanceof HTMLTextAreaElement) return active.form;
+    const nativeForm = getTrustedProperty(active, 'form');
+    if (nativeForm !== undefined) return nativeForm as HTMLFormElement | null;
     return active.closest('form');
   };
   const armInteraction = (
@@ -140,9 +192,10 @@ export function installInteractionListenerTracking(
     }
     if (fingerprint !== expectedFingerprint) return false;
     const isFormControl = element instanceof HTMLButtonElement || element instanceof HTMLInputElement;
-    const formOwner = isFormControl ? element.form : null;
-    const isSubmitter = element instanceof HTMLButtonElement && element.type === 'submit'
-      || element instanceof HTMLInputElement && (element.type === 'submit' || element.type === 'image');
+    const formOwner = isFormControl ? getTrustedProperty(element, 'form') as HTMLFormElement | null : null;
+    const type = isFormControl ? getTrustedProperty(element, 'type') : undefined;
+    const isSubmitter = element instanceof HTMLButtonElement && type === 'submit'
+      || element instanceof HTMLInputElement && (type === 'submit' || type === 'image');
     const state = { fingerprint, inspectElement: element, submitter: isSubmitter ? element : null, activationSeen: false };
     setArmedIntent(actionTarget, state);
     if (isSubmitter && formOwner) {
@@ -157,7 +210,7 @@ export function installInteractionListenerTracking(
     if (!target) return false;
     deleteArmedIntent(target);
     const formOwner = element instanceof HTMLButtonElement || element instanceof HTMLInputElement
-      ? element.form
+      ? getTrustedProperty(element, 'form') as HTMLFormElement | null
       : null;
     if (formOwner) {
       deleteArmedIntent(formOwner);
@@ -171,16 +224,6 @@ export function installInteractionListenerTracking(
   const isLifecycleInteraction = Set.prototype.has.bind(isLifecycleEvent);
   let blockedInteractionCount = 0;
   const getProperty = Reflect.get.bind(Reflect);
-  type NativeGetter = (target: object) => unknown;
-  const captureGetter = (prototype: object | undefined, property: string): NativeGetter | null => {
-    let current = prototype ?? null;
-    while (current) {
-      const getter = Object.getOwnPropertyDescriptor(current, property)?.get;
-      if (getter) return Function.prototype.call.bind(getter) as NativeGetter;
-      current = Object.getPrototypeOf(current) as object | null;
-    }
-    return null;
-  };
   const readParentElement = captureGetter(typeof Node === 'undefined' ? undefined : Node.prototype, 'parentElement');
   const readAssignedSlot = captureGetter(Element.prototype, 'assignedSlot');
   const readShadowHost = captureGetter(typeof ShadowRoot === 'undefined' ? undefined : ShadowRoot.prototype, 'host');
@@ -236,15 +279,24 @@ export function installInteractionListenerTracking(
     const hasArmedIntent = path.some((target) => getArmedIntent(target) !== undefined);
     const keyboardEnter = (type === 'keydown' || type === 'keypress')
       && getProperty(event, 'key') === 'Enter';
-    const submitter = getProperty(event, 'submitter') as Element | null | undefined;
-    const authorizedSubmit = path.some((target) => {
-      const armed = getArmedIntent(target);
-      return armed !== undefined
-        && armed.activationSeen
-        && (armed.submitter === null
-          ? armed.inspectElement === null
-          : armed.submitter === submitter);
-    });
+    let submitter: Element | null | undefined;
+    if (type === 'submit' && getNativeSubmitter) {
+      try {
+        submitter = getNativeSubmitter(event) as Element | null;
+      } catch {
+        submitter = undefined;
+      }
+    }
+    const authorizedSubmit = type === 'submit'
+      && submitter !== undefined
+      && path.some((target) => {
+        const armed = getArmedIntent(target);
+        return armed !== undefined
+          && armed.activationSeen
+          && (armed.submitter === null
+            ? armed.inspectElement === null
+            : armed.submitter === submitter);
+      });
     const missingArmedIntent = ((type === 'click' || type === 'auxclick' || keyboardEnter) && !hasArmedIntent)
       || (type === 'submit' && !authorizedSubmit);
     const hasLifecycleHandler = eventTypes.some((eventType) =>
@@ -351,6 +403,18 @@ export function installInteractionListenerTracking(
     enumerable: false,
     writable: false,
   });
+  Object.defineProperty(window, '__agentTasksArrayFrom', {
+    value: arrayFrom,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(window, '__agentTasksGetNativeProperty', {
+    value: getTrustedProperty,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
 }
 
 /** Runs in Chromium to inspect control labels, routes, fields, and script-driven intent. */
@@ -361,13 +425,18 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     __agentTasksGetTextContent?: (target: Node) => string | null;
     __agentTasksGetProperty?: (target: object, property: PropertyKey) => unknown;
     __agentTasksGetComposedParent?: (target: Element) => Element | null;
+    __agentTasksArrayFrom?: <T>(items: Iterable<T> | ArrayLike<T>) => T[];
+    __agentTasksGetNativeProperty?: (target: object, property: string) => unknown;
   };
   const readAttribute = securityAccess.__agentTasksGetAttribute;
   const matchesElement = securityAccess.__agentTasksMatchesElement;
   const readTextContent = securityAccess.__agentTasksGetTextContent;
   const getProperty = securityAccess.__agentTasksGetProperty;
   const getComposedParent = securityAccess.__agentTasksGetComposedParent;
-  if (!readAttribute || !matchesElement || !readTextContent || !getProperty || !getComposedParent) return null;
+  const arrayFrom = securityAccess.__agentTasksArrayFrom;
+  const getNativeProperty = securityAccess.__agentTasksGetNativeProperty;
+  if (!readAttribute || !matchesElement || !readTextContent || !getProperty || !getComposedParent
+    || !arrayFrom || !getNativeProperty) return null;
   const hasTrackedInteractionListener = (window as Window & {
     __agentTasksHasInteractionListener?: (target: EventTarget) => boolean;
   }).__agentTasksHasInteractionListener;
@@ -379,7 +448,7 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     'auxclick', 'blur', 'change', 'click', 'contextmenu', 'dblclick', 'focus', 'focusin', 'focusout', 'formdata',
     'input', 'keydown', 'keypress', 'keyup', 'mousedown', 'mouseenter', 'mouseleave', 'mousemove',
     'mouseout', 'mouseover', 'mouseup', 'pointerdown', 'pointerenter', 'pointerleave', 'pointermove',
-    'pointerout', 'pointerover', 'pointerup', 'submit', 'touchcancel', 'touchend', 'touchmove', 'touchstart',
+    'invalid', 'pointerout', 'pointerover', 'pointerup', 'submit', 'touchcancel', 'touchend', 'touchmove', 'touchstart',
     'beforeunload', 'hashchange', 'pagehide', 'pageshow', 'popstate', 'unload', 'visibilitychange',
   ];
   const hasDirectScriptHandler = (target: EventTarget): boolean => {
@@ -423,14 +492,14 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
       if (!current || visited.has(current)) continue;
       visited.add(current);
       if (current !== node && hasDirectScriptHandler(current)) return true;
-      pending.push(...Array.from(current.children));
+      pending.push(...arrayFrom(current.children));
       const shadowRoot = getTrackedShadowRoot(current) ?? current.shadowRoot;
       if (shadowRoot) {
         if (hasDirectScriptHandler(shadowRoot)) return true;
-        pending.push(...Array.from(shadowRoot.children));
+        pending.push(...arrayFrom(shadowRoot.children));
       }
       if (current.localName === 'slot') {
-        pending.push(...Array.from((current as HTMLSlotElement).assignedElements({ flatten: true })));
+        pending.push(...arrayFrom((current as HTMLSlotElement).assignedElements({ flatten: true })));
       }
     }
     return false;
@@ -464,14 +533,14 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
       || node instanceof HTMLButtonElement
       || node instanceof HTMLSelectElement
       || node instanceof HTMLTextAreaElement
-      ? Array.from(node.labels ?? [])
+      ? arrayFrom((getNativeProperty(node, 'labels') as NodeListOf<HTMLLabelElement> | null) ?? [])
       : [];
     const labelNames = labels
       .map((label) => accessibleName(label, new Set(nextVisited)))
       .filter(Boolean);
     if (labelNames.length > 0) return labelNames.join(' ');
 
-    const contents = Array.from(node.childNodes)
+    const contents = arrayFrom(node.childNodes)
       .map((child) => child instanceof Element
         ? accessibleName(child, new Set(nextVisited))
         : readTextContent(child) ?? '')
@@ -492,33 +561,57 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     readAttribute(node, 'alt') ?? '',
   ].filter(Boolean).join(' ');
 
-  const fieldsFor = (form: HTMLFormElement, methodOverride = form.method): Array<{ name: string; value: string }> => {
+  const fieldsFor = (
+    form: HTMLFormElement,
+    methodOverride = getNativeProperty(form, 'method') as string | undefined,
+  ): Array<{ name: string; value: string }> | null => {
+    if (typeof methodOverride !== 'string') return null;
     const method = methodOverride.toLowerCase();
     const actionFieldNames = new Set(['action', 'command', 'do', 'event', 'handler', 'intent', 'mode', 'op', 'operation', 'task', 'workflow']);
-    return Array.from(form.elements).flatMap((candidate) => {
+    const elements = getNativeProperty(form, 'elements') as HTMLFormControlsCollection | undefined;
+    if (!elements) return null;
+    const fields: Array<{ name: string; value: string }> = [];
+    for (const candidate of arrayFrom(elements)) {
       if (!(candidate instanceof HTMLInputElement
         || candidate instanceof HTMLButtonElement
         || candidate instanceof HTMLSelectElement
-        || candidate instanceof HTMLTextAreaElement)
-        || candidate.disabled
-        || !candidate.name) return [];
+        || candidate instanceof HTMLTextAreaElement)) continue;
 
-      if (candidate instanceof HTMLInputElement && ['checkbox', 'radio'].includes(candidate.type) && !candidate.checked) return [];
-      if (candidate instanceof HTMLInputElement && candidate.type === 'file') return [];
-      if (candidate instanceof HTMLSelectElement && candidate.multiple) {
-        return Array.from(candidate.selectedOptions)
-          .filter((option) => !option.disabled)
-          .map((option) => ({ name: candidate.name, value: option.value }));
+      const disabled = getNativeProperty(candidate, 'disabled');
+      const candidateName = getNativeProperty(candidate, 'name');
+      if (typeof disabled !== 'boolean' || typeof candidateName !== 'string') return null;
+      if (disabled || !candidateName) continue;
+
+      const type = getNativeProperty(candidate, 'type');
+      const name = candidateName;
+      if (candidate instanceof HTMLInputElement && (type === 'checkbox' || type === 'radio')
+        && !getNativeProperty(candidate, 'checked')) continue;
+      if (candidate instanceof HTMLInputElement && type === 'file') continue;
+      if (candidate instanceof HTMLSelectElement && getNativeProperty(candidate, 'multiple')) {
+        const selectedOptions = getNativeProperty(candidate, 'selectedOptions') as HTMLCollectionOf<HTMLOptionElement> | undefined;
+        if (!selectedOptions) return null;
+        for (const option of arrayFrom(selectedOptions)) {
+          const optionDisabled = getNativeProperty(option, 'disabled');
+          const optionValue = getNativeProperty(option, 'value');
+          if (typeof optionDisabled !== 'boolean' || typeof optionValue !== 'string') return null;
+          if (!optionDisabled) fields[fields.length] = { name, value: optionValue };
+        }
+        continue;
       }
-      const isHiddenInput = candidate instanceof HTMLInputElement && candidate.type === 'hidden';
-      const normalizedName = candidate.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (method !== 'get' && !isHiddenInput && !actionFieldNames.has(normalizedName)) return [];
+      const isHiddenInput = candidate instanceof HTMLInputElement && type === 'hidden';
+      const normalizedName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (method !== 'get' && !isHiddenInput && !actionFieldNames.has(normalizedName)) continue;
 
-      return [{ name: candidate.name, value: candidate.value }];
-    });
+      const value = getNativeProperty(candidate, 'value');
+      if (typeof value !== 'string') return null;
+      fields[fields.length] = { name, value };
+    }
+    return fields;
   };
   const hasFormScriptHandlers = (form: HTMLFormElement): boolean =>
-    hasScriptHandlers(form) || Array.from(form.elements).some((candidate) => hasScriptHandlers(candidate));
+    hasScriptHandlers(form)
+    || arrayFrom((getNativeProperty(form, 'elements') as HTMLFormControlsCollection | undefined) ?? [])
+      .some((candidate) => hasScriptHandlers(candidate));
 
   if (element) {
     const hasUnverifiedDescendantHandlers = hasDescendantScriptHandlers(element);
@@ -526,7 +619,7 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
     const interactiveSelector = 'a[href], area[href], button, input[type="submit"], input[type="image"], input[type="button"], label, [role="button"], [role="link"], [onclick]';
     const visitedElements = new Set<Element>();
     const collectFromContainer = (container: ParentNode): void => {
-      for (const child of Array.from(container.children)) collectInteractiveElement(child);
+      for (const child of arrayFrom(container.children)) collectInteractiveElement(child);
     };
     const collectInteractiveElement = (current: Element): void => {
       if (visitedElements.has(current)) return;
@@ -536,7 +629,7 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
       const shadowRoot = getTrackedShadowRoot?.(current) ?? current.shadowRoot;
       if (shadowRoot) collectFromContainer(shadowRoot);
       if (current.localName === 'slot') {
-        for (const assigned of Array.from((current as HTMLSlotElement).assignedElements({ flatten: true }))) {
+        for (const assigned of arrayFrom((current as HTMLSlotElement).assignedElements({ flatten: true }))) {
           collectInteractiveElement(assigned);
         }
       }
@@ -549,76 +642,113 @@ export function inspectBrowserPolicy(element: Element | null): BrowserPolicyInsp
         nodes.add(current);
       }
     }
-    for (const node of [...nodes]) {
-      if (node instanceof HTMLLabelElement && node.control) nodes.add(node.control);
+    for (const node of arrayFrom(nodes)) {
+      if (node instanceof HTMLLabelElement) {
+        const control = getNativeProperty(node, 'control') as Element | null;
+        if (control) nodes.add(control);
+      }
       if (node instanceof HTMLInputElement
         || node instanceof HTMLButtonElement
         || node instanceof HTMLSelectElement
         || node instanceof HTMLTextAreaElement) {
-        for (const label of Array.from(node.labels ?? [])) nodes.add(label);
+        for (const label of arrayFrom((getNativeProperty(node, 'labels') as NodeListOf<HTMLLabelElement> | null) ?? [])) {
+          nodes.add(label);
+        }
       }
     }
-    return {
+    let incompleteNativeIntent = false;
+    const inspection: BrowserPolicyInspection = {
       kind: 'click',
       pageUrl,
-      targets: Array.from(nodes).map((node) => {
-        const form = node instanceof HTMLButtonElement && node.type === 'submit'
-          ? node.form
-          : node instanceof HTMLInputElement && (node.type === 'submit' || node.type === 'image')
-            ? node.form
-            : null;
-        const formAction = form
-          ? node instanceof HTMLButtonElement || node instanceof HTMLInputElement
-            ? readAttribute(node, 'formaction') !== null ? node.formAction : form.action
-            : null
-          : null;
-        const formMethod = form && (node instanceof HTMLButtonElement || node instanceof HTMLInputElement)
-          ? readAttribute(node, 'formmethod') !== null ? node.formMethod : form.method
-          : null;
+      targets: arrayFrom(nodes).map((node) => {
+        const isButton = node instanceof HTMLButtonElement;
+        const isInput = node instanceof HTMLInputElement;
+        const type = isButton || isInput ? getNativeProperty(node, 'type') : undefined;
+        const isSubmitter = isButton && type === 'submit'
+          || isInput && (type === 'submit' || type === 'image');
+        const nativeForm = isSubmitter ? getNativeProperty(node, 'form') : null;
+        if (isSubmitter && nativeForm === undefined) incompleteNativeIntent = true;
+        const form = nativeForm as HTMLFormElement | null;
+        let formAction: string | null = null;
+        let formFields: Array<{ name: string; value: string }> = [];
+        if (form) {
+          const actionOverride = (isButton || isInput) && readAttribute(node, 'formaction') !== null;
+          const methodOverride = (isButton || isInput) && readAttribute(node, 'formmethod') !== null;
+          const action = getNativeProperty(actionOverride ? node : form, actionOverride ? 'formAction' : 'action');
+          const method = getNativeProperty(methodOverride ? node : form, methodOverride ? 'formMethod' : 'method');
+          if (typeof action !== 'string' || typeof method !== 'string') incompleteNativeIntent = true;
+          else {
+            formAction = action;
+            const collectedFields = fieldsFor(form, method);
+            if (!collectedFields) incompleteNativeIntent = true;
+            else formFields = collectedFields;
+          }
+        }
         return {
           label: labelFor(node),
           href: readAttribute(node, 'href'),
           formAction,
-          formFields: form && formMethod ? fieldsFor(form, formMethod) : [],
+          formFields,
           hasScriptHandlers: (node === element && hasUnverifiedDescendantHandlers)
             || (form ? hasFormScriptHandlers(form) : hasScriptHandlers(node)),
         };
       }),
     };
+    if (incompleteNativeIntent) return null;
+    return inspection;
   }
 
   const active = document.activeElement;
-  const form = active instanceof HTMLInputElement
-    || active instanceof HTMLTextAreaElement
-    || active instanceof HTMLSelectElement
-    ? active.form
-    : null;
+  const form = active ? getNativeProperty(active, 'form') as HTMLFormElement | null | undefined : null;
   if (!form) return null;
-  const submitters = Array.from(form.elements)
+  const formAction = getNativeProperty(form, 'action');
+  const formMethod = getNativeProperty(form, 'method');
+  const formElements = getNativeProperty(form, 'elements') as HTMLFormControlsCollection | undefined;
+  if (typeof formAction !== 'string' || typeof formMethod !== 'string' || !formElements) return null;
+  const formControls = arrayFrom(formElements);
+  let incompleteSubmitterIntent = false;
+  const submitters = formControls
     .filter((candidate): candidate is HTMLButtonElement | HTMLInputElement => {
-      if (candidate instanceof HTMLButtonElement) return candidate.type === 'submit' && !candidate.disabled;
+      const disabled = getNativeProperty(candidate, 'disabled');
+      const type = getNativeProperty(candidate, 'type');
+      if (candidate instanceof HTMLButtonElement) return type === 'submit' && disabled === false;
       return candidate instanceof HTMLInputElement
-        && (candidate.type === 'submit' || candidate.type === 'image')
-        && !candidate.disabled;
+        && (type === 'submit' || type === 'image')
+        && disabled === false;
     })
-    .map((candidate) => ({
-      label: labelFor(candidate),
-      formAction: readAttribute(candidate, 'formaction') !== null ? candidate.formAction : form.action,
-      hasScriptHandlers: hasScriptHandlers(candidate),
-    }));
-  const hasGetSubmitter = Array.from(form.elements).some((candidate) =>
-    ((candidate instanceof HTMLButtonElement && candidate.type === 'submit')
-      || (candidate instanceof HTMLInputElement && (candidate.type === 'submit' || candidate.type === 'image')))
-    && !candidate.disabled
+    .map((candidate) => {
+      const actionOverride = readAttribute(candidate, 'formaction') !== null;
+      const nativeAction = actionOverride ? getNativeProperty(candidate, 'formAction') : formAction;
+      if (typeof nativeAction !== 'string') incompleteSubmitterIntent = true;
+      return {
+        label: labelFor(candidate),
+        formAction: typeof nativeAction === 'string' ? nativeAction : '',
+        hasScriptHandlers: hasScriptHandlers(candidate),
+      };
+    });
+  const hasGetSubmitter = formControls.some((candidate) => {
+    const type = getNativeProperty(candidate, 'type');
+    const isSubmitter = (candidate instanceof HTMLButtonElement && type === 'submit')
+      || (candidate instanceof HTMLInputElement && (type === 'submit' || type === 'image'));
+    return isSubmitter
+    && getNativeProperty(candidate, 'disabled') === false
     && readAttribute(candidate, 'formmethod') !== null
-    && candidate.formMethod.toLowerCase() === 'get');
-  const method = form.method.toLowerCase();
+    && (getNativeProperty(candidate, 'formMethod') as string | undefined)?.toLowerCase() === 'get';
+  });
+  for (const candidate of formControls) {
+    if (!(candidate instanceof HTMLButtonElement || candidate instanceof HTMLInputElement)) continue;
+    if (readAttribute(candidate, 'formmethod') !== null
+      && typeof getNativeProperty(candidate, 'formMethod') !== 'string') incompleteSubmitterIntent = true;
+  }
+  const method = formMethod.toLowerCase();
+  const fields = fieldsFor(form, hasGetSubmitter ? 'get' : method);
+  if (!fields || incompleteSubmitterIntent) return null;
   return {
     kind: 'form',
     pageUrl,
-    formAction: form.action,
+    formAction,
     method,
-    fields: fieldsFor(form, hasGetSubmitter ? 'get' : method),
+    fields,
     hasScriptHandlers: hasFormScriptHandlers(form),
     submitters,
   };
