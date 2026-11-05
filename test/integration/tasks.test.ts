@@ -63,7 +63,7 @@ async function insertExecution(
   current: TestHarness,
   taskId: string,
   ownerId: string,
-  status: 'completed' | 'queued' = 'completed',
+  status: 'completed' | 'queued' | 'failed' = 'completed',
   readAt: Date | null = null,
 ): Promise<string> {
   const id = randomUUID();
@@ -474,6 +474,38 @@ describe('task end conditions', () => {
       scheduledRunCount: 1,
       completedAt: null,
     });
+  });
+});
+
+describe('parallel execution admission', () => {
+  it('validates providers on transaction connections for runs and retries', async () => {
+    // A pool smaller than the concurrent run batch exercises connection reuse
+    // without relying on CI load to expose nested pool acquisition.
+    harness = await createHarness({}, undefined, 2);
+    const admin = await bootstrapAdmin(harness);
+    const providerId = await providerFor(harness, admin.cookie);
+    const taskIds = await Promise.all(
+      Array.from({ length: 4 }, (_, index) => createTask(harness!, admin.cookie, providerId, `Concurrent run ${index}`)),
+    );
+
+    const runs = await Promise.all(taskIds.map((id) => harness!.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${id}/run`,
+      headers: { cookie: admin.cookie },
+    })));
+
+    expect(runs.map((run) => run.statusCode)).toEqual([200, 200, 200, 200]);
+
+    const runIds = runs.map((run) => run.json().executionId as string);
+    await harness.db.pool.query("update executions set status = 'completed' where id = any($1::uuid[])", [runIds]);
+    const failedIds = await Promise.all(taskIds.map((id) => insertExecution(harness!, id, admin.id, 'failed')));
+    const retries = await Promise.all(failedIds.map((id) => harness!.app.inject({
+      method: 'POST',
+      url: `/api/executions/${id}/retry`,
+      headers: { cookie: admin.cookie },
+    })));
+
+    expect(retries.map((retry) => retry.statusCode)).toEqual([201, 201, 201, 201]);
   });
 });
 
