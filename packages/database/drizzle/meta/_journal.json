@@ -71,6 +71,13 @@
       "when": 1793783712491,
       "tag": "0009_heavy_justice",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793813707704,
+      "tag": "0010_woozy_mauler",
+      "breakpoints": true
     }
   ]
 }

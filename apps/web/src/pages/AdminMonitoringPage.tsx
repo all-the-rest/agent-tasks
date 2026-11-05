@@ -31,7 +31,9 @@ export function AdminMonitoringPage() {
   const lastUpdated = Math.max(metrics.dataUpdatedAt, executions.dataUpdatedAt);
 
   if (metrics.isLoading) return <Spinner label={t('common.loadingPage')} />;
-  if (metrics.isError || !metrics.data) return <ErrorAlert message={t('errors.loadFailed')} />;
+  if (metrics.isError || !metrics.data) {
+    return <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void metrics.refetch()} />;
+  }
 
   const statusEntries = Object.entries(metrics.data.byStatus) as Array<[string, number]>;
 
@@ -102,7 +104,7 @@ export function AdminMonitoringPage() {
             {executions.isLoading ? (
               <Spinner />
             ) : executions.isError ? (
-              <ErrorAlert message={t('errors.loadFailed')} />
+              <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void executions.refetch()} />
             ) : !executions.data || executions.data.length === 0 ? (
               <p className="py-6 text-center text-sm opacity-60">{t('dashboard.noExecutions')}</p>
             ) : (

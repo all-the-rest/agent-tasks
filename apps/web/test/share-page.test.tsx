@@ -10,6 +10,7 @@ import { AuthProvider } from '../src/lib/auth';
 import { ThemeProvider } from '../src/lib/theme';
 import type { Provider, SessionUser, Task, TaskShareSnapshot } from '../src/lib/types';
 import { SharePage } from '../src/pages/SharePage';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 
 const snapshot: TaskShareSnapshot = {
   title: 'Vienna transit monitor',
@@ -99,6 +100,7 @@ describe('public share page', () => {
     expect(screen.getByText('Europe/Vienna')).toBeTruthy();
     expect(screen.getByText(/Only the title, prompt, schedule and timezone are shared/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Sign in to copy this task' }).getAttribute('href')).toBe('/login');
+    expectInteractiveControlsNamed();
     expect(get).toHaveBeenCalledWith('token-abc');
   });
 
@@ -144,6 +146,9 @@ describe('public share page', () => {
 
     expect(await screen.findByText('Copy to my tasks')).toBeTruthy();
     const copy = await screen.findByRole('button', { name: 'Copy task' });
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toBeTruthy();
+    expectInteractiveControlsNamed();
     await waitFor(() => expect((copy as HTMLButtonElement).disabled).toBe(false));
     await user.click(copy);
 
@@ -162,8 +167,25 @@ describe('public share page', () => {
 
     renderShare();
 
-    expect(
-      await screen.findByText('This share link is unavailable or has been revoked.'),
-    ).toBeTruthy();
+    expect(await screen.findByText('This share link is unavailable or has been revoked.')).toBeTruthy();
+    expect(screen.getByText('This share link is unavailable or has been revoked.')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.queryByText(/Only the title, prompt, schedule and timezone are shared/)).toBeNull();
+  });
+
+  it('recovers from a transient share load error with its named retry action', async () => {
+    vi.spyOn(api.auth, 'session').mockResolvedValue(null);
+    const shareQuery = vi.spyOn(api.shares, 'get')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(snapshot);
+
+    renderShare();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    const user = userEvent.setup({ delay: null });
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: 'Vienna transit monitor' })).toBeTruthy();
+    expect(shareQuery).toHaveBeenCalledTimes(2);
   });
 });

@@ -7,6 +7,7 @@ import { checkUrl } from '@agent-tasks/shared';
 import type { EgressProxy } from './proxy.js';
 import { startEgressProxy } from './proxy.js';
 import { isForbiddenClickTarget, isForbiddenFormUrl } from './click-policy.js';
+import { CRAWLER_USER_AGENT, SessionRobotsPolicy } from './robots-policy.js';
 
 export interface RunnerLimits {
   maxSessions: number;
@@ -1201,6 +1202,12 @@ export interface SessionState {
   createdAt: number;
   lastActionAt: number;
   actions: number;
+  robotsPolicy: SessionRobotsPolicy;
+  robotsBlockedCount: number;
+}
+
+export interface BrowserPoolDependencies {
+  startProxy?: typeof startEgressProxy;
 }
 
 export class BrowserPool {
@@ -1212,10 +1219,14 @@ export class BrowserPool {
   constructor(
     private readonly limits: RunnerLimits,
     private readonly options: { allowedPorts: number[]; allowHttp: boolean; chromiumSandbox: boolean },
+    private readonly dependencies: BrowserPoolDependencies = {},
   ) {}
 
   async start(): Promise<void> {
-    this.proxy = await startEgressProxy({ allowedPorts: this.options.allowedPorts, allowHttp: this.options.allowHttp });
+    this.proxy = await (this.dependencies.startProxy ?? startEgressProxy)({
+      allowedPorts: this.options.allowedPorts,
+      allowHttp: this.options.allowHttp,
+    });
     this.browser = await chromium.launch({
       headless: true,
       // The sandbox stays enabled in every supported deployment: the container runs as a
@@ -1261,6 +1272,7 @@ export class BrowserPool {
       locale: 'en-US',
       timezoneId: 'UTC',
       ignoreHTTPSErrors: false,
+      userAgent: CRAWLER_USER_AGENT,
     });
     const intentToken = randomUUID();
     await context.addInitScript(
@@ -1269,20 +1281,55 @@ export class BrowserPool {
     const page = await context.newPage();
     page.setDefaultTimeout(this.limits.actionTimeoutMs);
     page.setDefaultNavigationTimeout(this.limits.actionTimeoutMs);
+    const robotsPolicy = new SessionRobotsPolicy(this.proxy as EgressProxy, {
+      allowedPorts: this.options.allowedPorts,
+      allowHttp: this.options.allowHttp,
+    });
+    const session: SessionState = {
+      id: randomUUID(),
+      intentToken,
+      context,
+      page,
+      createdAt: Date.now(),
+      lastActionAt: Date.now(),
+      actions: 0,
+      robotsPolicy,
+      robotsBlockedCount: 0,
+    };
     // Only http(s) leaves the browser; everything else is dropped before the proxy.
-    await context.route('**/*', (route) => {
+    // Robots checks are limited to this execution's main-frame navigations, not assets.
+    await context.route('**/*', async (route) => {
       const request = route.request();
       const url = request.url();
       if (!/^https?:/i.test(url)) return route.abort('blockedbyclient');
-      if (request.isNavigationRequest() && request.redirectedFrom()
-        && isForbiddenClickTarget('', { href: url })) {
-        return route.abort('blockedbyclient');
+      if (request.isNavigationRequest()) {
+        let frameIsMain: boolean;
+        try {
+          const frame = request.frame();
+          frameIsMain = frame === frame.page().mainFrame();
+        } catch {
+          return route.abort('blockedbyclient');
+        }
+        if (!frameIsMain) return route.continue();
+
+        let checkedUrl: URL;
+        try {
+          checkedUrl = checkUrl(url, { allowedPorts: this.options.allowedPorts, allowHttp: this.options.allowHttp }).url;
+        } catch {
+          return route.abort('blockedbyclient');
+        }
+        if (request.redirectedFrom() && isForbiddenClickTarget('', { href: url })) {
+          return route.abort('blockedbyclient');
+        }
+        if (!await session.robotsPolicy.isAllowed(checkedUrl)) {
+          session.robotsBlockedCount += 1;
+          return route.abort('blockedbyclient');
+        }
       }
       return route.continue();
     });
-    const id = randomUUID();
-    this.sessions.set(id, { id, intentToken, context, page, createdAt: Date.now(), lastActionAt: Date.now(), actions: 0 });
-    return id;
+    this.sessions.set(session.id, session);
+    return session.id;
   }
 
   async destroy(id: string): Promise<void> {
@@ -1309,16 +1356,22 @@ export class BrowserPool {
     session.actions += 1;
     if (session.actions > 200) return { ok: false, action: action.action, error: 'action budget for this session exhausted' };
 
+    const robotsBlockedBefore = session.robotsBlockedCount;
     try {
-      return await this.dispatch(session, action);
+      const result = await this.dispatch(session, action);
+      if (session.robotsBlockedCount > robotsBlockedBefore) {
+        return { ...result, ok: false, error: 'navigation disallowed by robots.txt', blocked: 'robots.txt' };
+      }
+      return result;
     } catch (error) {
       const message = (error as Error).message;
       const blocked = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY|blocked by egress policy|ERR_BLOCKED_BY_CLIENT/i.test(message);
+      const robotsBlocked = session.robotsBlockedCount > robotsBlockedBefore;
       return {
         ok: false,
         action: action.action,
-        error: blocked ? 'blocked by network policy' : message.slice(0, 300),
-        blocked: blocked ? 'blocked by network policy' : undefined,
+        error: robotsBlocked ? 'navigation disallowed by robots.txt' : blocked ? 'blocked by network policy' : message.slice(0, 300),
+        blocked: robotsBlocked ? 'robots.txt' : blocked ? 'blocked by network policy' : undefined,
       };
     }
   }

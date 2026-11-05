@@ -152,7 +152,14 @@ async function acceptInvitation(
     await page.getByLabel(/^Name\b/).fill(name);
     await page.getByLabel(/^Password\b/).fill(password);
     await page.getByLabel(/^Confirm password\b/).fill(password);
+    const acceptResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/invitations/accept',
+      { timeout: 30_000 },
+    );
     await page.getByRole('button', { name: 'Create account' }).click();
+    const acceptResponse = await acceptResponsePromise;
+    expect(acceptResponse.ok(), `invitation acceptance returned HTTP ${acceptResponse.status()}`).toBeTruthy();
     await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
     return await context.storageState();
   } finally {
@@ -336,8 +343,14 @@ test.beforeAll(async ({ browser, request }) => {
   } else {
     const setupToken = process.env.E2E_SETUP_TOKEN;
     expect(setupToken, 'E2E_SETUP_TOKEN is required to create the first administrator').toBeTruthy();
-    adminEmail = uniqueEmail('admin');
-    adminPassword = uniquePassword();
+    const configuredEmail = process.env.E2E_ADMIN_EMAIL?.trim();
+    const configuredPassword = process.env.E2E_ADMIN_PASSWORD;
+    expect(
+      Boolean(configuredEmail) === Boolean(configuredPassword),
+      'set both E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD, or neither',
+    ).toBeTruthy();
+    adminEmail = configuredEmail || uniqueEmail('admin');
+    adminPassword = configuredPassword || uniquePassword();
 
     const context = await browser.newContext();
     try {
@@ -517,8 +530,9 @@ test('saves a global preference with /learn and keeps it across browser contexts
   cleanup.memorySearch(preference);
 
   await page.goto('/memory');
-  await main.getByLabel('Slash command').fill(`/learn ${preference}`);
-  await main.getByRole('button', { name: 'Run', exact: true }).click();
+  const commandInput = page.getByLabel('Slash command').filter({ visible: true });
+  await commandInput.fill(`/learn ${preference}`);
+  await commandInput.locator('..').getByRole('button', { name: 'Run', exact: true }).click();
   await expect(page.getByText('Memory saved.').first()).toBeVisible();
   await expect(main.getByText(preference, { exact: true })).toBeVisible();
 

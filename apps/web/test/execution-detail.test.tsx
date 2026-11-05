@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { ToastProvider } from '../src/components/ui';
@@ -8,6 +8,7 @@ import { setLanguage } from '../src/i18n';
 import { api } from '../src/lib/api';
 import type { Execution } from '../src/lib/types';
 import { ExecutionDetailPage } from '../src/pages/ExecutionDetailPage';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 
 function makeExecution(
   id: string,
@@ -29,6 +30,7 @@ function makeExecution(
     finishedAt: '2026-01-01T00:01:00.000Z',
     durationMs: 60_000,
     error: null,
+    inputSnapshot: 'Research the latest public updates.',
     ownerId: 'owner-1',
     providerId: 'provider-1',
     model: 'test-model',
@@ -75,6 +77,9 @@ describe('execution report comparison', () => {
     const { container } = renderExecutionDetail();
 
     await screen.findByRole('heading', { name: 'Findings' });
+    expect(screen.getByRole('heading', { name: 'User input' })).toBeTruthy();
+    expect(screen.getByText('Research the latest public updates.')).toBeTruthy();
+    expectInteractiveControlsNamed();
     expect(container.querySelector('.report-prose blockquote strong')?.textContent).toBe('Important');
     expect(container.textContent).not.toContain('> **Important**');
   });
@@ -100,6 +105,28 @@ describe('execution report comparison', () => {
     expect(container.textContent).not.toContain('window.__pwned');
   });
 
+  it('announces comparison load failures and retries the previous execution query', async () => {
+    let previousRequests = 0;
+    const getExecution = vi.spyOn(api.executions, 'get').mockImplementation(async (id) => {
+      if (id === 'current') {
+        return makeExecution('current', '# Current findings', {
+          status: 'changed',
+          previousExecutionId: 'previous',
+        });
+      }
+      previousRequests += 1;
+      if (previousRequests === 1) throw new Error('offline');
+      return makeExecution('previous', '# Previous findings');
+    });
+
+    renderExecutionDetail();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: 'Previous findings' })).toBeTruthy();
+    expect(getExecution).toHaveBeenCalledTimes(3);
+  });
+
   it('does not fetch or show comparison when change metadata has no predecessor', async () => {
     const getExecution = vi.spyOn(api.executions, 'get').mockResolvedValue(
       makeExecution('current', '# First report', { status: 'first' }),
@@ -112,6 +139,18 @@ describe('execution report comparison', () => {
     expect(screen.queryByRole('link', { name: /Open previous execution/ })).toBeNull();
     expect(getExecution).toHaveBeenCalledTimes(1);
     expect(getExecution).toHaveBeenCalledWith('current');
+  });
+
+  it('announces execution detail load failures accessibly', async () => {
+    vi.spyOn(api.executions, 'get')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(makeExecution('current', '# Findings'));
+
+    renderExecutionDetail();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: 'Findings' })).toBeTruthy();
   });
 
   it('rechecks link provenance when rendering current and historical reports', async () => {

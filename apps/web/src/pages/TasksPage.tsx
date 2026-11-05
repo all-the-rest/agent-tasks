@@ -495,9 +495,12 @@ function TasksPageForOwner({ ownerId }: { ownerId: string | null }) {
         </>
       )}
 
-      {tasks.isFetchNextPageError ? (
+      {tasks.isError && tasks.data ? (
         <div className="mt-4">
-          <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void tasks.fetchNextPage()} />
+          <ErrorAlert
+            message={t('errors.loadFailed')}
+            onRetry={() => void (tasks.isFetchNextPageError ? tasks.fetchNextPage() : tasks.refetch())}
+          />
         </div>
       ) : null}
       {tasks.hasNextPage ? (

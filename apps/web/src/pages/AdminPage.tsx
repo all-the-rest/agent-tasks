@@ -117,7 +117,12 @@ export function AdminPage() {
 
   if (metrics.isLoading || settings.isLoading) return <Spinner label={t('common.loadingPage')} />;
   if (metrics.isError || settings.isError || !metrics.data) {
-    return <ErrorAlert message={t('errors.loadFailed')} />;
+    return (
+      <ErrorAlert
+        message={t('errors.loadFailed')}
+        onRetry={() => void Promise.all([metrics.refetch(), settings.refetch()])}
+      />
+    );
   }
 
   const statusEntries = Object.entries(metrics.data.byStatus) as Array<[string, number]>;

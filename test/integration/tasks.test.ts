@@ -265,11 +265,14 @@ describe('task end conditions', () => {
       scheduledRunCount: 0,
       completedAt: null,
     });
-    const manualExecution = await harness.db.pool.query<{ trigger: string }>(
-      'select trigger from executions where id = $1 and task_id = $2',
+    const manualExecution = await harness.db.pool.query<{ trigger: string; input_snapshot: string }>(
+      'select trigger, input_snapshot from executions where id = $1 and task_id = $2',
       [manual.json().executionId, taskId],
     );
-    expect(manualExecution.rows[0]?.trigger).toBe('manual');
+    expect(manualExecution.rows[0]).toMatchObject({
+      trigger: 'manual',
+      input_snapshot: taskBody(providerId).prompt,
+    });
 
     const invalidUpdate = await harness.app.inject({
       method: 'PATCH',
@@ -343,6 +346,11 @@ describe('task end conditions', () => {
 
     const booked = await scheduleDueExecutions(harness.db.db, new Date());
     expect(booked.filter((run) => run.taskId === taskId).map((run) => run.occurrence)).toEqual([occurrence]);
+    const scheduledInput = await harness.db.pool.query<{ input_snapshot: string }>(
+      "select input_snapshot from executions where task_id = $1 and trigger = 'schedule'",
+      [taskId],
+    );
+    expect(scheduledInput.rows[0]?.input_snapshot).toBe(taskBody(providerId).prompt);
     const afterCatchUp = await harness.db.pool.query<{
       enabled: boolean;
       next_run_at: Date | null;
@@ -593,6 +601,113 @@ describe('scheduled-task inbox', () => {
     expect(executionAfterRead.json().readAt).toBe(readAt);
     const completedAfterRead = await listFor(alice.cookie, 'completed');
     expect(completedAfterRead?.json()[0]).toMatchObject({ id: aliceCompletedId, unreadCount: 1 });
+  });
+});
+
+describe('private task conversations', () => {
+  it('keeps follow-ups owner-scoped, snapshots input, blocks active races and preserves retry input', async () => {
+    harness = await createHarness();
+    const admin = await bootstrapAdmin(harness);
+    const alice = await inviteAndAccept(harness, admin.cookie, 'conversation-alice@example.com');
+    const bob = await inviteAndAccept(harness, admin.cookie, 'conversation-bob@example.com');
+    const providerId = await providerFor(harness, admin.cookie);
+    const created = await harness.app.inject({
+      method: 'POST',
+      url: '/api/tasks',
+      headers: { cookie: alice.cookie },
+      payload: taskBody(providerId),
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().conversationMode).toBe('standalone');
+    const taskId = created.json().id as string;
+    const nextRunAt = created.json().nextRunAt as string;
+
+    const standaloneFollowUp = await harness.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/follow-up`,
+      headers: { cookie: alice.cookie },
+      payload: { message: 'Follow up on the earlier findings.' },
+    });
+    expect(standaloneFollowUp.statusCode).toBe(409);
+
+    const enabled = await harness.app.inject({
+      method: 'PATCH',
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: alice.cookie },
+      payload: { conversationMode: 'conversation' },
+    });
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    expect(enabled.json().conversationMode).toBe('conversation');
+
+    const inputs = ['Add the latest source and explain the impact.', 'Compare it with last week.'];
+    const attempts = await Promise.all(inputs.map((message) => harness?.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/follow-up`,
+      headers: { cookie: alice.cookie },
+      payload: { message },
+    })));
+    const accepted = attempts.find((response) => response?.statusCode === 200);
+    const rejected = attempts.find((response) => response?.statusCode === 409);
+    expect(accepted?.statusCode, accepted?.body).toBe(200);
+    expect(rejected?.statusCode).toBe(409);
+    const executionId = accepted?.json().executionId as string;
+
+    const saved = await harness.db.pool.query<{ input_snapshot: string; trigger: string; status: string }>(
+      'select input_snapshot, trigger, status from executions where id = $1 and owner_id = $2',
+      [executionId, alice.id],
+    );
+    const savedInput = saved.rows[0]?.input_snapshot;
+    expect(inputs).toContain(savedInput);
+    expect(saved.rows[0]).toMatchObject({ trigger: 'manual', status: 'queued' });
+    const afterFollowUp = await harness.app.inject({
+      method: 'GET',
+      url: `/api/tasks/${taskId}`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(afterFollowUp.json()).toMatchObject({ nextRunAt, scheduledRunCount: 0 });
+
+    const privateHistory = await harness.app.inject({
+      method: 'GET',
+      url: `/api/tasks/${taskId}/conversation`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(privateHistory.statusCode, privateHistory.body).toBe(200);
+    expect(privateHistory.json().items).toEqual([expect.objectContaining({ id: executionId, input: savedInput })]);
+    const otherOwnerHistory = await harness.app.inject({
+      method: 'GET',
+      url: `/api/tasks/${taskId}/conversation`,
+      headers: { cookie: bob.cookie },
+    });
+    expect(otherOwnerHistory.statusCode).toBe(404);
+    const otherOwnerFollowUp = await harness.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/follow-up`,
+      headers: { cookie: bob.cookie },
+      payload: { message: 'This must not reach another owner’s task.' },
+    });
+    expect(otherOwnerFollowUp.statusCode).toBe(404);
+
+    await harness.db.pool.query("update executions set status = 'failed', error = 'test failure' where id = $1", [executionId]);
+    const retry = await harness.app.inject({
+      method: 'POST',
+      url: `/api/executions/${executionId}/retry`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(retry.statusCode, retry.body).toBe(201);
+    const retried = await harness.db.pool.query<{ input_snapshot: string; trigger: string }>(
+      'select input_snapshot, trigger from executions where id = $1',
+      [retry.json().executionId],
+    );
+    expect(retried.rows[0]).toMatchObject({ input_snapshot: savedInput, trigger: 'retry' });
+
+    await harness.app.inject({ method: 'POST', url: `/api/tasks/${taskId}/pause`, headers: { cookie: alice.cookie } });
+    const pausedFollowUp = await harness.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/follow-up`,
+      headers: { cookie: alice.cookie },
+      payload: { message: 'A paused task cannot receive a follow-up.' },
+    });
+    expect(pausedFollowUp.statusCode).toBe(409);
   });
 });
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../src/lib/auth';
@@ -9,6 +9,7 @@ import { ToastProvider } from '../src/components/ui';
 import { SettingsPage } from '../src/pages/SettingsPage';
 import { setLanguage } from '../src/i18n';
 import type { SessionUser } from '../src/lib/types';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 
 const baseUser: SessionUser = {
   id: 'user-1',
@@ -20,6 +21,8 @@ const baseUser: SessionUser = {
 
 let twoFactorEnabled: boolean;
 let calls: string[];
+let failMe: boolean;
+let providerFailures: number;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -46,6 +49,7 @@ const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     );
   }
   if (url.endsWith('/api/me')) {
+    if (failMe) return Promise.resolve(json({ error: { message: 'offline' } }, 503));
     return Promise.resolve(
       json({
         user: { ...currentUser(), emailVerified: true },
@@ -54,7 +58,13 @@ const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       }),
     );
   }
-  if (url.endsWith('/api/providers')) return Promise.resolve(json([]));
+  if (url.endsWith('/api/providers')) {
+    if (providerFailures > 0) {
+      providerFailures -= 1;
+      return Promise.resolve(json({ error: { message: 'offline' } }, 503));
+    }
+    return Promise.resolve(json([]));
+  }
   if (url.endsWith('/api/auth/two-factor/enable') && method === 'POST') {
     return Promise.resolve(
       json({
@@ -109,6 +119,8 @@ beforeEach(() => {
   window.localStorage.clear();
   setLanguage('en');
   twoFactorEnabled = false;
+  failMe = false;
+  providerFailures = 0;
   calls = [];
   fetchMock.mockClear();
   vi.stubGlobal('fetch', fetchMock);
@@ -120,6 +132,43 @@ afterEach(() => {
 });
 
 describe('settings two-factor section', () => {
+  it('keeps preference controls and account actions accessibly named', async () => {
+    renderSettings();
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Timezone' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Theme' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save preferences' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Enable two-factor authentication' })).toBeTruthy();
+
+    expectInteractiveControlsNamed();
+  });
+
+  it('announces a settings load failure accessibly', async () => {
+    failMe = true;
+
+    renderSettings();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    failMe = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeTruthy();
+  });
+
+  it('announces and retries personal-provider loading failures', async () => {
+    providerFailures = 1;
+
+    renderSettings();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(calls.filter((call) => call === 'GET /api/providers')).toHaveLength(2);
+    expectInteractiveControlsNamed();
+  });
+
   it('shows the TOTP URI and backup codes returned by the enable endpoint', async () => {
     renderSettings();
     const browser = userEvent.setup({ delay: null });

@@ -19,19 +19,29 @@ connection (DNS rebinding), and redirects change the target after the check. The
 removes both: Chromium cannot resolve names at all, and each redirect is a new
 CONNECT that is validated again.
 
-## Operator responsibility: robots.txt and terms of service
+## Robots.txt enforcement and operator responsibility
 
-The runner enforces the network policy described above, but it does not read or
-honour `robots.txt`, `X-Robots-Tag`, site terms of service, rate limits or
-licensing terms of the pages an agent visits. Those rules are not a security
-boundary and cannot be enforced correctly by a generic crawler: they differ per
-site, per user agent and per intended use.
+The runner enforces `robots.txt` for every main-frame navigation, including
+redirect targets and navigations initiated by browser actions. Ordinary page
+subresources are not checked against robots rules. The crawler sends the same
+user-agent on page requests and robots requests:
+`AgentTasksResearchBot/0.2` (robots product token `AgentTasksResearchBot`).
 
-Whoever operates the deployment is responsible for:
+Robots files are fetched without opening them as pages, through the browser
+runner's SSRF-enforcing proxy with URL/port validation, public-address resolution
+and pinned connections. Redirects are revalidated at each hop and limited to
+five; responses are limited to 512 KiB and five seconds. Successful files and
+4xx “unavailable” responses are cached per execution and origin for ten minutes;
+server errors and fetch failures deny navigation and are cached for 30 seconds.
+Each execution is limited to 100 cached origins and 100 fetches. A 4xx robots response
+permits crawling, consistent with RFC 9309; 5xx and unreachable files fail
+closed. Rules use the most-specific matching user-agent group, longest matching
+path precedence, `Allow` on ties, and support `*` and terminal `$` patterns.
 
-- checking the terms of service of every site the agents are pointed at,
-- honouring `robots.txt` and per-site rate limits where they apply,
-- not using the agents to bypass paywalls, login walls or captchas.
+Site terms of service, licensing terms and site-specific rate limits remain
+operator responsibilities; they cannot be reliably inferred or enforced by a
+generic crawler. Operators must still check applicable terms and must not use
+agents to bypass paywalls, login walls or captchas.
 
 Captcha and paywall bypass is explicitly out of scope for this project. The
 browser runner refuses login, checkout, payment and destructive controls, and

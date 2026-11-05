@@ -145,7 +145,9 @@ export function SettingsPage() {
   });
 
   if (me.isLoading) return <Spinner label={t('common.loadingPage')} />;
-  if (me.isError || !me.data) return <ErrorAlert message={t('errors.loadFailed')} />;
+  if (me.isError || !me.data) {
+    return <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void me.refetch()} />;
+  }
 
   const meData = me.data;
   const zones = timezonesWith(timezone);
@@ -538,7 +540,7 @@ export function SettingsPage() {
           {providers.isLoading ? (
             <Spinner />
           ) : providers.isError ? (
-            <ErrorAlert message={t('errors.loadFailed')} />
+            <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void providers.refetch()} />
           ) : !providers.data || providers.data.length === 0 ? (
             <p className="text-sm opacity-60">{t('settings.noProviders')}</p>
           ) : (

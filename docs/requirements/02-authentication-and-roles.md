@@ -24,7 +24,9 @@ Secure authentication with exactly two roles, no default credentials, and invite
 
 - `test/integration/auth.test.ts`: setup token, single admin, logout, indistinguishable
   401s, default invite-only sign-up, registration toggle, public verification link,
-  invite reuse, CSRF, real TOTP flow, 429.
+  invite reuse, CSRF, real TOTP flow, and 429 rate-limit boundaries for failed
+  sign-ins, TOTP verification, password resets, verification resends and public
+  registration (26 integration tests passed on 2026-11-05).
 - `test/integration/bootstrap.test.ts`: settings and admin bootstrap, open sign-up
   verified before the first session, invite-only default.
 - `apps/api/src/auth.ts`, `apps/api/src/app.ts`, `apps/api/src/routes/setup.ts`.

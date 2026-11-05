@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import { visit } from 'unist-util-visit';
 import { checkReportLinks, emptyReport, reportChangeStatus, reportToMarkdown } from '../src/report.js';
 
 describe('report change detection', () => {  it('marks the first run and a missing predecessor honestly', () => {
@@ -28,6 +30,71 @@ describe('report rendering', () => {
     expect(markdown).toContain('https://example.com/');
     expect(markdown).toContain('## Uncertainty');
     expect(markdown).toContain('Only one source was available');
+  });
+
+  it('does not turn hostile titles or uncertainty text into extra Markdown links', () => {
+    const sourceUrl = 'https://example.com/article';
+    const report = {
+      ...emptyReport('Short answer'),
+      markdown: '[unverified](https://attacker.example/body)',
+      sources: [{
+        url: sourceUrl,
+        title: 'Article](/\n\n[malicious](https://attacker.example/title)',
+        confidence: 'verified' as const,
+        retrievedAt: '2026-11-03T00:00:00.000Z',
+      }],
+      uncertainty: ['See [malicious](https://attacker.example/uncertainty)\n# injected heading'],
+    };
+
+    const markdown = reportToMarkdown(report, {
+      title: 'Task\n\n[malicious](https://attacker.example/task)',
+      finishedAt: '2026-11-03T01:00:00.000Z',
+    });
+    const tree = fromMarkdown(markdown);
+    const links: string[] = [];
+    visit(tree, 'link', (node) => links.push(node.url));
+
+    expect(links).toEqual([sourceUrl]);
+    expect(markdown).toContain('Article');
+    expect(markdown).toContain('malicious');
+  });
+
+  it('does not emit a clickable citation for a non-HTTP source URL', () => {
+    const report = {
+      ...emptyReport('Short answer'),
+      sources: [{ url: 'javascript:alert(1)', title: 'Unsafe source', confidence: 'unknown' as const, retrievedAt: 'now' }],
+    };
+
+    const markdown = reportToMarkdown(report, { title: 'Export', finishedAt: null });
+    const tree = fromMarkdown(markdown);
+    const links: string[] = [];
+    visit(tree, 'link', (node) => links.push(node.url));
+
+    expect(links).toEqual([]);
+    expect(markdown).toContain('Unsafe source');
+  });
+
+  it('removes credentials from legacy body links and source citations', () => {
+    const credentialUrl = 'https://reader:private-token@example.com/article';
+    const report = {
+      ...emptyReport(`[source](${credentialUrl})`),
+      sources: [{
+        url: credentialUrl,
+        title: 'Protected article',
+        confidence: 'verified' as const,
+        retrievedAt: '2026-11-03T00:00:00.000Z',
+      }],
+    };
+
+    const markdown = reportToMarkdown(report, { title: 'Export', finishedAt: null });
+    const tree = fromMarkdown(markdown);
+    const links: string[] = [];
+    visit(tree, 'link', (node) => links.push(node.url));
+
+    expect(links).toEqual(['https://example.com/article']);
+    expect(markdown).not.toContain('reader');
+    expect(markdown).not.toContain('private-token');
+    expect(markdown).toContain('Protected article');
   });
 });
 

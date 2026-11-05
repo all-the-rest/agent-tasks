@@ -15,10 +15,13 @@ import {
   parseMemorySettings,
   scheduleSchema,
   taskInputSchema,
+  taskFollowUpSchema,
   taskUpdateSchema,
   taskRequiresTools,
   describeSchedule,
   reportToMarkdown,
+  truncateUtf8,
+  CONVERSATION_DISPLAY_MAX_BYTES,
 } from '@agent-tasks/shared';
 import type { ExecutionReport, ParsedSchedule } from '@agent-tasks/shared';
 import type { AppContext } from '../context.js';
@@ -349,6 +352,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         allowWebResearch: parsed.data.allowWebResearch,
         notification: parsed.data.notification,
         memorySettings: parsed.data.memorySettings,
+        conversationMode: parsed.data.conversationMode,
         nextRunAt,
       })
       .returning();
@@ -487,6 +491,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
           ...(parsed.data.allowWebResearch !== undefined ? { allowWebResearch: parsed.data.allowWebResearch } : {}),
           ...(parsed.data.notification ? { notification: parsed.data.notification } : {}),
           ...(parsed.data.memorySettings ? { memorySettings: parsed.data.memorySettings } : {}),
+          ...(parsed.data.conversationMode ? { conversationMode: parsed.data.conversationMode } : {}),
           ...(schedule ? { schedule, timezone: schedule.timezone } : {}),
           ...(parsed.data.endCondition !== undefined ? { endCondition } : {}),
           enabled,
@@ -574,41 +579,135 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
   app.post<{ Params: { id: string } }>('/api/tasks/:id/run', async (request) => {
     const me = await requireUser(context, request);
     const taskId = requireUuid(request.params.id, 'task');
-    const rows = await db
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
-      .limit(1);
-    const task = rows[0];
-    if (!task) throw AppError.notFound('task');
-    // A manual run must not queue an execution the worker will refuse. Validate the
-    // stored provider, model and tool requirements up front.
-    await assertTaskExecutable(context, me.id, task.providerId, task.model, {
-      allowWebResearch: task.allowWebResearch,
-      notification: task.notification,
-      memoryMode: parseMemorySettings(task.memorySettings).mode,
-    });
+    const executionId = await db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
+        .limit(1)
+        .for('update');
+      const task = rows[0];
+      if (!task) throw AppError.notFound('task');
+      // A manual run must not queue an execution the worker will refuse.
+      await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+        allowWebResearch: task.allowWebResearch,
+        notification: task.notification,
+        memoryMode: parseMemorySettings(task.memorySettings).mode,
+      });
+      const active = await tx
+        .select({ id: executions.id })
+        .from(executions)
+        .where(and(eq(executions.taskId, task.id), inArray(executions.status, ['queued', 'running'])))
+        .limit(1);
+      if (active.length > 0) throw AppError.conflict('this task already has a queued or running execution');
 
-    const active = await db
-      .select({ id: executions.id, status: executions.status })
-      .from(executions)
-      .where(and(eq(executions.taskId, task.id), inArray(executions.status, ['queued', 'running'])))
-      .limit(1);
-    if (active.length > 0) throw AppError.conflict('this task already has a queued or running execution');
-
-    const executionId = randomUUID();
-    await db.insert(executions).values({
-      id: executionId,
-      taskId: task.id,
-      ownerId: me.id,
-      taskTitle: task.title,
-      status: 'queued',
-      trigger: 'manual',
-      providerId: task.providerId,
-      model: task.model,
+      const id = randomUUID();
+      await tx.insert(executions).values({
+        id,
+        taskId: task.id,
+        ownerId: me.id,
+        taskTitle: task.title,
+        inputSnapshot: task.prompt,
+        status: 'queued',
+        trigger: 'manual',
+        providerId: task.providerId,
+        model: task.model,
+      });
+      return id;
     });
     await enqueueExecution(context.env.DATABASE_URL, executionId);
     return { executionId };
+  });
+
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/tasks/:id/follow-up', async (request) => {
+    const me = await requireUser(context, request);
+    const taskId = requireUuid(request.params.id, 'task');
+    const parsed = taskFollowUpSchema.safeParse(request.body);
+    if (!parsed.success) throw AppError.badRequest('invalid follow-up message', parsed.error.issues);
+
+    const executionId = await db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
+        .limit(1)
+        .for('update');
+      const task = rows[0];
+      if (!task) throw AppError.notFound('task');
+      if (task.conversationMode !== 'conversation') throw AppError.conflict('this task is not conversation-enabled');
+      if (!task.enabled || task.completedAt) throw AppError.conflict('follow-ups require an enabled, incomplete task');
+      await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+        allowWebResearch: task.allowWebResearch,
+        notification: task.notification,
+        memoryMode: parseMemorySettings(task.memorySettings).mode,
+      });
+      const active = await tx
+        .select({ id: executions.id })
+        .from(executions)
+        .where(and(eq(executions.taskId, task.id), inArray(executions.status, ['queued', 'running'])))
+        .limit(1);
+      if (active.length > 0) throw AppError.conflict('this task already has a queued or running execution');
+
+      const id = randomUUID();
+      await tx.insert(executions).values({
+        id,
+        taskId: task.id,
+        ownerId: me.id,
+        taskTitle: task.title,
+        inputSnapshot: parsed.data.message,
+        status: 'queued',
+        trigger: 'manual',
+        providerId: task.providerId,
+        model: task.model,
+      });
+      return id;
+    });
+    await enqueueExecution(context.env.DATABASE_URL, executionId);
+    return { executionId };
+  });
+
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/conversation', async (request) => {
+    const me = await requireUser(context, request);
+    const taskId = requireUuid(request.params.id, 'task');
+    const taskRows = await db
+      .select({ id: tasks.id, conversationMode: tasks.conversationMode })
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.ownerId, me.id)))
+      .limit(1);
+    const task = taskRows[0];
+    if (!task) throw AppError.notFound('task');
+    if (task.conversationMode !== 'conversation') throw AppError.conflict('this task is not conversation-enabled');
+
+    const rows = await db
+      .select({
+        id: executions.id,
+        status: executions.status,
+        trigger: executions.trigger,
+        input: executions.inputSnapshot,
+        report: executions.report,
+        createdAt: executions.createdAt,
+        finishedAt: executions.finishedAt,
+        error: executions.error,
+      })
+      .from(executions)
+      .where(and(eq(executions.taskId, taskId), eq(executions.ownerId, me.id)))
+      .orderBy(desc(executions.createdAt), desc(executions.id))
+      .limit(20);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        status: row.status,
+        trigger: row.trigger,
+        input: row.input,
+        assistantOutput:
+          typeof row.report === 'object' && row.report !== null && 'markdown' in row.report && typeof row.report.markdown === 'string'
+            ? truncateUtf8(row.report.markdown, CONVERSATION_DISPLAY_MAX_BYTES)
+            : null,
+        createdAt: row.createdAt,
+        finishedAt: row.finishedAt,
+        error: row.error,
+      })),
+    };
   });
 
   app.post<{ Params: { id: string } }>('/api/tasks/:id/duplicate', async (request, reply) => {
@@ -801,26 +900,41 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const previous = rows[0];
     if (!previous) throw AppError.notFound('execution');
     if (!['failed', 'timed_out', 'cancelled'].includes(previous.status)) throw AppError.conflict('only failed, timed out or cancelled executions can be retried');
-    const taskRows = await db.select().from(tasks).where(and(eq(tasks.id, previous.taskId), eq(tasks.ownerId, me.id))).limit(1);
-    const task = taskRows[0];
-    if (!task) throw AppError.notFound('task');
-    // A retry must not queue an execution the worker will refuse.
-    await assertTaskExecutable(context, me.id, task.providerId, task.model, {
-      allowWebResearch: task.allowWebResearch,
-      notification: task.notification,
-      memoryMode: parseMemorySettings(task.memorySettings).mode,
-    });
-    const id = randomUUID();
-    await db.insert(executions).values({
-      id,
-      taskId: task.id,
-      ownerId: me.id,
-      taskTitle: task.title,
-      status: 'queued',
-      trigger: 'retry',
-      attempt: previous.attempt + 1,
-      providerId: task.providerId,
-      model: task.model,
+    const id = await db.transaction(async (tx) => {
+      const taskRows = await tx
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, previous.taskId), eq(tasks.ownerId, me.id)))
+        .limit(1)
+        .for('update');
+      const task = taskRows[0];
+      if (!task) throw AppError.notFound('task');
+      const active = await tx
+        .select({ id: executions.id })
+        .from(executions)
+        .where(and(eq(executions.taskId, task.id), inArray(executions.status, ['queued', 'running'])))
+        .limit(1);
+      if (active.length > 0) throw AppError.conflict('this task already has a queued or running execution');
+      // A retry must not queue an execution the worker will refuse.
+      await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+        allowWebResearch: task.allowWebResearch,
+        notification: task.notification,
+        memoryMode: parseMemorySettings(task.memorySettings).mode,
+      });
+      const retryId = randomUUID();
+      await tx.insert(executions).values({
+        id: retryId,
+        taskId: task.id,
+        ownerId: me.id,
+        taskTitle: task.title,
+        inputSnapshot: previous.inputSnapshot || task.prompt,
+        status: 'queued',
+        trigger: 'retry',
+        attempt: previous.attempt + 1,
+        providerId: task.providerId,
+        model: task.model,
+      });
+      return retryId;
     });
     await enqueueExecution(context.env.DATABASE_URL, id);
     reply.code(201);

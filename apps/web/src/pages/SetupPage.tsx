@@ -32,16 +32,27 @@ export function SetupPage() {
     );
   }
 
-  if (setup.data?.configured) {
+  if (setup.isError) {
     return (
       <AuthShell
-        title={t('auth.alreadyConfigured')}
+        title={t('auth.setupTitle')}
         subtitle={t('auth.setupSubtitle')}
         footer={
           <Link className="link link-primary" to="/login">
             {t('auth.backToLogin')}
           </Link>
         }
+      >
+        <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void setup.refetch()} />
+      </AuthShell>
+    );
+  }
+
+  if (setup.data?.configured) {
+    return (
+      <AuthShell
+        title={t('auth.alreadyConfigured')}
+        subtitle={t('auth.setupSubtitle')}
       >
         <Link className="btn btn-primary" to="/login">
           {t('auth.backToLogin')}

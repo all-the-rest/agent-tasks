@@ -1015,6 +1015,9 @@ msgstr "Unsicherheiten"
 msgid "executions.usage"
 msgstr "Token-Verbrauch"
 
+msgid "executions.userInput"
+msgstr "Nutzereingabe"
+
 msgid "executions.viewExecution"
 msgstr "Ausführung öffnen"
 
@@ -1735,6 +1738,21 @@ msgstr "Prüfen und Aufgabe anlegen"
 msgid "tasks.continueToDetails"
 msgstr "Weiter zu den Aufgabendetails"
 
+msgid "tasks.conversationAssistant"
+msgstr "Agent"
+
+msgid "tasks.conversationEmpty"
+msgstr "In diesem Verlauf gibt es noch keine Aufgabenläufe."
+
+msgid "tasks.conversationHelp"
+msgstr "Geplante und manuelle Läufe setzen diesen privaten, aufgabenbezogenen Verlauf fort."
+
+msgid "tasks.conversationTitle"
+msgstr "Aufgabenverlauf"
+
+msgid "tasks.conversationYou"
+msgstr "Du"
+
 msgid "tasks.count"
 msgstr "{count} Aufgaben"
 
@@ -1773,6 +1791,18 @@ msgstr "Aufgabe gelöscht."
 
 msgid "tasks.description"
 msgstr "Beschreibung"
+
+msgid "tasks.destination"
+msgstr "Ziel der Ausführungen"
+
+msgid "tasks.destinationConversation"
+msgstr "Privater Aufgabenverlauf"
+
+msgid "tasks.destinationHelp"
+msgstr "Einzellauf ohne früheren Aufgabenverlauf oder ein privater Gesprächsverlauf nur innerhalb dieser Aufgabe."
+
+msgid "tasks.destinationStandalone"
+msgstr "Einzellauf"
 
 msgid "tasks.detailTitle"
 msgstr "Aufgabendetails"
@@ -1827,6 +1857,27 @@ msgstr "Ausführungen"
 
 msgid "tasks.filterStatus"
 msgstr "Nach Status filtern"
+
+msgid "tasks.followUpActive"
+msgstr "Für diese Aufgabe ist bereits ein Lauf eingereiht oder aktiv."
+
+msgid "tasks.followUpLabel"
+msgstr "Rückfrage stellen"
+
+msgid "tasks.followUpQueued"
+msgstr "Rückfrage eingereiht."
+
+msgid "tasks.followUpScheduleNote"
+msgstr "Dies reiht einen manuellen Lauf ein und ändert den Zeitplan nicht."
+
+msgid "tasks.followUpSend"
+msgstr "Rückfrage senden"
+
+msgid "tasks.followUpSending"
+msgstr "Wird eingereiht…"
+
+msgid "tasks.followUpUnavailable"
+msgstr "Rückfragen sind verfügbar, solange die Aufgabe aktiv und nicht abgeschlossen ist."
 
 msgid "tasks.formInvalid"
 msgstr "Bitte korrigiere die markierten Felder."
@@ -2057,7 +2108,7 @@ msgid "tasks.share.provider"
 msgstr "Anbieter"
 
 msgid "tasks.share.publicHint"
-msgstr "Geteilt werden nur Titel, Prompt, Zeitplan und Zeitzone. Erinnerungen, Zugangsdaten und der Ausführungsverlauf sind nicht enthalten."
+msgstr "Geteilt werden nur Titel, Prompt, Zeitplan und Zeitzone. Erinnerungen, Zugangsdaten, Gesprächsverlauf und Rückfragen sind nicht enthalten."
 
 msgid "tasks.share.publicSubtitle"
 msgstr "Eine eingefrorene Aufgabendefinition, geteilt von einem Agent-Tasks-Nutzer."
@@ -2099,7 +2150,7 @@ msgid "tasks.share.typeLabel"
 msgstr "Geplante Aufgabe"
 
 msgid "tasks.share.warning"
-msgstr "Änderungen nach dem Teilen werden nicht übernommen. Systemanweisungen, Erinnerungen, Zugangsdaten und der Ausführungsverlauf werden nie geteilt."
+msgstr "Änderungen nach dem Teilen werden nicht übernommen. Systemanweisungen, Erinnerungen, Zugangsdaten, Gesprächsverlauf und Rückfragen werden nie geteilt."
 
 msgid "tasks.status.active"
 msgstr "Aktiv"

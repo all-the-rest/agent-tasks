@@ -74,6 +74,8 @@ export interface RunAgentOptions {
   memoryEnabled?: boolean;
   /** Pre-budgeted memory block; empty when the task has memory learning disabled. */
   memoryContext?: string | null;
+  /** Bounded prior task conversation serialized as data, never as instructions. */
+  conversationContext?: string | null;
   limits: AgentLimits;
   browser: BrowserRunnerClient;
   sessionId: string;
@@ -211,11 +213,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     emailNotification: options.emailNotification === true,
     toolNames: allowedTools,
     memoryContext: options.memoryContext ?? null,
+    conversationContext: options.conversationContext ?? null,
   });
 
   const messages: ChatMessage[] = [
     { role: 'system', content: system },
-    buildUserMessage(options.prompt),
+    buildUserMessage(options.prompt, options.conversationContext),
   ];
 
   let finalText = '';
