@@ -183,11 +183,20 @@ jobs:
         run: |
           SETUP_TOKEN="e2e-setup-$(openssl rand -hex 16)"
           ADMIN_PASSWORD="E2e-$(openssl rand -hex 12)"
+          AUTH_SECRET="$(openssl rand -hex 32)"
+          SECRETS_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+          RUNNER_TOKEN="$(openssl rand -hex 24)"
+          OPENCODE_PROVISIONER_TOKEN="$(openssl rand -hex 32)"
+          # These values are exported to later steps via GITHUB_ENV. Register
+          # them as masked values first so Actions never prints them in env blocks.
+          for secret in "$SETUP_TOKEN" "$ADMIN_PASSWORD" "$AUTH_SECRET" "$SECRETS_ENCRYPTION_KEY" "$RUNNER_TOKEN" "$OPENCODE_PROVISIONER_TOKEN"; do
+            printf '::add-mask::%s\n' "$secret"
+          done
           {
-            echo "AUTH_SECRET=$(openssl rand -hex 32)"
-            echo "SECRETS_ENCRYPTION_KEY=$(openssl rand -base64 32)"
-            echo "RUNNER_TOKEN=$(openssl rand -hex 24)"
-            echo "OPENCODE_PROVISIONER_TOKEN=$(openssl rand -hex 32)"
+            echo "AUTH_SECRET=$AUTH_SECRET"
+            echo "SECRETS_ENCRYPTION_KEY=$SECRETS_ENCRYPTION_KEY"
+            echo "RUNNER_TOKEN=$RUNNER_TOKEN"
+            echo "OPENCODE_PROVISIONER_TOKEN=$OPENCODE_PROVISIONER_TOKEN"
             # Deterministic memory/recommendation proposals for the E2E learning checks.
             echo "FAKE_RUNTIME_MEMORY_OPS=1"
             echo "PUBLIC_BASE_URL=http://localhost:8080"
