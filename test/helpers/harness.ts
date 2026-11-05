@@ -65,9 +65,9 @@ export async function resetDatabase(db: DatabaseHandle): Promise<void> {
   );
 }
 
-export async function createHarness(overrides: Partial<ApiEnv> = {}, testMailer?: Mailer): Promise<TestHarness> {
+export async function createHarness(overrides: Partial<ApiEnv> = {}, testMailer?: Mailer, poolMax = 4): Promise<TestHarness> {
   const env = testEnv(overrides);
-  const db = createDatabase(env.DATABASE_URL, { max: 4 });
+  const db = createDatabase(env.DATABASE_URL, { max: poolMax });
   await resetDatabase(db);
   const mailer = testMailer ?? createMailer({ nodeEnv: 'test' });
   const auth = createAuth({ db: db.db, env, mailer });
