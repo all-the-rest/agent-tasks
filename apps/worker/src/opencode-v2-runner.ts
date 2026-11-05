@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { AgentCancelledError } from '@agent-tasks/agent-runtime';
+import { AgentCancelledError, buildUserMessage } from '@agent-tasks/agent-runtime';
 import { parseModelVariant, ProviderError } from '@agent-tasks/ai-providers';
 import type { AgentRunResult, RunAgentOptions } from '@agent-tasks/agent-runtime';
 import { OpenCodeV2Client, OpenCodeV2Error } from './opencode-v2-client.js';
@@ -92,7 +92,8 @@ export function createOpenCodeV2Runner(config: { client: OpenCodeV2Client; direc
 
       const dispatch = config.store && lease ? await config.store.claimPrompt(lease) : true;
       try {
-        await config.client.prompt(mapping.sessionId, mapping.messageId, options.prompt, signal);
+        const userMessage = buildUserMessage(options.prompt, options.conversationContext);
+        await config.client.prompt(mapping.sessionId, mapping.messageId, userMessage.content, signal);
       } catch (error) {
         // A replayed prompt ID is a 409. It means an earlier attempt already
         // accepted this exact message, so waiting for its result is safe.

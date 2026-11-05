@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import { ThemeProvider } from '../src/lib/theme';
 import { LoginPage } from '../src/pages/LoginPage';
 import { setLanguage } from '../src/i18n';
 import type { SessionUser } from '../src/lib/types';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 
 /**
  * Two-factor sign-in flow.
@@ -32,6 +33,8 @@ let sessionUser: SessionUser | null;
 let signInBody: Record<string, unknown>;
 let verifyStatus: 'ok' | 'invalid';
 let verifyBody: Record<string, unknown>;
+let configFailures: number;
+let setupFailures: number;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -53,11 +56,21 @@ const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     );
   }
   if (url.endsWith('/api/config')) {
+    if (configFailures > 0) {
+      configFailures -= 1;
+      return Promise.resolve(json({ error: { code: 'unavailable', message: 'offline' } }, 503));
+    }
     return Promise.resolve(
       json({ appName: 'Agent Tasks', allowRegistration: false, defaultTimezone: 'UTC', mailer: 'log', version: '0.1.0' }),
     );
   }
-  if (url.endsWith('/api/setup/status')) return Promise.resolve(json({ configured: true }));
+  if (url.endsWith('/api/setup/status')) {
+    if (setupFailures > 0) {
+      setupFailures -= 1;
+      return Promise.resolve(json({ error: { code: 'unavailable', message: 'offline' } }, 503));
+    }
+    return Promise.resolve(json({ configured: true }));
+  }
   if (url.endsWith('/api/auth/sign-in/email') && method === 'POST') {
     return Promise.resolve(json({ redirect: false, ...signInBody }));
   }
@@ -99,6 +112,7 @@ function renderLogin(from = '/tasks') {
 async function submitCredentials() {
   const browser = userEvent.setup({ delay: null });
   await screen.findByLabelText(/email/i);
+  expectInteractiveControlsNamed();
   await browser.type(screen.getByLabelText(/email/i), 'user@example.com');
   await browser.type(screen.getByLabelText(/password/i), 'correct horse battery staple');
   await browser.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -125,6 +139,8 @@ beforeEach(() => {
   signInBody = { twoFactorRedirect: true, twoFactorMethods: ['totp'] };
   verifyStatus = 'ok';
   verifyBody = {};
+  configFailures = 0;
+  setupFailures = 0;
   fetchMock.mockClear();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -135,6 +151,28 @@ afterEach(() => {
 });
 
 describe('login two-factor flow', () => {
+  it('announces configuration load failures and retries accessibly', async () => {
+    configFailures = 1;
+    renderLogin();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    await userEvent.setup({ delay: null }).click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/api/config'))).toHaveLength(2);
+    expect(screen.getByLabelText(/email/i)).toBeTruthy();
+  });
+
+  it('announces setup-status load failures and retries accessibly', async () => {
+    setupFailures = 1;
+    renderLogin();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    await userEvent.setup({ delay: null }).click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/api/setup/status'))).toHaveLength(2);
+    expect(screen.getByLabelText(/email/i)).toBeTruthy();
+  });
+
   it('switches to the code step instead of reporting a failed login', async () => {
     renderLogin();
     await submitCredentials();
@@ -142,6 +180,7 @@ describe('login two-factor flow', () => {
     expect(await screen.findByLabelText(/authentication code/i)).toBeTruthy();
     expect(screen.queryByLabelText(/password/i)).toBeNull();
     expect(screen.queryByText(/email or password is incorrect/i)).toBeNull();
+    expectInteractiveControlsNamed();
     // The old dead-end: refresh() after twoFactorRedirect, which has no session.
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/api/auth/get-session'))).toBe(true);
     expect(

@@ -368,9 +368,16 @@ function setupPool(options: {
   } as unknown as Browser;
 
   vi.spyOn(chromium, 'launch').mockResolvedValue(browser);
+  const proxy = {
+    port: 32123,
+    blocked: [],
+    close: async () => undefined,
+    fetchRobots: async () => ({ status: 404, body: '' }),
+  };
   const pool = new BrowserPool(
     { maxSessions: 1, sessionTtlMs: 60_000, actionTimeoutMs: 1_000, maxTextChars: 1_000 },
     { allowedPorts: [80, 443], allowHttp: false, chromiumSandbox: false },
+    { startProxy: async () => proxy },
   );
   pools.push(pool);
   return pool.start().then(async () => ({ pool, id: await pool.create(), click, fill, locatorClick, target, handle, page, context }));
@@ -560,9 +567,11 @@ describe('BrowserPool click policy wiring', () => {
     const visit = async (options: { url: string; redirectedFrom?: string; navigation?: boolean }) => {
       const abort = vi.fn().mockResolvedValue(undefined);
       const continueRequest = vi.fn().mockResolvedValue(undefined);
+      const frame = { page: () => ({ mainFrame: () => frame }) };
       const request = {
         url: () => options.url,
         isNavigationRequest: () => options.navigation ?? true,
+        frame: () => frame,
         redirectedFrom: () => options.redirectedFrom ? { url: () => options.redirectedFrom } : null,
       } as unknown as Request;
       const route = {

@@ -37,6 +37,74 @@ async function waitForAppSettled(page: Page, expectedTitle?: string): Promise<vo
   await page.waitForTimeout(250);
 }
 
+async function auditAccessibility(page: Page, route: UiReviewRoute, state: UiReviewState, viewport: UiReviewViewport) {
+  const violations = await page.evaluate(() => {
+    const visible = (element: Element): boolean => {
+      if (element.closest('[hidden], [aria-hidden="true"]')) return false;
+      const style = window.getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+    };
+    const textName = (element: Element): string => {
+      const clone = element.cloneNode(true) as Element;
+      clone.querySelectorAll('[aria-hidden="true"]').forEach((hidden) => hidden.remove());
+      return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+    };
+    const nameOf = (element: Element): string => {
+      const labelledBy = element.getAttribute('aria-labelledby')
+        ?.split(/\s+/)
+        .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .join(' ');
+      if (labelledBy) return labelledBy;
+      const ariaLabel = element.getAttribute('aria-label')?.trim();
+      if (ariaLabel) return ariaLabel;
+      if (element instanceof HTMLInputElement) {
+        if (element.type === 'image') return element.alt.trim() || element.value.trim();
+        if (['button', 'submit', 'reset'].includes(element.type)) return element.value.trim();
+      }
+      if (
+        element instanceof HTMLInputElement || element instanceof HTMLSelectElement ||
+        element instanceof HTMLTextAreaElement || element instanceof HTMLButtonElement
+      ) {
+        const labels = Array.from(element.labels ?? []).map((label) => textName(label)).filter(Boolean);
+        if (labels.length > 0) return labels.join(' ');
+      }
+      if (element instanceof HTMLImageElement) return element.alt.trim();
+      return textName(element) || element.getAttribute('title')?.trim() || '';
+    };
+
+    const issues: string[] = [];
+    const mains = Array.from(document.querySelectorAll('main, [role="main"]')).filter(visible);
+    if (mains.length !== 1) issues.push(`expected one visible main landmark, found ${mains.length}`);
+    const headings = Array.from(document.querySelectorAll('h1')).filter(visible);
+    if (headings.length !== 1 || !textName(headings[0] ?? document.createElement('span'))) {
+      issues.push(`expected one named visible level-one heading, found ${headings.length}`);
+    }
+
+    const controls = document.querySelectorAll(
+      'a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="combobox"], [role="menuitem"], [role="radio"], [role="switch"], [role="tab"], [tabindex]:not([tabindex="-1"])',
+    );
+    for (const control of controls) {
+      if (control.closest('[aria-hidden="true"]') && !control.closest('[hidden]')) {
+        issues.push('focusable control inside aria-hidden content');
+      }
+      if (!visible(control)) continue;
+      if (!nameOf(control)) {
+        issues.push(`unnamed ${control.tagName.toLowerCase()}${control.getAttribute('role') ? `[role=${control.getAttribute('role')}]` : ''}`);
+      }
+    }
+
+    for (const image of document.querySelectorAll('img')) {
+      if (visible(image) && !image.hasAttribute('alt')) issues.push('visible image missing alt attribute');
+    }
+    for (const feedback of document.querySelectorAll('[role="alert"], [role="status"]')) {
+      if (visible(feedback) && !textName(feedback)) issues.push(`empty ${feedback.getAttribute('role')} announcement`);
+    }
+    return issues;
+  });
+  expect(violations, `Accessibility audit failed for ${route.name} (${state}, ${viewport})`).toEqual([]);
+}
+
 async function loginViaUi(page: Page, email: string, password: string): Promise<void> {
   // Login is a deliberate deep-link: the user is not authenticated yet.
   await page.goto('/login');
@@ -134,6 +202,7 @@ async function settleAndCapture(
   viewport: UiReviewViewport,
 ): Promise<void> {
   await waitForAppSettled(page, uiReviewConfig.expectedTitle);
+  await auditAccessibility(page, route, state, viewport);
   await page.screenshot({ path: outputPath(state, viewport, `${route.name}.png`), fullPage: true });
   await captureSections(page, state, viewport, route.name);
 }

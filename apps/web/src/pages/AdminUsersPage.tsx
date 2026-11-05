@@ -109,7 +109,7 @@ export function AdminUsersPage() {
             {users.isLoading ? (
               <Spinner />
             ) : users.isError ? (
-              <ErrorAlert message={t('errors.loadFailed')} />
+              <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void users.refetch()} />
             ) : !users.data || users.data.length === 0 ? (
               <p className="py-4 text-sm opacity-60">{t('admin.noUsers')}</p>
             ) : (
@@ -227,6 +227,8 @@ export function AdminUsersPage() {
               <h2 className="card-title text-base">{t('admin.invitations')}</h2>
               {invitations.isLoading ? (
                 <Spinner />
+              ) : invitations.isError ? (
+                <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void invitations.refetch()} />
               ) : activeInvitations.length === 0 ? (
                 <p className="text-sm opacity-60">{t('admin.noInvitations')}</p>
               ) : (

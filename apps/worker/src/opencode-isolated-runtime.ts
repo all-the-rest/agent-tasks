@@ -151,6 +151,7 @@ export function createIsolatedOpenCodeRunner(
       emailNotification: options.emailNotification === true,
       toolNames: tools,
       memoryContext: options.memoryContext ?? null,
+      conversationContext: options.conversationContext ?? null,
     });
     let runtime: Awaited<ReturnType<IsolatedOpenCodeProvisioner['open']>>;
     try {

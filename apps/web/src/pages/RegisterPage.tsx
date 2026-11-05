@@ -43,16 +43,27 @@ export function RegisterPage() {
     );
   }
 
-  if (config.data && !config.data.allowRegistration) {
+  if (config.isError || !config.data) {
     return (
       <AuthShell
-        title={t('auth.registerDisabled')}
-        subtitle={t('auth.registerDisabledHint')}
+        title={t('auth.registerTitle')}
+        subtitle={t('auth.registerSubtitle')}
         footer={
           <Link className="link link-primary" to="/login">
             {t('auth.backToLogin')}
           </Link>
         }
+      >
+        <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void config.refetch()} />
+      </AuthShell>
+    );
+  }
+
+  if (config.data && !config.data.allowRegistration) {
+    return (
+      <AuthShell
+        title={t('auth.registerDisabled')}
+        subtitle={t('auth.registerDisabledHint')}
       >
         <Link className="btn btn-primary" to="/login">
           {t('auth.backToLogin')}

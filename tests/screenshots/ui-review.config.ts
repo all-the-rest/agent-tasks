@@ -251,6 +251,19 @@ function executionSeed(context: UiReviewSeedContext): Promise<Record<string, str
   }).then(({ executionId }) => ({ executionId }));
 }
 
+async function memoryTaskSeed(context: UiReviewSeedContext): Promise<Record<string, string>> {
+  const execution = await executionSeed(context);
+  const task = await taskSeed(context);
+  const deadline = Date.now() + 20_000;
+  const path = `/api/memory?scope=task&taskId=${encodeURIComponent(task.taskId)}&limit=1`;
+  while (Date.now() < deadline) {
+    const memories = await apiRequest<{ total: number }>(context.page, 'GET', path);
+    if (memories.total > 0) return execution;
+    await context.page.waitForTimeout(100);
+  }
+  throw new Error('Screenshot task memory did not persist within 20 seconds of execution completion');
+}
+
 async function loginAsReviewAdmin(page: Page): Promise<void> {
   await page.goto('/login');
   await page.getByLabel(/^Email\b/i).fill(process.env.E2E_ADMIN_EMAIL ?? process.env.ADMIN_EMAIL ?? 'admin@example.com');
@@ -433,7 +446,7 @@ export const uiReviewConfig: UiReviewConfig = {
       path: '/memory?scope=task',
       states: ['filled'],
       auth: 'admin',
-      seeds: { filled: executionSeed },
+      seeds: { filled: memoryTaskSeed },
       nav: [{ kind: 'goto', path: '/memory?scope=task', reason: 'Review fixture task memory after one deterministic fake run.' }],
       note: 'The fake runtime creates synthetic task memory; no live provider is called.',
     },

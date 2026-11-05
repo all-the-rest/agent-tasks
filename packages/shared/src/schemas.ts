@@ -117,9 +117,18 @@ export const taskInputSchema = z.object({
   allowWebResearch: z.boolean().default(true),
   notification: z.enum(['none', 'email', 'email_on_change']).default('none'),
   memorySettings: memorySettingsSchema.default(DEFAULT_MEMORY_SETTINGS),
+  conversationMode: z.enum(['standalone', 'conversation']).default('standalone'),
 });
 
 export const taskUpdateSchema = withoutDefaults(taskInputSchema).partial();
+
+export const taskFollowUpSchema = z.object({
+  message: z.string().trim().min(1).max(20_000),
+}).strict();
+export type TaskFollowUp = z.infer<typeof taskFollowUpSchema>;
+
+export const taskConversationModeSchema = z.enum(['standalone', 'conversation']);
+export type TaskConversationMode = z.infer<typeof taskConversationModeSchema>;
 
 export const executionReportSchema = z.object({
   summary: z.string().max(2_000),

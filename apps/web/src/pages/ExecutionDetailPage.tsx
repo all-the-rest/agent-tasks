@@ -179,7 +179,9 @@ export function ExecutionDetailPage() {
   }, [previousExecution.data?.report?.markdown, previousExecution.data?.report?.sources]);
 
   if (execution.isLoading) return <Spinner label={t('common.loadingPage')} />;
-  if (execution.isError || !data) return <ErrorAlert message={t('errors.notFound')} />;
+  if (execution.isError || !data) {
+    return <ErrorAlert message={t('errors.notFound')} onRetry={() => void execution.refetch()} />;
+  }
 
   const canCancel = data.status === 'queued' || data.status === 'running';
   const canRetry = data.status === 'failed' || data.status === 'timed_out' || data.status === 'cancelled';
@@ -283,6 +285,15 @@ export function ExecutionDetailPage() {
         <div className="mb-5">
           <ErrorAlert message={data.error} />
         </div>
+      ) : null}
+
+      {data.inputSnapshot ? (
+        <section className="card mb-5 border border-base-300 bg-base-100 shadow-sm">
+          <div className="card-body gap-2 p-5">
+            <h2 className="card-title text-base">{t('executions.userInput')}</h2>
+            <p className="whitespace-pre-wrap text-sm">{data.inputSnapshot}</p>
+          </div>
+        </section>
       ) : null}
 
       <div className="tabs tabs-box mb-4 w-full flex-wrap sm:w-auto" role="tablist" aria-label={t('executions.detailTitle')}>
@@ -523,7 +534,7 @@ export function ExecutionDetailPage() {
               <h2 className="card-title text-base">{t('memory.executionSuggestions')}</h2>
               {memoryReview.isLoading ? (
                 <Spinner />
-              ) : (memoryReview.data?.suggestions.length ?? 0) === 0 ? (
+              ) : memoryReview.isError ? null : (memoryReview.data?.suggestions.length ?? 0) === 0 ? (
                 <p className="text-sm opacity-60">{t('memory.noExecutionSuggestions')}</p>
               ) : (
                 <ul className="flex flex-col gap-2">
@@ -549,7 +560,7 @@ export function ExecutionDetailPage() {
               <h2 className="card-title text-base">{t('memory.executionRecommendations')}</h2>
               {memoryReview.isLoading ? (
                 <Spinner />
-              ) : (memoryReview.data?.recommendationEvents.length ?? 0) === 0 ? (
+              ) : memoryReview.isError ? null : (memoryReview.data?.recommendationEvents.length ?? 0) === 0 ? (
                 <p className="text-sm opacity-60">{t('memory.noExecutionRecommendations')}</p>
               ) : (
                 <ul className="flex flex-col gap-1 text-sm">

@@ -309,6 +309,103 @@ describe('authentication', () => {
     }
   });
 
+  it('rate-limits TOTP verification attempts', async () => {
+    const isolated = await createHarness();
+    try {
+      const admin = await bootstrapAdmin(isolated);
+      const enable = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/two-factor/enable',
+        headers: { cookie: admin.cookie },
+        payload: { password: 'admin-password-123' },
+      });
+      expect(enable.statusCode, enable.body).toBe(200);
+      const secret = secretFromTotpUri(enable.json().totpURI as string);
+      const enrollmentIp = '203.0.113.20';
+      const confirmed = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/two-factor/verify-totp',
+        headers: { cookie: admin.cookie, 'x-forwarded-for': enrollmentIp },
+        payload: { code: totp(secret) },
+      });
+      expect(confirmed.statusCode, confirmed.body).toBe(200);
+
+      const signIn = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-in/email',
+        headers: { 'x-forwarded-for': '203.0.113.21' },
+        payload: { email: 'admin@example.com', password: 'admin-password-123' },
+      });
+      expect(signIn.statusCode, signIn.body).toBe(200);
+      expect(signIn.json().twoFactorRedirect).toBe(true);
+
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < 7; attempt += 1) {
+        const response = await isolated.app.inject({
+          method: 'POST',
+          url: '/api/auth/two-factor/verify-totp',
+          headers: { cookie: cookiesFrom(signIn), 'x-forwarded-for': '203.0.113.22' },
+          payload: { code: '000000' },
+        });
+        statuses.push(response.statusCode);
+      }
+      expect(statuses.slice(0, 6).every((status) => status !== 429)).toBe(true);
+      expect(statuses[6]).toBe(429);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it('rate-limits password-reset requests before they can amplify e-mail', async () => {
+    const mailer = createCapturingMailer();
+    const isolated = await createHarness({}, mailer);
+    try {
+      await bootstrapAdmin(isolated);
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const response = await isolated.app.inject({
+          method: 'POST',
+          url: '/api/auth/request-password-reset',
+          headers: { 'x-forwarded-for': '203.0.113.23' },
+          payload: { email: 'admin@example.com', redirectTo: 'http://localhost:5173/reset-password' },
+        });
+        statuses.push(response.statusCode);
+      }
+      expect(statuses.slice(0, 3)).toEqual([200, 200, 200]);
+      expect(statuses[3]).toBe(429);
+      expect(mailer.messages.filter((message) => message.subject.includes('Reset'))).toHaveLength(3);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it('rate-limits public sign-up requests', async () => {
+    const mailer = createCapturingMailer();
+    const isolated = await createHarness({ ALLOW_REGISTRATION: 'true' }, mailer);
+    try {
+      await ensureBootstrap(isolated.context);
+      const statuses: number[] = [];
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const response = await isolated.app.inject({
+          method: 'POST',
+          url: '/api/auth/sign-up/email',
+          headers: { 'x-forwarded-for': '203.0.113.24' },
+          payload: {
+            email: `limited-${attempt}@example.com`,
+            password: 'rate-limit-password-123',
+            name: `Limited ${attempt}`,
+          },
+        });
+        statuses.push(response.statusCode);
+      }
+      expect(statuses.slice(0, 5)).toEqual([200, 200, 200, 200, 200]);
+      expect(statuses[5]).toBe(429);
+      expect(mailer.messages.filter((message) => message.subject.includes('Verify'))).toHaveLength(5);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it('requires e-mail verification for public registration and sends the verification link', async () => {
     const mailer = createCapturingMailer();
     const isolated = await createHarness({ ALLOW_REGISTRATION: 'true' }, mailer);

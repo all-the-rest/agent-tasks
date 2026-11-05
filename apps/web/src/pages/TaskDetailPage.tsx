@@ -38,6 +38,12 @@ export function TaskDetailPage() {
   const { showToast } = useToast();
 
   const task = useQuery({ queryKey: ['task', id], queryFn: () => api.tasks.get(id), enabled: Boolean(id) });
+  const conversation = useQuery({
+    queryKey: ['task-conversation', id],
+    queryFn: () => api.tasks.conversation(id),
+    enabled: Boolean(id) && task.data?.conversationMode === 'conversation',
+    refetchInterval: (query) => query.state.data?.items.some((item) => item.status === 'queued' || item.status === 'running') ? 3_000 : false,
+  });
   const executions = useInfiniteQuery({
     queryKey: ['task-executions', id],
     initialPageParam: null as string | null,
@@ -72,6 +78,7 @@ export function TaskDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [followUpMessage, setFollowUpMessage] = useState('');
 
   const invalidate = async () => {
     await Promise.all([
@@ -98,6 +105,20 @@ export function TaskDetailPage() {
         duplicate: t('tasks.duplicated'),
       };
       showToast(messages[name]);
+    },
+    onError: (cause) => setActionError(errorMessage(cause)),
+  });
+
+  const followUp = useMutation({
+    mutationFn: (message: string) => api.tasks.followUp(id, message),
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      setFollowUpMessage('');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['task-conversation', id] }),
+        queryClient.invalidateQueries({ queryKey: ['task-executions', id] }),
+      ]);
+      showToast(t('tasks.followUpQueued'));
     },
     onError: (cause) => setActionError(errorMessage(cause)),
   });
@@ -143,9 +164,14 @@ export function TaskDetailPage() {
   });
 
   if (task.isLoading) return <Spinner label={t('common.loadingPage')} />;
-  if (task.isError || !task.data) return <ErrorAlert message={t('errors.notFound')} />;
+  if (task.isError || !task.data) {
+    return <ErrorAlert message={t('errors.notFound')} onRetry={() => void task.refetch()} />;
+  }
 
   const data = task.data;
+  const conversationItems = [...(conversation.data?.items ?? [])].reverse();
+  const conversationActive = conversation.data?.items.some((item) => item.status === 'queued' || item.status === 'running') ?? false;
+  const followUpUnavailable = !data.enabled || Boolean(data.completedAt) || conversationActive || followUp.isPending;
 
   return (
     <>
@@ -233,6 +259,74 @@ export function TaskDetailPage() {
             </div>
           </section>
 
+          {data.conversationMode === 'conversation' ? (
+            <section className="card border border-base-300 bg-base-100 shadow-sm">
+              <div className="card-body gap-4 p-5">
+                <div>
+                  <h2 className="card-title text-base">{t('tasks.conversationTitle')}</h2>
+                  <p className="mt-1 text-sm opacity-70">{t('tasks.conversationHelp')}</p>
+                </div>
+                {conversation.isPending ? (
+                  <Spinner />
+                ) : conversation.isError ? (
+                  <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void conversation.refetch()} />
+                ) : conversationItems.length === 0 ? (
+                  <p className="text-sm opacity-60">{t('tasks.conversationEmpty')}</p>
+                ) : (
+                  <ol className="flex flex-col gap-4">
+                    {conversationItems.map((turn) => (
+                      <li key={turn.id} className="rounded-box border border-base-300 p-4">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs opacity-60">{formatDate(turn.createdAt, i18n.language)}</span>
+                          <StatusBadge status={turn.status} />
+                        </div>
+                        <h3 className="text-xs font-semibold uppercase tracking-wide opacity-70">{t('tasks.conversationYou')}</h3>
+                        <p className="mt-1 whitespace-pre-wrap text-sm">{turn.input}</p>
+                        {turn.assistantOutput ? (
+                          <>
+                            <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide opacity-70">{t('tasks.conversationAssistant')}</h3>
+                            <p className="mt-1 whitespace-pre-wrap text-sm">{turn.assistantOutput}</p>
+                          </>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <form
+                  className="flex flex-col gap-3 border-t border-base-300 pt-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const message = followUpMessage.trim();
+                    if (message && !followUpUnavailable) followUp.mutate(message);
+                  }}
+                >
+                  <label className="text-sm font-medium" htmlFor="task-follow-up">{t('tasks.followUpLabel')}</label>
+                  <textarea
+                    id="task-follow-up"
+                    className="textarea w-full"
+                    rows={3}
+                    maxLength={20_000}
+                    value={followUpMessage}
+                    onChange={(event) => setFollowUpMessage(event.target.value)}
+                    disabled={followUpUnavailable}
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs opacity-60">
+                      {conversationActive ? t('tasks.followUpActive') : !data.enabled || data.completedAt ? t('tasks.followUpUnavailable') : t('tasks.followUpScheduleNote')}
+                    </p>
+                    <button
+                      type="submit"
+                      className="btn btn-sm btn-primary"
+                      disabled={followUpUnavailable || !followUpMessage.trim()}
+                    >
+                      {followUp.isPending ? t('tasks.followUpSending') : t('tasks.followUpSend')}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          ) : null}
+
           <section className="card border border-base-300 bg-base-100 shadow-sm">
             <div className="card-body p-5">
               <h2 className="card-title text-base">{t('tasks.executionsTitle')}</h2>
@@ -283,9 +377,12 @@ export function TaskDetailPage() {
                       </tbody>
                     </table>
                   </div>
-                  {executions.isFetchNextPageError ? (
+                  {executions.isError && executions.data ? (
                     <div className="mt-3">
-                      <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void executions.fetchNextPage()} />
+                      <ErrorAlert
+                        message={t('errors.loadFailed')}
+                        onRetry={() => void (executions.isFetchNextPageError ? executions.fetchNextPage() : executions.refetch())}
+                      />
                     </div>
                   ) : null}
                   {executions.hasNextPage ? (
@@ -431,6 +528,8 @@ export function TaskDetailPage() {
               <p className="text-xs opacity-60">{t('memory.changesHelp')}</p>
               {changes.isLoading ? (
                 <Spinner />
+              ) : changes.isError ? (
+                <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void changes.refetch()} />
               ) : (changes.data ?? []).length === 0 ? (
                 <p className="text-sm opacity-60">{t('memory.noChanges')}</p>
               ) : (
@@ -529,6 +628,11 @@ export function TaskDetailPage() {
               <h3 className="text-sm font-semibold">{t('memory.recommendationHistory')}</h3>
               {recommendationEvents.isLoading ? (
                 <Spinner />
+              ) : recommendationEvents.isError ? (
+                <ErrorAlert
+                  message={t('errors.loadFailed')}
+                  onRetry={() => void recommendationEvents.refetch()}
+                />
               ) : (recommendationEvents.data ?? []).length === 0 ? (
                 <p className="mt-2 text-xs opacity-60">{t('memory.noHistory')}</p>
               ) : (

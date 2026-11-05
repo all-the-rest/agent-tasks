@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
-import { api, errorMessage } from '../lib/api';
+import { ApiError, api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { describeSchedule } from '../lib/describe';
 import { preferredModelId } from '../lib/provider-config';
@@ -111,6 +111,7 @@ export function SharePage() {
   }
 
   if (share.isError || !share.data) {
+    const unavailable = share.error instanceof ApiError && share.error.status === 404;
     return (
       <AuthShell
         title={t('tasks.share.publicTitle')}
@@ -121,7 +122,11 @@ export function SharePage() {
           </Link>
         }
       >
-        <p className="text-sm opacity-70">{t('tasks.share.publicHint')}</p>
+        {share.isError && !unavailable ? (
+          <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void share.refetch()} />
+        ) : !share.isError ? (
+          <p className="text-sm opacity-70">{t('tasks.share.publicHint')}</p>
+        ) : null}
       </AuthShell>
     );
   }

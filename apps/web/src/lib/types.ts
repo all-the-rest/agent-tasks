@@ -29,6 +29,7 @@ export type Locale = 'en' | 'de';
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type Notification = 'none' | 'email' | 'email_on_change';
 export type TaskStatus = 'active' | 'paused' | 'completed';
+export type TaskConversationMode = 'standalone' | 'conversation';
 export type TaskEndCondition = SharedTaskEndCondition;
 
 export interface TaskSchedule {
@@ -61,6 +62,7 @@ export interface Task {
   allowWebResearch: boolean;
   notification: Notification;
   memorySettings: MemorySettings;
+  conversationMode: TaskConversationMode;
   nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -82,6 +84,22 @@ export interface TaskInput {
   allowWebResearch: boolean;
   notification: Notification;
   memorySettings: MemorySettings;
+  conversationMode: TaskConversationMode;
+}
+
+export interface TaskConversationTurn {
+  id: string;
+  status: ExecutionStatus;
+  trigger: 'schedule' | 'manual' | 'retry';
+  input: string;
+  assistantOutput: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  error: string | null;
+}
+
+export interface TaskConversation {
+  items: TaskConversationTurn[];
 }
 
 /** Frozen, definition-only content of a public share link. */
@@ -345,6 +363,7 @@ export interface Execution extends Omit<ExecutionSummary, 'status'> {
   } | null;
   steps: ExecutionStep[];
   attempt?: number;
+  inputSnapshot: string;
   createdAt: string;
 }
 
