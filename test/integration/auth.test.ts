@@ -687,6 +687,115 @@ describe('security regressions', () => {
     }
   });
 
+  it('releases an invitation instead of applying it to a duplicate-email sign-up', async () => {
+    const isolated = await createHarness();
+    const email = 'duplicate-bridge@example.com';
+    try {
+      const admin = await bootstrapAdmin(isolated);
+      const invite = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/admin/invitations',
+        headers: { cookie: admin.cookie },
+        payload: { email, role: 'ADMIN' },
+      });
+      expect(invite.statusCode, invite.body).toBe(201);
+      const token = invite.json().token as string;
+
+      // An account already owns the address. Better Auth answers the duplicate
+      // sign-up with 200 and a synthetic id; the bridge must not treat that as a
+      // created account or apply the invite role by email.
+      await isolated.db.pool.query(
+        'insert into "user" (id, name, email, email_verified, role) values ($1,$2,$3,false,$4)',
+        ['existing-bridge-user', 'Existing', email, 'USER'],
+      );
+      const duplicate = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-up/email',
+        headers: { 'x-invite-token': token },
+        payload: { email, password: 'duplicate-password-123', name: 'Duplicate' },
+      });
+      expect(duplicate.statusCode, duplicate.body).toBe(409);
+
+      const stored = await isolated.db.pool.query<{ accepted_at: Date | null; role: string; email_verified: boolean }>(
+        'select invitations.accepted_at, "user".role, "user".email_verified from invitations join "user" on "user".email = invitations.email where invitations.email = $1',
+        [email],
+      );
+      expect(stored.rows[0]?.accepted_at).toBeNull();
+      expect(stored.rows[0]?.role).toBe('USER');
+      expect(stored.rows[0]?.email_verified).toBe(false);
+
+      // The released invitation remains usable for a genuinely new account.
+      await isolated.db.pool.query('delete from "user" where email = $1', [email]);
+      const retry = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/auth/sign-up/email',
+        headers: { 'x-invite-token': token },
+        payload: { email, password: 'duplicate-password-123', name: 'Fresh' },
+      });
+      expect([200, 201], retry.body).toContain(retry.statusCode);
+      const created = await isolated.db.pool.query<{ role: string; email_verified: boolean }>(
+        'select role, email_verified from "user" where email = $1',
+        [email],
+      );
+      expect(created.rows[0]?.role).toBe('ADMIN');
+      expect(created.rows[0]?.email_verified).toBe(true);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it('rejects accepting an invitation for an existing account without consuming it', async () => {
+    const isolated = await createHarness();
+    const email = 'duplicate-accept@example.com';
+    try {
+      const admin = await bootstrapAdmin(isolated);
+      const invite = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/admin/invitations',
+        headers: { cookie: admin.cookie },
+        payload: { email, role: 'ADMIN' },
+      });
+      expect(invite.statusCode, invite.body).toBe(201);
+      const token = invite.json().token as string;
+
+      await isolated.db.pool.query(
+        'insert into "user" (id, name, email, email_verified, role) values ($1,$2,$3,false,$4)',
+        ['existing-accept-user', 'Existing', email, 'USER'],
+      );
+      const duplicate = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/invitations/accept',
+        payload: { token, name: 'Duplicate', password: 'duplicate-password-123' },
+      });
+      // A conflict, never the foreign-key 500 the synthetic id used to cause.
+      expect(duplicate.statusCode, duplicate.body).toBe(409);
+
+      const stored = await isolated.db.pool.query<{ accepted_at: Date | null; role: string; email_verified: boolean }>(
+        'select invitations.accepted_at, "user".role, "user".email_verified from invitations join "user" on "user".email = invitations.email where invitations.email = $1',
+        [email],
+      );
+      expect(stored.rows[0]?.accepted_at).toBeNull();
+      expect(stored.rows[0]?.role).toBe('USER');
+      expect(stored.rows[0]?.email_verified).toBe(false);
+
+      await isolated.db.pool.query('delete from "user" where email = $1', [email]);
+      const retry = await isolated.app.inject({
+        method: 'POST',
+        url: '/api/invitations/accept',
+        payload: { token, name: 'Fresh', password: 'duplicate-password-123' },
+      });
+      expect(retry.statusCode, retry.body).toBe(200);
+      const created = await isolated.db.pool.query<{ role: string; email_verified: boolean }>(
+        'select role, email_verified from "user" where email = $1',
+        [email],
+      );
+      expect(created.rows[0]?.role).toBe('ADMIN');
+      expect(created.rows[0]?.email_verified).toBe(true);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it('rejects an expired invitation and a banned user session', async () => {
     const isolated = await createHarness();
     try {

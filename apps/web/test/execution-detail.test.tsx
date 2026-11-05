@@ -102,7 +102,9 @@ describe('execution report comparison', () => {
       .toBe('/executions/previous');
     expect(getExecution).toHaveBeenCalledWith('previous');
     expect(container.querySelector('script')).toBeNull();
-    expect(container.textContent).not.toContain('window.__pwned');
+    // Raw HTML is neutralized to inert literal text by checkReportLinks; the
+    // sanitizer still guarantees it is not emitted as a script element.
+    expect(container.textContent).toContain('window.__pwned');
   });
 
   it('announces comparison load failures and retries the previous execution query', async () => {
@@ -197,5 +199,39 @@ describe('execution visited sites', () => {
     expect(await screen.findByRole('link', { name: 'Visited page' })).toBeTruthy();
     expect(screen.queryByText('https://refused.example/')).toBeNull();
     expect(screen.queryByText('https://not-collected.example/')).toBeNull();
+  });
+});
+
+describe('execution source URL safety', () => {
+  it('renders invalid source and visited-site URLs as non-clickable text', async () => {
+    vi.spyOn(api.executions, 'get').mockResolvedValue(makeExecution('current', '# Report', undefined, {
+      sources: [
+        { url: 'javascript:alert(1)', title: 'Unsafe source', retrievedAt: '2026-01-01T00:00:00.000Z', confidence: 'unknown' },
+        { url: 'https://safe.example/page', title: 'Safe source', retrievedAt: '2026-01-01T00:00:00.000Z', confidence: 'verified' },
+      ],
+      steps: [
+        { id: '1', executionId: 'current', step: 1, tool: 'open_url', args: { url: 'javascript:alert(1)' }, ok: true, startedAt: '2026-01-01T00:00:00.000Z', finishedAt: null, durationMs: 1, error: null, resultPreview: null },
+        { id: '2', executionId: 'current', step: 2, tool: 'open_url', args: { url: 'https://safe.example/page' }, ok: true, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: null, durationMs: 1, error: null, resultPreview: null },
+      ],
+    }));
+
+    const { container } = renderExecutionDetail();
+    await screen.findByRole('heading', { name: 'Report' });
+
+    const unsafeLabels = screen.getAllByText('Unsafe source');
+    expect(unsafeLabels.length).toBeGreaterThan(0);
+    expect(unsafeLabels.every((label) => label.tagName !== 'A')).toBe(true);
+    expect(screen.queryAllByRole('link', { name: 'Unsafe source' })).toHaveLength(0);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Sources/ }));
+    expect(screen.getAllByRole('link', { name: 'Safe source' })[0]?.getAttribute('href')).toBe('https://safe.example/page');
+    expect(screen.queryAllByRole('link', { name: 'Unsafe source' })).toHaveLength(0);
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Timeline/ }));
+    expect(screen.queryAllByRole('link', { name: 'Unsafe source' })).toHaveLength(0);
+    expect(screen.getAllByRole('link', { name: 'Safe source' })[0]?.getAttribute('href')).toBe('https://safe.example/page');
+
+    const hrefs = [...container.querySelectorAll('a')].map((anchor) => anchor.getAttribute('href') ?? '');
+    expect(hrefs.some((href) => href.startsWith('javascript:'))).toBe(false);
   });
 });

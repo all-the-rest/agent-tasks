@@ -150,6 +150,44 @@ describe('multi-user isolation', () => {
     expect(md.body).toContain('https://example.com/');
   });
 
+  it('neutralizes hostile HTML and summary text in the Markdown export', async () => {
+    const created = await harness.app.inject({ method: 'POST', url: '/api/tasks', headers: { cookie: aliceCookie }, payload: { ...taskPayload(), title: 'Hostile export task' } });
+    expect(created.statusCode, created.body).toBe(201);
+    const taskId = created.json().id as string;
+    const owner = await harness.db.pool.query('select owner_id from tasks where id = $1', [taskId]);
+    const executionId = randomUUID();
+    await harness.db.pool.query(
+      `insert into executions (id, task_id, owner_id, task_title, status, trigger, provider_id, model, started_at, finished_at, duration_ms, report, usage)
+       values ($1,$2,$3,'Hostile export task','completed','manual',$4,'mock-researcher',now(),now(),1500,$5,$6)`,
+      [
+        executionId,
+        taskId,
+        owner.rows[0].owner_id,
+        providerId,
+        JSON.stringify({
+          summary: 'Short answer ![click](javascript:alert(1)) <script>alert(1)</script>',
+          markdown: 'Body\n\n<script>window.__pwned = true</script>\n\n<img src=x onerror="alert(2)">',
+          sources: [{ url: 'javascript:alert(1)', title: 'Unsafe source', confidence: 'unknown', retrievedAt: '2026-11-03T00:00:00.000Z' }],
+          uncertainty: [],
+        }),
+        JSON.stringify({ totalTokens: 1 }),
+      ],
+    );
+
+    const md = await harness.app.inject({ method: 'GET', url: `/api/executions/${executionId}/export?format=md`, headers: { cookie: aliceCookie } });
+    expect(md.statusCode, md.body).toBe(200);
+    expect(md.body).toContain('## Summary');
+    expect(md.body).toContain('Short answer');
+    expect(md.body).toContain('click');
+    expect(md.body).toContain('Unsafe source');
+    // Every angle bracket from the stored HTML is escaped by the report check,
+    // and the separately stored summary is escaped before it enters the export.
+    expect(md.body).not.toMatch(/(^|[^\\])<script>/i);
+    expect(md.body).not.toMatch(/(^|[^\\])<img /i);
+    expect(md.body).not.toMatch(/\]\(javascript:/i);
+    expect(md.body).not.toMatch(/\]\(<javascript:/i);
+  });
+
   it('does not give an administrator implicit access to user tasks', async () => {
     const adminRead = await harness.app.inject({ method: 'GET', url: `/api/tasks/${aliceTaskId}`, headers: { cookie: adminCookie } });
     expect(adminRead.statusCode).toBe(404);
