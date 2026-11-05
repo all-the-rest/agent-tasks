@@ -2,7 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { findTool, toolDefinitions, truncateToBytes } from '@agent-tasks/agent-runtime';
+import { findTool, toolDefinitions, truncateToBytes, wrapErrorResult, wrapToolResult } from '@agent-tasks/agent-runtime';
 import type { AgentSource, AgentStepRecord, ToolContext } from '@agent-tasks/agent-runtime';
 import type { BrowserRunnerClient, SearchProvider } from '@agent-tasks/browser-tools';
 import { sanitizeText } from '@agent-tasks/shared';
@@ -460,6 +460,15 @@ function textResult(session: Session, text: string, isError: boolean): unknown {
   return { content: [{ type: 'text', text: capped }], isError };
 }
 
+/** Actual tool output is external content and must reach the model as data. */
+function toolResult(session: Session, name: string, text: string, ok: boolean): unknown {
+  const wrapped = ok ? wrapToolResult(name, text) : wrapErrorResult(name, text);
+  // Wrap first, then apply the same presentation budget: the marker at the start
+  // survives truncation, while a refusal never grows without a bound.
+  const capped = session.maxOutputBytes === undefined ? wrapped : truncateToBytes(wrapped, session.maxOutputBytes);
+  return { content: [{ type: 'text', text: capped }], isError: !ok };
+}
+
 function budgetRefusal(session: Session, name: string): string | undefined {
   const limits = session.limits;
   if (!limits) return undefined;
@@ -521,10 +530,11 @@ function textFromReply(reply: unknown): string {
 
 async function runToolCall(session: Session, name: string, rawArguments: unknown): Promise<CallResult> {
   if (!session.allowed.has(name)) {
-    return refusedCall(session, `tool not allowed: ${name || '(missing)'}`);
+    // The name comes from the untrusted MCP client; never echo it unbounded.
+    return refusedCall(session, `tool not allowed: ${sanitizeText(name, 120) || '(missing)'}`);
   }
   const tool = findTool(name);
-  if (!tool) return refusedCall(session, `unknown tool: ${name}`);
+  if (!tool) return refusedCall(session, `unknown tool: ${sanitizeText(name, 120) || '(missing)'}`);
 
   const execute = async (): Promise<CallResult> => {
     // Budgeted tools run under the per-session lock: page visits are recorded
@@ -546,7 +556,7 @@ async function runToolCall(session: Session, name: string, rawArguments: unknown
     try {
       const outcome = await tool.run(rawArguments ?? {}, session.context);
       const replyText = outcome.ok ? outcome.content : `error: ${outcome.content}`;
-      const reply = textResult(session, replyText, !outcome.ok);
+      const reply = toolResult(session, name, replyText, outcome.ok);
       return {
         reply,
         ok: outcome.ok,

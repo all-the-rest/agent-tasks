@@ -20,13 +20,19 @@ Secure authentication with exactly two roles, no default credentials, and invite
 - [x] Audit log for every sensitive administrative operation
 - [x] CSRF: Better Auth origin checks plus an explicit origin guard on app routes
 
+> Compatibility note: migration `0008_verify_existing_users` marked accounts that
+> predated mandatory verification as verified exactly once. It is immutable,
+> already-applied history; reversing it would lock those pre-existing accounts
+> out. Accounts created afterwards start unverified as described above.
+
 ## Evidence
 
 - `test/integration/auth.test.ts`: setup token, single admin, logout, indistinguishable
   401s, default invite-only sign-up, registration toggle, public verification link,
-  invite reuse, CSRF, real TOTP flow, and 429 rate-limit boundaries for failed
+  invite reuse, duplicate-email rejection without consuming or escalating an invite,
+  CSRF, real TOTP flow, and 429 rate-limit boundaries for failed
   sign-ins, TOTP verification, password resets, verification resends and public
-  registration (26 integration tests passed on 2026-11-05).
+  registration (28 integration tests passed on 2026-11-05).
 - `test/integration/bootstrap.test.ts`: settings and admin bootstrap, open sign-up
   verified before the first session, invite-only default.
 - `apps/api/src/auth.ts`, `apps/api/src/app.ts`, `apps/api/src/routes/setup.ts`.

@@ -5,6 +5,9 @@ import { gfm } from 'micromark-extension-gfm';
 import { toMarkdown } from 'mdast-util-to-markdown';
 import { visit } from 'unist-util-visit';
 import type { Root } from 'mdast';
+import { safeHttpUrl } from './url.js';
+
+export { safeHttpUrl } from './url.js';
 
 const MARKDOWN_PUNCTUATION = new Set([
   '!', '"', '#', '$', '%', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>', '?', '@',
@@ -12,7 +15,7 @@ const MARKDOWN_PUNCTUATION = new Set([
 ]);
 
 /** Keep untrusted single-line text from creating Markdown structure or links. */
-function escapeMarkdownText(value: string): string {
+export function escapeMarkdownText(value: string): string {
   let escaped = '';
   for (const character of value) {
     const code = character.codePointAt(0) ?? 0;
@@ -29,16 +32,7 @@ function escapeMarkdownText(value: string): string {
 
 /** Only collected HTTP(S) page URLs become clickable in a generated export. */
 function markdownSourceUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-    // URLs are public citations, never a place to preserve embedded credentials.
-    url.username = '';
-    url.password = '';
-    return url.toString();
-  } catch {
-    return null;
-  }
+  return safeHttpUrl(value);
 }
 
 /** Strips control characters and caps length — used before text reaches storage or logs. */
@@ -57,6 +51,29 @@ export function sanitizeText(value: string, maxLength = 20_000): string {
 
 export function emptyReport(summary: string): ExecutionReport {
   return { summary, markdown: summary, sources: [], uncertainty: [] };
+}
+
+/**
+ * Persistence boundary for report citations: keep only URLs that can be rendered
+ * as a safe HTTP(S) link, stripped of embedded credentials.
+ */
+export function sanitizeReportSources<T extends { url: string; title?: string; excerpt?: string }>(
+  sources: readonly T[],
+): Array<Omit<T, 'url' | 'title' | 'excerpt'> & { url: string; title?: string; excerpt?: string }> {
+  const safe: Array<Omit<T, 'url' | 'title' | 'excerpt'> & { url: string; title?: string; excerpt?: string }> = [];
+  for (const source of sources) {
+    const { url: sourceUrl, title, excerpt, ...metadata } = source;
+    const url = safeHttpUrl(sourceUrl);
+    if (url && url.length <= 2_000) {
+      safe.push({
+        ...metadata,
+        url,
+        ...(typeof title === 'string' ? { title: title.slice(0, 300) } : {}),
+        ...(typeof excerpt === 'string' ? { excerpt: excerpt.slice(0, 1_000) } : {}),
+      });
+    }
+  }
+  return safe;
 }
 
 /** Markdown export of a finished execution, deterministic and free of HTML. */
@@ -144,6 +161,17 @@ export function checkReportLinks(
   const definitions = new Map<string, string>();
   visit(tree, 'definition', (node) => {
     definitions.set(node.identifier.toLowerCase(), node.url);
+  });
+  // Raw HTML is not Markdown. Leaving html nodes in the tree lets a Markdown
+  // consumer execute them, so turn them into literal text instead. Serialising
+  // the text escapes the angle brackets, which keeps the markup visible but inert.
+  // A block-level html node becomes a paragraph: a bare text node would be
+  // rendered inline and silently swallow the preceding heading.
+  visit(tree, (node, index, parent) => {
+    if (node.type !== 'html' || !parent || index === undefined) return;
+    const text = { type: 'text' as const, value: node.value };
+    const block = parent.type === 'root' || parent.type === 'blockquote' || parent.type === 'listItem';
+    parent.children.splice(index, 1, block ? { type: 'paragraph', children: [text] } : text);
   });
   visit(tree, (node, index, parent) => {
     if ((node.type !== 'linkReference' && node.type !== 'imageReference') || !parent || index === undefined) return;

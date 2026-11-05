@@ -19,6 +19,7 @@ import {
   taskUpdateSchema,
   taskRequiresTools,
   describeSchedule,
+  escapeMarkdownText,
   reportToMarkdown,
   truncateUtf8,
   CONVERSATION_DISPLAY_MAX_BYTES,
@@ -985,10 +986,13 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     }
     reply.header('content-type', 'text/markdown; charset=utf-8');
     reply.header('content-disposition', `attachment; filename="${safeName}.md"`);
-    if (!report) return [`# ${execution.taskTitle}`, '', '_no report_'].join('\n');
+    if (!report) return [`# ${escapeMarkdownText(execution.taskTitle)}`, '', '_no report_'].join('\n');
     const rendered = reportToMarkdown(report, { title: execution.taskTitle, finishedAt: execution.finishedAt?.toISOString() ?? null });
-    const summary = report.summary.trim();
-    if (summary.length === 0 || summary === report.markdown.trim()) return rendered;
+    const rawSummary = report.summary.trim();
+    if (rawSummary.length === 0 || rawSummary === report.markdown.trim()) return rendered;
+    // The summary is stored separately from the checked report body, so it needs
+    // the same Markdown escaping before it can enter the export.
+    const summary = escapeMarkdownText(rawSummary);
     // reportToMarkdown renders the body first; insert the summary directly below
     // the header block so the export starts with the short answer.
     const headerEnd = rendered.indexOf('\n\n');

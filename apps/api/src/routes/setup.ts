@@ -45,6 +45,53 @@ export async function releaseInvitation(db: Database, id: string): Promise<void>
   await db.update(invitations).set({ acceptedAt: null }).where(eq(invitations.id, id));
 }
 
+export interface CreatedAccount {
+  id?: unknown;
+  email?: unknown;
+}
+
+/**
+ * Applies an invitation to the account Better Auth just created.
+ *
+ * A `<400` response from Better Auth's sign-up endpoint does not prove that an
+ * account was written: with verification required it answers a duplicate
+ * address with HTTP 200 and a synthetic, unpersisted user id. The update is
+ * therefore keyed by the returned id *and* the invited address, never by email
+ * alone. A synthetic id matches no row, so a duplicate can neither inherit the
+ * invite role nor become verified.
+ *
+ * The claim is released again on every unsuccessful path, so a failed
+ * acceptance leaves the invitation usable instead of silently consuming it.
+ * Returns true only when a persisted account with that id and address existed.
+ */
+export async function completeInvitationSignup(
+  db: Database,
+  claimed: ClaimedInvitation,
+  created: CreatedAccount,
+): Promise<boolean> {
+  try {
+    const id = typeof created.id === 'string' ? created.id : '';
+    const email = typeof created.email === 'string' ? created.email.toLowerCase() : '';
+    if (!id || email !== claimed.email.toLowerCase()) {
+      await releaseInvitation(db, claimed.id);
+      return false;
+    }
+    const updated = await db
+      .update(user)
+      .set({ role: claimed.role, emailVerified: true })
+      .where(and(eq(user.id, id), eq(user.email, email)))
+      .returning({ id: user.id });
+    if (updated.length === 0) {
+      await releaseInvitation(db, claimed.id);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    await releaseInvitation(db, claimed.id).catch(() => undefined);
+    throw error;
+  }
+}
+
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
@@ -183,17 +230,31 @@ export async function registerSetupRoutes(app: FastifyInstance, context: AppCont
       throw AppError.badRequest((error as Error).message || 'could not create the account');
     }
 
-    await db.update(user).set({ role: invite.role, emailVerified: true }).where(eq(user.id, created.user.id));
-    const settings = await context.settings();
-    await db.insert(userPreferences).values({ userId: created.user.id, timezone: settings.defaultTimezone }).onConflictDoNothing();
-    await context.audit({
-      actorId: created.user.id,
-      action: AUDIT_ACTIONS.inviteAccepted,
-      targetType: 'invitation',
-      targetId: invite.id,
-      metadata: { email: invite.email },
-      ip: request.ip,
-    });
+    // A duplicate address makes Better Auth answer 200 with an unpersisted
+    // synthetic user. Only a row created above with the returned id and the
+    // invited address may receive the invite role; otherwise the invite is
+    // released and the caller gets a conflict instead of an FK error.
+    if (!(await completeInvitationSignup(db, invite, created.user))) {
+      throw AppError.conflict('an account with this e-mail already exists');
+    }
+
+    try {
+      const settings = await context.settings();
+      await db.insert(userPreferences).values({ userId: created.user.id, timezone: settings.defaultTimezone }).onConflictDoNothing();
+      await context.audit({
+        actorId: created.user.id,
+        action: AUDIT_ACTIONS.inviteAccepted,
+        targetType: 'invitation',
+        targetId: invite.id,
+        metadata: { email: invite.email },
+        ip: request.ip,
+      });
+    } catch (error) {
+      // The account exists, but onboarding is incomplete: release the claim and
+      // fail safely. A retry stays a duplicate, so the invite cannot escalate.
+      await releaseInvitation(db, invite.id).catch(() => undefined);
+      throw error;
+    }
     return { ok: true };
   });
 
