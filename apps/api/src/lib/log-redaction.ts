@@ -1,21 +1,25 @@
 /**
- * Invitation and share links are bearer credentials. Fastify's default request
- * serializer logs `req.url`, so `GET /api/invitations/<token>`, `/invite/<token>`,
- * `GET /api/shares/<token>` and `/share/<token>` would put the token into every
- * request log line. Mask the token segment while keeping the route recognisable.
+ * Invitation, share and auth links can contain bearer credentials. Fastify's
+ * default request serializer logs `req.url`, so mask known token path segments and
+ * every `token` query value, including absolute-form request targets.
  */
-const BEARER_PATH = /^(\/(?:api\/invitations|invite|api\/shares|share)\/)([^/?#]+)(.*)$/;
+const BEARER_PATH = /^(.*\/(?:api\/invitations|invite|api\/shares|share|api\/auth\/reset-password)\/)([^/?#]+)(.*)$/;
+const BEARER_QUERY_TOKEN = /([?&]token=)[^&#]*/gi;
+const ABSOLUTE_TARGET = /^([a-z][a-z\d+.-]*:\/\/[^/?#]+)(.*)$/i;
 
 export function redactRequestUrl(url: string): string {
-  const suffixIndex = url.search(/[?#]/);
-  const path = suffixIndex === -1 ? url : url.slice(0, suffixIndex);
-  const suffix = suffixIndex === -1 ? '' : url.slice(suffixIndex);
+  const absolute = ABSOLUTE_TARGET.exec(url);
+  const authority = absolute?.[1] ?? '';
+  const target = absolute?.[2] ?? url;
+  const suffixIndex = target.search(/[?#]/);
+  const path = suffixIndex === -1 ? target : target.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? '' : target.slice(suffixIndex);
   const match = path.match(BEARER_PATH);
-  if (!match) return url;
-  const [, prefix, segment, rest] = match;
-  // `POST /api/invitations/accept` is a route name, not a token; its token lives in the body.
-  if (segment === 'accept') return url;
-  return `${prefix}***${rest}${suffix}`;
+  const redactedPath = match && match[2] !== 'accept'
+    ? `${match[1]}***${match[3]}`
+    : path;
+  const redactedSuffix = suffix.replace(BEARER_QUERY_TOKEN, '$1***');
+  return `${authority}${redactedPath}${redactedSuffix}`;
 }
 
 export interface LoggedRequest {

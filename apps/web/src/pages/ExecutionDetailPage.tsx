@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
-import { checkReportLinks } from '@agent-tasks/shared/report';
+import { checkReportLinks, safeHttpUrl } from '@agent-tasks/shared/report';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
@@ -435,22 +435,29 @@ export function ExecutionDetailPage() {
                 <p className="text-sm opacity-60">{t('executions.noVisitedSites')}</p>
               ) : (
                 <ul className="flex flex-col gap-2">
-                  {visited.map((site) => (
-                    <li key={site.url} className="rounded-lg bg-base-200 p-3">
-                      <a
-                        href={site.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="link link-primary break-all text-sm"
-                      >
-                        {site.title ?? site.url}
-                      </a>
-                      <p className="mt-1 break-all font-mono text-[11px] opacity-60">{site.url}</p>
-                      <p className="text-[11px] opacity-50">
-                        {site.tool} · {formatDate(site.visitedAt, i18n.language)}
-                      </p>
-                    </li>
-                  ))}
+                  {visited.map((site) => {
+                    const href = safeHttpUrl(site.url);
+                    return (
+                      <li key={site.url} className="rounded-lg bg-base-200 p-3">
+                        {href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="link link-primary break-all text-sm"
+                          >
+                            {site.title ?? site.url}
+                          </a>
+                        ) : (
+                          <span className="break-all text-sm">{site.title ?? site.url}</span>
+                        )}
+                        <p className="mt-1 break-all font-mono text-[11px] opacity-60">{site.url}</p>
+                        <p className="text-[11px] opacity-50">
+                          {site.tool} · {formatDate(site.visitedAt, i18n.language)}
+                        </p>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -465,36 +472,43 @@ export function ExecutionDetailPage() {
                 <p className="text-sm opacity-60">{t('executions.noSources')}</p>
               ) : (
                 <ul className="flex flex-col gap-3">
-                  {sources.map((source) => (
-                    <li key={`${source.url}-${source.retrievedAt}`} className="rounded-lg border border-base-300 p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <a
-                          href={source.url}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          className="link link-primary break-all text-sm font-medium"
-                        >
-                          {source.title ?? source.url}
-                        </a>
-                        <span
-                          className={`badge badge-sm ${
-                            source.confidence === 'verified'
-                              ? 'badge-success'
-                              : source.confidence === 'secondary'
-                                ? 'badge-info'
-                                : 'badge-ghost'
-                          }`}
-                        >
-                          {t(`confidence.${source.confidence}`)}
-                        </span>
-                      </div>
-                      <p className="mt-1 break-all font-mono text-[11px] opacity-60">{source.url}</p>
-                      <p className="text-[11px] opacity-50">
-                        {t('executions.retrievedAt')}: {formatDate(source.retrievedAt, i18n.language)}
-                      </p>
-                      {source.excerpt ? <p className="mt-2 text-xs opacity-80">{source.excerpt}</p> : null}
-                    </li>
-                  ))}
+                  {sources.map((source) => {
+                    const href = safeHttpUrl(source.url);
+                    return (
+                      <li key={`${source.url}-${source.retrievedAt}`} className="rounded-lg border border-base-300 p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          {href ? (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="link link-primary break-all text-sm font-medium"
+                            >
+                              {source.title ?? source.url}
+                            </a>
+                          ) : (
+                            <span className="break-all text-sm font-medium">{source.title ?? source.url}</span>
+                          )}
+                          <span
+                            className={`badge badge-sm ${
+                              source.confidence === 'verified'
+                                ? 'badge-success'
+                                : source.confidence === 'secondary'
+                                  ? 'badge-info'
+                                  : 'badge-ghost'
+                            }`}
+                          >
+                            {t(`confidence.${source.confidence}`)}
+                          </span>
+                        </div>
+                        <p className="mt-1 break-all font-mono text-[11px] opacity-60">{source.url}</p>
+                        <p className="text-[11px] opacity-50">
+                          {t('executions.retrievedAt')}: {formatDate(source.retrievedAt, i18n.language)}
+                        </p>
+                        {source.excerpt ? <p className="mt-2 text-xs opacity-80">{source.excerpt}</p> : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

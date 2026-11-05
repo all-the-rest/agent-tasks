@@ -4,6 +4,7 @@ import {
   AGENT_RUNTIME_LIMITS,
   DEFAULT_LIMITS,
   HARD_LIMITS,
+  executionReportSchema,
   resolveAgentLimits,
   systemSettingsSchema,
   taskEndConditionSchema,
@@ -139,5 +140,22 @@ describe('OpenCode Go client contract schema', () => {  it('defaults to a tool u
     }
     expect(compatibleConfigSchema.safeParse({ baseUrl: 'https://x.test/v1', sessionHeader: '' }).success).toBe(false);
     expect(compatibleConfigSchema.safeParse({ baseUrl: 'https://x.test/v1', userAgent: 'my-coding-agent/1.0' }).success).toBe(true);
+  });
+});
+
+describe('execution report source URLs', () => {
+  const report = (url: string) => ({
+    summary: 'Short answer',
+    markdown: 'Body',
+    sources: [{ url, title: 'Source', retrievedAt: '2026-11-03T00:00:00.000Z', confidence: 'verified' }],
+    uncertainty: [],
+  });
+
+  it('accepts HTTP(S) sources and rejects non-web schemes', () => {
+    expect(executionReportSchema.safeParse(report('https://example.com/article')).success).toBe(true);
+    expect(executionReportSchema.safeParse(report('http://example.com/article')).success).toBe(true);
+    expect(executionReportSchema.safeParse(report('javascript:alert(1)')).success).toBe(false);
+    expect(executionReportSchema.safeParse(report('data:text/html,<script>alert(1)</script>')).success).toBe(false);
+    expect(executionReportSchema.safeParse(report('file:///etc/passwd')).success).toBe(false);
   });
 });
