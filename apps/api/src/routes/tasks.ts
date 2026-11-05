@@ -169,8 +169,10 @@ interface TaskToolRequirements {
   memoryMode: string;
 }
 
-async function loadTaskProvider(context: AppContext, providerId: string): Promise<TaskProvider> {
-  const rows = await context.db
+type DatabaseReader = Pick<AppContext['db'], 'select'>;
+
+async function loadTaskProvider(db: DatabaseReader, providerId: string): Promise<TaskProvider> {
+  const rows = await db
     .select({ id: providers.id, kind: providers.kind, name: providers.name, enabled: providers.enabled, config: providers.config })
     .from(providers)
     .where(eq(providers.id, providerId))
@@ -191,9 +193,9 @@ async function loadTaskProvider(context: AppContext, providerId: string): Promis
   };
 }
 
-async function assertProviderUsable(context: AppContext, userId: string, providerId: string): Promise<TaskProvider> {
-  const provider = await loadTaskProvider(context, providerId);
-  const credentials = await context.db
+async function assertProviderUsable(db: DatabaseReader, userId: string, providerId: string): Promise<TaskProvider> {
+  const provider = await loadTaskProvider(db, providerId);
+  const credentials = await db
     .select({ ownerId: providerCredentials.ownerId })
     .from(providerCredentials)
     .where(eq(providerCredentials.providerId, providerId));
@@ -210,14 +212,14 @@ async function assertProviderUsable(context: AppContext, userId: string, provide
  * e-mail does not need model tools: the worker sends it itself.
  */
 export async function assertTaskExecutable(
-  context: AppContext,
+  db: DatabaseReader,
   userId: string,
   providerId: string,
   model: string,
   requirements: TaskToolRequirements,
 ): Promise<TaskProvider> {
-  const provider = await assertProviderUsable(context, userId, providerId);
-  const discovered = await context.db
+  const provider = await assertProviderUsable(db, userId, providerId);
+  const discovered = await db
     .select({
       id: providerModels.modelId,
       label: providerModels.label,
@@ -313,7 +315,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const me = await requireUser(context, request);
     const parsed = taskInputSchema.safeParse(request.body);
     if (!parsed.success) throw AppError.badRequest('invalid task', parsed.error.issues);
-    const provider = await assertTaskExecutable(context, me.id, parsed.data.providerId, parsed.data.model, {
+    const provider = await assertTaskExecutable(db, me.id, parsed.data.providerId, parsed.data.model, {
       allowWebResearch: parsed.data.allowWebResearch,
       notification: parsed.data.notification,
       memoryMode: parsed.data.memorySettings.mode,
@@ -405,7 +407,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       const current = existing[0];
       if (!current) throw AppError.notFound('task');
       await assertTaskExecutable(
-        context,
+        db,
         me.id,
         parsed.data.providerId ?? current.providerId,
         parsed.data.model ?? current.model,
@@ -556,7 +558,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       const completed = reached || next === null;
       // Enabling a task schedules runs; refuse one the worker could never execute.
       if (!completed) {
-        await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+        await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
           allowWebResearch: task.allowWebResearch,
           notification: task.notification,
           memoryMode: parseMemorySettings(task.memorySettings).mode,
@@ -590,7 +592,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       const task = rows[0];
       if (!task) throw AppError.notFound('task');
       // A manual run must not queue an execution the worker will refuse.
-      await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+      await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
         allowWebResearch: task.allowWebResearch,
         notification: task.notification,
         memoryMode: parseMemorySettings(task.memorySettings).mode,
@@ -637,7 +639,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       if (!task) throw AppError.notFound('task');
       if (task.conversationMode !== 'conversation') throw AppError.conflict('this task is not conversation-enabled');
       if (!task.enabled || task.completedAt) throw AppError.conflict('follow-ups require an enabled, incomplete task');
-      await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+      await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
         allowWebResearch: task.allowWebResearch,
         notification: task.notification,
         memoryMode: parseMemorySettings(task.memorySettings).mode,
@@ -722,7 +724,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     const task = rows[0];
     if (!task) throw AppError.notFound('task');
     // Release a deliberate copy only if the worker could actually run it later.
-    await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+    await assertTaskExecutable(db, me.id, task.providerId, task.model, {
       allowWebResearch: task.allowWebResearch,
       notification: task.notification,
       memoryMode: parseMemorySettings(task.memorySettings).mode,
@@ -917,7 +919,7 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         .limit(1);
       if (active.length > 0) throw AppError.conflict('this task already has a queued or running execution');
       // A retry must not queue an execution the worker will refuse.
-      await assertTaskExecutable(context, me.id, task.providerId, task.model, {
+      await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
         allowWebResearch: task.allowWebResearch,
         notification: task.notification,
         memoryMode: parseMemorySettings(task.memorySettings).mode,

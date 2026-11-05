@@ -167,7 +167,7 @@ export async function registerTaskShareRoutes(app: FastifyInstance, context: App
     await activeShare(context, token);
     // Research is the product default. The adopter's provider must therefore be
     // able to run tools, and the copy starts with no memory of the source task.
-    await assertTaskExecutable(context, me.id, parsed.data.providerId, parsed.data.model, {
+    await assertTaskExecutable(db, me.id, parsed.data.providerId, parsed.data.model, {
       allowWebResearch: true,
       notification: 'none',
       memoryMode: 'off',
