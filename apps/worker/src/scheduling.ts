@@ -28,6 +28,8 @@ export interface DueTask {
  */
 export async function scheduleDueExecutions(db: Database, now: Date = new Date()): Promise<DueTask[]> {
   return db.transaction(async (tx) => {
+    // Filter active tasks before LIMIT so long-running tasks cannot monopolize the
+    // due-work page. The active check is repeated after locking each task row below.
     const due = await tx.execute<{
       id: string;
       owner_id: string;
@@ -36,10 +38,15 @@ export async function scheduleDueExecutions(db: Database, now: Date = new Date()
       next_run_at: Date | null;
       end_condition: unknown;
       scheduled_run_count: number;
-    }>(raw`
+      }>(raw`
       select id, owner_id, enabled, schedule, next_run_at, end_condition, scheduled_run_count
       from tasks
-      where completed_at is null and (
+      where completed_at is null
+        and not exists (
+          select 1 from executions e
+          where e.task_id = tasks.id and e.status in ('queued', 'running')
+        )
+        and (
         (enabled = true and next_run_at is not null and next_run_at <= ${now.toISOString()})
         or (
           end_condition->>'type' = 'on_date'
@@ -92,9 +99,18 @@ export async function scheduleDueExecutions(db: Database, now: Date = new Date()
         continue;
       }
 
+      const active = await tx.execute<{ id: string }>(raw`
+        select id from executions
+        where task_id = ${row.id} and status in ('queued', 'running')
+        limit 1
+      `);
+      // Keep the occurrence due until the current run finishes. The task row lock
+      // serializes this check with run-now/follow-up and with other scheduler ticks.
+      if (active.rows.length > 0) continue;
+
       const inserted = await tx.execute<{ id: string }>(raw`
-        insert into executions (id, task_id, owner_id, task_title, status, trigger, scheduled_for, model, provider_id)
-        select ${crypto.randomUUID()}, t.id, t.owner_id, t.title, 'queued', 'schedule', ${occurrence.toISOString()}, t.model, t.provider_id
+        insert into executions (id, task_id, owner_id, task_title, input_snapshot, status, trigger, scheduled_for, model, provider_id)
+        select ${crypto.randomUUID()}, t.id, t.owner_id, t.title, t.prompt, 'queued', 'schedule', ${occurrence.toISOString()}, t.model, t.provider_id
         from tasks t where t.id = ${row.id}
         on conflict (task_id, scheduled_for) do nothing
         returning id
@@ -133,12 +149,13 @@ export async function scheduleDueExecutions(db: Database, now: Date = new Date()
 export type ClaimExecutionResult =
   | { status: 'claimed' }
   | { status: 'not_claimed' }
+  | { status: 'deferred' }
   | { status: 'refused'; reason: LimitRefusal; retryAttempt: number | null };
 
 /**
- * Claim and reserve an owner's execution slot in one transaction. The advisory lock
- * makes the running-count check atomic across worker processes; the row lock keeps
- * at-least-once delivery from claiming the same execution twice.
+ * Claim and reserve execution capacity in one transaction. The owner advisory lock
+ * serializes per-user and per-task admission across workers; the execution row lock
+ * keeps at-least-once delivery from claiming the same execution twice.
  */
 export async function claimExecution(
   db: Database,
@@ -149,8 +166,8 @@ export async function claimExecution(
   maxAttempts: number,
 ): Promise<ClaimExecutionResult> {
   return db.transaction(async (tx) => {
-    const candidates = await tx.execute<{ owner_id: string; attempt: number; already_admitted_today: boolean }>(raw`
-      select owner_id, attempt,
+    const candidates = await tx.execute<{ owner_id: string; task_id: string; attempt: number; already_admitted_today: boolean }>(raw`
+      select owner_id, task_id, attempt,
              coalesce(started_at > now() - interval '24 hours', false) as already_admitted_today
       from executions
       where id = ${executionId} and status = 'queued'
@@ -160,7 +177,11 @@ export async function claimExecution(
     if (!candidate) return { status: 'not_claimed' };
 
     await tx.execute(raw`select pg_advisory_xact_lock(hashtext(${candidate.owner_id}))`);
-    const counts = await tx.execute<{ prior_executions_today: number; other_running_for_owner: number }>(raw`
+    const counts = await tx.execute<{
+      prior_executions_today: number;
+      other_running_for_owner: number;
+      other_running_for_task: number;
+    }>(raw`
       select
         (select count(*)::int from executions
           where owner_id = ${candidate.owner_id}
@@ -169,8 +190,17 @@ export async function claimExecution(
         (select count(*)::int from executions
           where owner_id = ${candidate.owner_id}
             and status = 'running'
-            and id <> ${executionId}) as other_running_for_owner
+            and id <> ${executionId}) as other_running_for_owner,
+        (select count(*)::int from executions
+          where task_id = ${candidate.task_id}
+            and status = 'running'
+            and id <> ${executionId}) as other_running_for_task
     `);
+    if (Number(counts.rows[0]?.other_running_for_task ?? 0) > 0) {
+      // This is transient backpressure, not a failed attempt. The executor requeues
+      // it after a short delay while preserving the execution's retry budget.
+      return { status: 'deferred' };
+    }
     const refusal = exceededExecutionLimit(
       {
         priorExecutionsToday: candidate.already_admitted_today

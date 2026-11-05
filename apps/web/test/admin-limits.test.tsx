@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -8,6 +8,7 @@ import { ToastProvider } from '../src/components/ui';
 import { api } from '../src/lib/api';
 import type { SystemSettings } from '../src/lib/types';
 import { AdminPage } from '../src/pages/AdminPage';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 
 const configuredSettings: SystemSettings = {
   allowRegistration: false,
@@ -48,6 +49,45 @@ afterEach(() => {
 });
 
 describe('admin global per-run limits', () => {
+  it('keeps global settings controls named when status metrics are empty', async () => {
+    vi.spyOn(api.admin, 'settings').mockResolvedValue(configuredSettings);
+    vi.spyOn(api.admin, 'metrics').mockResolvedValue({
+      users: 0,
+      tasks: 0,
+      executionsLast24h: 0,
+      active: 0,
+      byStatus: {},
+    });
+
+    renderAdminPage();
+
+    expect(await screen.findByLabelText('Default timezone')).toBeTruthy();
+    expect(screen.getByLabelText('Maximum duration (seconds)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save settings' })).toBeTruthy();
+
+    expectInteractiveControlsNamed();
+  });
+
+  it('announces an admin overview load failure accessibly', async () => {
+    vi.spyOn(api.admin, 'settings').mockResolvedValue(configuredSettings);
+    vi.spyOn(api.admin, 'metrics')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({
+        users: 0,
+        tasks: 0,
+        executionsLast24h: 0,
+        active: 0,
+        byStatus: {},
+      });
+
+    renderAdminPage();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByLabelText('Default timezone')).toBeTruthy();
+    expectInteractiveControlsNamed();
+  });
+
   it('loads and saves the configured budgets through system settings', async () => {
     const saveSettings = vi.spyOn(api.admin, 'saveSettings').mockResolvedValue(configuredSettings);
     vi.spyOn(api.admin, 'settings').mockResolvedValue(configuredSettings);

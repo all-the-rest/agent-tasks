@@ -1015,6 +1015,9 @@ msgstr "Uncertainty"
 msgid "executions.usage"
 msgstr "Token usage"
 
+msgid "executions.userInput"
+msgstr "User input"
+
 msgid "executions.viewExecution"
 msgstr "Open execution"
 
@@ -1735,6 +1738,21 @@ msgstr "Review and create task"
 msgid "tasks.continueToDetails"
 msgstr "Continue to task details"
 
+msgid "tasks.conversationAssistant"
+msgstr "Agent"
+
+msgid "tasks.conversationEmpty"
+msgstr "No task runs in this conversation yet."
+
+msgid "tasks.conversationHelp"
+msgstr "Scheduled runs and manual runs continue this private, task-scoped thread."
+
+msgid "tasks.conversationTitle"
+msgstr "Task conversation"
+
+msgid "tasks.conversationYou"
+msgstr "You"
+
 msgid "tasks.count"
 msgstr "{count} tasks"
 
@@ -1773,6 +1791,18 @@ msgstr "Task deleted."
 
 msgid "tasks.description"
 msgstr "Description"
+
+msgid "tasks.destination"
+msgstr "Run destination"
+
+msgid "tasks.destinationConversation"
+msgstr "Private task conversation"
+
+msgid "tasks.destinationHelp"
+msgstr "Standalone runs start without prior task history. A private conversation keeps runs and follow-ups inside this task."
+
+msgid "tasks.destinationStandalone"
+msgstr "Standalone run"
 
 msgid "tasks.detailTitle"
 msgstr "Task details"
@@ -1827,6 +1857,27 @@ msgstr "Executions"
 
 msgid "tasks.filterStatus"
 msgstr "Filter by status"
+
+msgid "tasks.followUpActive"
+msgstr "A run is already queued or running for this task."
+
+msgid "tasks.followUpLabel"
+msgstr "Ask a follow-up"
+
+msgid "tasks.followUpQueued"
+msgstr "Follow-up queued."
+
+msgid "tasks.followUpScheduleNote"
+msgstr "This queues one manual run and does not change the task schedule."
+
+msgid "tasks.followUpSend"
+msgstr "Send follow-up"
+
+msgid "tasks.followUpSending"
+msgstr "Queueing…"
+
+msgid "tasks.followUpUnavailable"
+msgstr "Follow-ups are available while this task is enabled and incomplete."
 
 msgid "tasks.formInvalid"
 msgstr "Please correct the highlighted fields."
@@ -2057,7 +2108,7 @@ msgid "tasks.share.provider"
 msgstr "Provider"
 
 msgid "tasks.share.publicHint"
-msgstr "Only the title, prompt, schedule and timezone are shared. Memories, credentials and run history are not included."
+msgstr "Only the title, prompt, schedule and timezone are shared. Memories, credentials, conversation history and follow-up messages are not included."
 
 msgid "tasks.share.publicSubtitle"
 msgstr "A frozen task definition shared by an Agent Tasks user."
@@ -2099,7 +2150,7 @@ msgid "tasks.share.typeLabel"
 msgstr "Scheduled task"
 
 msgid "tasks.share.warning"
-msgstr "Changes made after sharing are not included. System instructions, memories, credentials and run history are never shared."
+msgstr "Changes made after sharing are not included. System instructions, memories, credentials, conversation history and follow-up messages are never shared."
 
 msgid "tasks.status.active"
 msgstr "Active"

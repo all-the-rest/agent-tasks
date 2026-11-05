@@ -39,7 +39,9 @@ function fixture(kind = 'codex', notification: 'none' | 'email' = 'none') {
   const execute = async (query: unknown) => {
     const sql = typeof query === 'string' ? query : dialect.sqlToQuery(query as never).sql;
     if (sql.includes('from system_settings')) return { rows: [{ values: {} }] };
-    if (sql.includes('select owner_id, attempt')) return { rows: [{ owner_id: ownerId, attempt: 0, already_admitted_today: false }] };
+    if (sql.includes('select owner_id, task_id, attempt')) {
+      return { rows: [{ owner_id: ownerId, task_id: task.id, attempt: 0, already_admitted_today: false }] };
+    }
     if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
     if (sql.includes('prior_executions_today')) return { rows: [{ prior_executions_today: 0, other_running_for_owner: 0 }] };
     if (sql.includes('set status = \'running\'')) return { rows: [] };

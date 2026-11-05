@@ -49,5 +49,12 @@ _Labels: deploy, docs_
 `scripts/compose-parity-lib.mjs`, `scripts/test-compose-parity.mjs`,
 `scripts/check-deploy-compose-contract.mjs`,
 `scripts/test-deploy-dry-run.sh`, `DEPLOYMENT.md`,
-`docs/VERIFICATION_REPORT.md` (isolated current-tree Compose start and E2E; production
-host evidence 2026-11-02 is historical and no production deployment was performed).
+`docs/VERIFICATION_REPORT.md` (current-tree isolated Compose stack started with
+Mailpit and Search profiles enabled; the API health check returned `{"ok":true}`,
+and Mailpit, PostgreSQL, provisioner and browser-runner health checks passed. The
+runner reported `sandbox: true` with Chromium `156.0.8078.4`; a worker-to-runner
+smoke opened the reserved `example.com` page. A fresh current-tree Compose E2E run
+passed **11/11** using the test-only provider/runtime. The `agent-tasks-e2e-review`
+project was then removed with `down --volumes --remove-orphans`; follow-up project-
+labeled container, network and volume queries were empty. Production host evidence
+2026-11-02 remains historical and no production deployment was performed).

@@ -47,6 +47,9 @@ export function InvitePage() {
           </Link>
         }
       >
+        {invitation.isError ? (
+          <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void invitation.refetch()} />
+        ) : null}
         <Link className="btn btn-primary" to="/login">
           {t('auth.backToLogin')}
         </Link>

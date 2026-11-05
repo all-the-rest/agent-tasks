@@ -71,6 +71,32 @@ describe('scheduler', () => {
     expect(rows.rows[0].count).toBe(1);
   });
 
+  it.each(['queued', 'running'] as const)(
+    'keeps a due occurrence pending while the same task has a %s execution',
+    async (status) => {
+      const id = await insertTask(new Date(Date.now() - 30_000));
+      const activeExecutionId = randomUUID();
+      await harness.db.pool.query(
+        `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id)
+         values ($1,$2,$3,'active run',$4,'manual','mock-researcher',$5)`,
+        [activeExecutionId, id, ownerId, status, providerId],
+      );
+
+      const skipped = await scheduleDueExecutions(harness.db.db);
+      expect(skipped.some((run) => run.taskId === id)).toBe(false);
+      const stillDue = await harness.db.pool.query<{ next_run_at: Date; scheduled_run_count: number }>(
+        'select next_run_at, scheduled_run_count from tasks where id = $1',
+        [id],
+      );
+      expect(new Date(stillDue.rows[0]!.next_run_at).getTime()).toBeLessThan(Date.now());
+      expect(stillDue.rows[0]!.scheduled_run_count).toBe(0);
+
+      await harness.db.pool.query("update executions set status = 'completed', finished_at = now() where id = $1", [activeExecutionId]);
+      const resumed = await scheduleDueExecutions(harness.db.db);
+      expect(resumed.filter((run) => run.taskId === id)).toHaveLength(1);
+    },
+  );
+
   it('enforces an after-runs limit exactly once across concurrent scheduler ticks', async () => {
     const now = new Date('2026-11-03T06:00:00.000Z');
     const id = await insertTask(new Date('2026-11-03T05:30:00.000Z'), true, ownerId, { type: 'after_runs', runs: 1 });
@@ -116,6 +142,10 @@ describe('scheduler', () => {
       [id],
     );
     expect(afterFirst.rows[0]).toMatchObject({ enabled: true, scheduled_run_count: 1, completed_at: null });
+    await harness.db.pool.query(
+      "update executions set status = 'completed', finished_at = now() where task_id = $1 and trigger = 'schedule' and status = 'queued'",
+      [id],
+    );
 
     const second = await scheduleDueExecutions(harness.db.db, now);
     expect(second.filter((run) => run.taskId === id)).toHaveLength(1);
@@ -166,6 +196,10 @@ describe('scheduler', () => {
       [id],
     );
     expect(afterBooking.rows[0]).toMatchObject({ enabled: true, scheduled_run_count: 1, completed_at: null });
+    await harness.db.pool.query(
+      "update executions set status = 'completed', finished_at = now() where task_id = $1 and trigger = 'schedule' and status = 'queued'",
+      [id],
+    );
 
     const afterEndDate = await scheduleDueExecutions(harness.db.db, new Date('2026-11-04T00:30:00.000Z'));
     expect(afterEndDate.filter((run) => run.taskId === id)).toHaveLength(0);
@@ -202,6 +236,10 @@ describe('scheduler', () => {
       [id],
     );
     expect(afterFirst.rows[0]).toMatchObject({ enabled: true, scheduled_run_count: 1, completed_at: null, next_run_at: occurrences[1] });
+    await harness.db.pool.query(
+      "update executions set status = 'completed', finished_at = now() where task_id = $1 and trigger = 'schedule' and status = 'queued'",
+      [id],
+    );
 
     const second = await scheduleDueExecutions(harness.db.db, now);
     expect(second.filter((run) => run.taskId === id).map((run) => run.occurrence)).toEqual([occurrences[1]]);
@@ -230,6 +268,10 @@ describe('scheduler', () => {
         scheduleDueExecutions(harness.db.db, now),
       ]);
       booked.push(...[...first, ...second].filter((run) => run.taskId === id).map((run) => run.occurrence));
+      await harness.db.pool.query(
+        "update executions set status = 'completed', finished_at = now() where task_id = $1 and trigger = 'schedule' and status = 'queued'",
+        [id],
+      );
     }
 
     expect(booked.sort((left, right) => left.getTime() - right.getTime())).toEqual(occurrences);
@@ -387,13 +429,13 @@ describe('scheduler', () => {
   });
 
   it('reserves one per-user execution slot across concurrent workers', async () => {
-    const id = await insertTask(new Date(Date.now() - 5_000));
+    const taskIds = [await insertTask(new Date(Date.now() - 5_000)), await insertTask(new Date(Date.now() - 5_000))];
     const executionIds = [randomUUID(), randomUUID()];
     await harness.db.pool.query(
       `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id)
-       values ($1,$3,$4,'first','queued','manual','mock-researcher',$5),
-              ($2,$3,$4,'second','queued','manual','mock-researcher',$5)`,
-      [...executionIds, id, ownerId, providerId],
+       values ($1,$2,$5,'first','queued','manual','mock-researcher',$6),
+              ($3,$4,$5,'second','queued','manual','mock-researcher',$6)`,
+      [executionIds[0], taskIds[0], executionIds[1], taskIds[1], ownerId, providerId],
     );
     const executionLimits = { maxTaskExecutionsPerDay: 100, maxConcurrentExecutionsPerUser: 1 };
     const claims = await Promise.all(
@@ -413,19 +455,49 @@ describe('scheduler', () => {
     await harness.db.pool.query("update executions set status = 'completed', finished_at = now() where id = any($1::uuid[])", [executionIds]);
   });
 
+  it('defers a second execution for the same task without consuming a retry attempt', async () => {
+    const id = await insertTask(new Date(Date.now() - 5_000));
+    const executionIds = [randomUUID(), randomUUID()];
+    await harness.db.pool.query(
+      `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id)
+       values ($1,$3,$4,'first','queued','manual','mock-researcher',$5),
+              ($2,$3,$4,'second','queued','manual','mock-researcher',$5)`,
+      [...executionIds, id, ownerId, providerId],
+    );
+    const executionLimits = { maxTaskExecutionsPerDay: 100, maxConcurrentExecutionsPerUser: 10 };
+    const claims = await Promise.all(
+      executionIds.map((executionId, index) =>
+        claimExecution(harness.db.db, executionId, `task-worker-${index}`, 60, executionLimits, 3),
+      ),
+    );
+
+    expect(claims.map((claim) => claim.status).sort()).toEqual(['claimed', 'deferred']);
+    const rows = await harness.db.pool.query<{ status: string; attempt: number }>(
+      'select status, attempt from executions where id = any($1::uuid[])',
+      [executionIds],
+    );
+    expect(rows.rows.filter((row) => row.status === 'running')).toHaveLength(1);
+    expect(rows.rows.filter((row) => row.status === 'queued')).toHaveLength(1);
+    expect(rows.rows.find((row) => row.status === 'queued')?.attempt).toBe(1);
+    await harness.db.pool.query("update executions set status = 'completed', finished_at = now() where id = any($1::uuid[])", [executionIds]);
+  });
+
   it('admits only the daily quota across concurrent workers', async () => {
     const user = await harness.db.pool.query(
       `insert into "user" (id, name, email, email_verified, role) values ($1,'Quota Owner',$2,true,'USER') returning id`,
       [randomUUID(), `quota-${randomUUID()}@example.com`],
     );
     const quotaOwnerId = user.rows[0].id as string;
-    const id = await insertTask(new Date(Date.now() - 5_000), true, quotaOwnerId);
+    const taskIds = [
+      await insertTask(new Date(Date.now() - 5_000), true, quotaOwnerId),
+      await insertTask(new Date(Date.now() - 5_000), true, quotaOwnerId),
+    ];
     const executionIds = [randomUUID(), randomUUID()];
     await harness.db.pool.query(
       `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id)
-       values ($1,$3,$4,'first','queued','manual','mock-researcher',$5),
-              ($2,$3,$4,'second','queued','manual','mock-researcher',$5)`,
-      [...executionIds, id, quotaOwnerId, providerId],
+       values ($1,$2,$5,'first','queued','manual','mock-researcher',$6),
+              ($3,$4,$5,'second','queued','manual','mock-researcher',$6)`,
+      [executionIds[0], taskIds[0], executionIds[1], taskIds[1], quotaOwnerId, providerId],
     );
     const executionLimits = { maxTaskExecutionsPerDay: 1, maxConcurrentExecutionsPerUser: 10 };
     const claims = await Promise.all(

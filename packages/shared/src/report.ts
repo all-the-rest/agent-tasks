@@ -6,6 +6,41 @@ import { toMarkdown } from 'mdast-util-to-markdown';
 import { visit } from 'unist-util-visit';
 import type { Root } from 'mdast';
 
+const MARKDOWN_PUNCTUATION = new Set([
+  '!', '"', '#', '$', '%', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>', '?', '@',
+  '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~',
+]);
+
+/** Keep untrusted single-line text from creating Markdown structure or links. */
+function escapeMarkdownText(value: string): string {
+  let escaped = '';
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code === 9 || code === 10 || code === 13 || code === 0x2028 || code === 0x2029) {
+      escaped += ' ';
+    } else if (code < 32 || code === 127) {
+      continue;
+    } else {
+      escaped += MARKDOWN_PUNCTUATION.has(character) ? `\\${character}` : character;
+    }
+  }
+  return escaped;
+}
+
+/** Only collected HTTP(S) page URLs become clickable in a generated export. */
+function markdownSourceUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    // URLs are public citations, never a place to preserve embedded credentials.
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 /** Strips control characters and caps length — used before text reaches storage or logs. */
 export function sanitizeText(value: string, maxLength = 20_000): string {
   // Remove C0 control characters except tab, newline and carriage return. A loop is
@@ -26,20 +61,23 @@ export function emptyReport(summary: string): ExecutionReport {
 
 /** Markdown export of a finished execution, deterministic and free of HTML. */
 export function reportToMarkdown(report: ExecutionReport, meta: { title: string; finishedAt: string | null }): string {
-  const lines: string[] = [`# ${meta.title}`, ''];
-  if (meta.finishedAt) lines.push(`_Generated at ${meta.finishedAt}_`, '');
-  lines.push(report.markdown.trim(), '');
+  const lines: string[] = [`# ${escapeMarkdownText(meta.title)}`, ''];
+  if (meta.finishedAt) lines.push(`_Generated at ${escapeMarkdownText(meta.finishedAt)}_`, '');
+  // Recheck on export as stored reports may predate provenance enforcement.
+  lines.push(checkReportLinks(report.markdown, report.sources).markdown.trim(), '');
   if (report.sources.length > 0) {
     lines.push('## Sources', '');
     for (const source of report.sources) {
-      const label = source.title ?? source.url;
-      lines.push(`- [${label}](${source.url}) — ${source.confidence}, retrieved ${source.retrievedAt}`);
+      const label = escapeMarkdownText(source.title ?? source.url);
+      const url = markdownSourceUrl(source.url);
+      const citation = url ? `[${label}](<${url}>)` : label;
+      lines.push(`- ${citation} — ${escapeMarkdownText(source.confidence)}, retrieved ${escapeMarkdownText(source.retrievedAt)}`);
     }
     lines.push('');
   }
   if (report.uncertainty.length > 0) {
     lines.push('## Uncertainty', '');
-    for (const item of report.uncertainty) lines.push(`- ${item}`);
+    for (const item of report.uncertainty) lines.push(`- ${escapeMarkdownText(item)}`);
     lines.push('');
   }
   return lines.join('\n');
@@ -64,11 +102,12 @@ export function reportChangeStatus(
   return previous === nextMarkdown.trim() ? 'unchanged' : 'changed';
 }
 
-/** URL form used for source matching: no fragment, no trailing slash, lower-case host. */
+/** URL form used for source matching; credential-bearing citations are never trusted. */
 function normalizedUrl(value: string): string | null {
   try {
     const url = new URL(value.trim());
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    if (url.username || url.password) return null;
     url.hash = '';
     return url.toString().replace(/\/$/, '');
   } catch {

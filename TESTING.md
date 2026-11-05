@@ -39,7 +39,7 @@ Every integration file truncates the database at the start, so files run sequent
 | `TEST_DATABASE_URL` | integration harness | `DATABASE_URL`, then `postgres://agent:agent@dind:55432/agent_tasks` | no, but set it explicitly |
 | `E2E_BASE_URL` | Playwright | `http://localhost:8080` | no |
 | `E2E_SETUP_TOKEN` | E2E setup test | — | yes when the instance has no administrator |
-| `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` | E2E login test | — | yes when the instance is already configured |
+| `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD` | E2E login/setup fixture | — | yes for an already-configured instance; optional as a pair on a fresh instance to keep the created admin stable across worker restarts |
 | `CI` | Playwright config | unset | no; a non-empty value enables one retry |
 
 ## Browser E2E
@@ -49,11 +49,15 @@ needs the secrets from [DEPLOYMENT.md](DEPLOYMENT.md); `E2E_SETUP_TOKEN` must be
 same value as the stack's `SETUP_TOKEN`.
 
 ```bash
-docker compose --profile search up -d --build
+docker compose --profile mail --profile search up -d --build
 E2E_BASE_URL=http://localhost:8080 E2E_SETUP_TOKEN=<SETUP_TOKEN> pnpm test:e2e
 # already-configured instance:
 E2E_BASE_URL=http://localhost:8080 E2E_ADMIN_EMAIL=<admin> E2E_ADMIN_PASSWORD=<password> pnpm test:e2e
 ```
+
+Both optional profiles are required for this suite: `mail` provides the SMTP
+inbox used by invitation flows, and `search` provides the configured research
+backend. Starting only the core services leaves the E2E mail flow incomplete.
 
 The isolated E2E stack keeps a local stack running and has its own ports, project
 name and volumes. It generates matching `SETUP_TOKEN`/`E2E_SETUP_TOKEN` and
@@ -63,6 +67,12 @@ name and volumes. It generates matching `SETUP_TOKEN`/`E2E_SETUP_TOKEN` and
 deployment/stack.sh e2e --profile mail --profile search up -d --build
 ( set -a; . deployment/env/e2e.env; set +a; pnpm test:e2e )
 ```
+
+If another Docker project already owns one of the generated host ports, override
+only the affected values for both the stack start and test invocation. For example,
+set a free `HTTP_PORT`, matching `PUBLIC_BASE_URL`/`E2E_BASE_URL`, and free
+`MAILPIT_SMTP_PORT`/`MAILPIT_HTTP_PORT`; do not stop or reconfigure the other
+project or edit the generated credentials file just to resolve a port collision.
 
 See [`deployment/README.md`](deployment/README.md) for the stack layout. The
 compose stack has no separate web container: the API image serves the built SPA

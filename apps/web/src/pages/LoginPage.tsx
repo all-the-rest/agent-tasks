@@ -168,6 +168,12 @@ export function LoginPage() {
         ) : null
       }
     >
+      {!isTotpStep && config.isError ? (
+        <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void config.refetch()} />
+      ) : null}
+      {!isTotpStep && setup.isError ? (
+        <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void setup.refetch()} />
+      ) : null}
       {isTotpStep ? (
         <form className="flex flex-col gap-3" onSubmit={onVerify} noValidate>
           {error ? <ErrorAlert message={error} /> : null}

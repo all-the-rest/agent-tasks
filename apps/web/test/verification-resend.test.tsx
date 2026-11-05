@@ -8,6 +8,7 @@ import { AuthProvider } from '../src/lib/auth';
 import { ThemeProvider } from '../src/lib/theme';
 import { LoginPage } from '../src/pages/LoginPage';
 import { setLanguage } from '../src/i18n';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 
 /**
  * A public sign-up must verify its mailbox before a session exists. If the mail
@@ -126,6 +127,7 @@ describe('verification email resend', () => {
       'Verify your e-mail address first. Check your inbox for the link.',
     );
     expect(screen.getByRole('button', { name: 'Resend verification email' })).toBeTruthy();
+    expectInteractiveControlsNamed();
   });
 
   it('requests a fresh link for the typed address and shows a generic confirmation', async () => {
@@ -135,13 +137,12 @@ describe('verification email resend', () => {
     await browser.click(await screen.findByRole('button', { name: 'Resend verification email' }));
 
     expect(resendBody).toEqual({ email: 'unverified@example.com' });
-    expect(
-      await screen.findByText(
-        'If the address still needs verification, a new link is on its way. Check your inbox and spam folder.',
-      ),
-    ).toBeTruthy();
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'If the address still needs verification, a new link is on its way. Check your inbox and spam folder.',
+    );
     // The confirmation must not echo the address or imply that an account exists.
     expect(screen.queryByText('unverified@example.com')).toBeNull();
+    expectInteractiveControlsNamed();
     const signInCalls = fetchMock.mock.calls.filter(([input]) =>
       String(input).endsWith('/api/auth/sign-in/email'),
     );
@@ -155,10 +156,10 @@ describe('verification email resend', () => {
 
     await browser.click(await screen.findByRole('button', { name: 'Resend verification email' }));
 
-    expect(
-      await screen.findByText('Too many requests. Please wait a few minutes and try again.'),
-    ).toBeTruthy();
+    const throttleMessage = await screen.findByText('Too many requests. Please wait a few minutes and try again.');
+    expect(throttleMessage.closest('[role="alert"]')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Resend verification email' })).toBeTruthy();
+    expectInteractiveControlsNamed();
     const resendCalls = fetchMock.mock.calls.filter(([input]) =>
       String(input).endsWith('/api/auth/send-verification-email'),
     );

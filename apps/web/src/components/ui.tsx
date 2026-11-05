@@ -16,11 +16,16 @@ import type { ExecutionStatus } from '../lib/types';
 
 export function Spinner({ label }: { label?: string }) {
   const { t } = useTranslation();
-  const text = label ?? t('common.loading');
+  const defaultText = t('common.loading');
+  const text = label ?? defaultText;
   return (
     <span className="inline-flex items-center gap-2" role="status" aria-live="polite">
       <span className="loading loading-spinner loading-sm" aria-hidden="true" />
-      {text ? <span className="text-sm opacity-70">{text}</span> : null}
+      {text ? (
+        <span className="text-sm opacity-70">{text}</span>
+      ) : (
+        <span className="sr-only">{defaultText}</span>
+      )}
     </span>
   );
 }

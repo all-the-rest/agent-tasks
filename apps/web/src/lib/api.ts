@@ -25,6 +25,7 @@ import type {
   TaskInput,
   TaskShare,
   TaskShareCreated,
+  TaskConversation,
   TaskShareSnapshot,
   TaskStatus,
 } from './types';
@@ -208,6 +209,8 @@ export const api = {
     remove: (id: string) => del(`/api/tasks/${id}`),
     action: (id: string, action: 'pause' | 'resume' | 'run' | 'duplicate') =>
       post<Task | { executionId?: string }>(`/api/tasks/${id}/${action}`),
+    conversation: (id: string) => get<TaskConversation>(`/api/tasks/${id}/conversation`),
+    followUp: (id: string, message: string) => post<{ executionId: string }>(`/api/tasks/${id}/follow-up`, { message }),
     executions: (id: string) => get<ExecutionSummary[]>(`/api/tasks/${id}/executions`),
     executionsPage: (id: string, params: { cursor?: string; limit?: number } = {}) => {
       const query = new URLSearchParams({ pagination: 'cursor' });

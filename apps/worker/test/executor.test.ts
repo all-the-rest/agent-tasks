@@ -8,6 +8,7 @@ import { SecretBox, ProviderError } from '@agent-tasks/ai-providers';
 import { AGENT_RUNTIME_LIMITS } from '@agent-tasks/shared';
 import { Executor, classifyExecutionFailure, getExecutionAbortReason, modelSupportsTools, providerHeaderSecrets } from '../src/executor.js';
 import type { WorkerEnv } from '../src/env.js';
+import { QUEUE_EXECUTION } from '../src/queues.js';
 
 const env: WorkerEnv = {
   NODE_ENV: 'test',
@@ -117,7 +118,15 @@ interface StepRow {
   resultPreview?: string | null;
 }
 
-function executionFixture(options: { attempt?: number; steps?: StepRow[]; agentLimits?: Record<string, number> } = {}) {
+function executionFixture(options: {
+  attempt?: number;
+  steps?: StepRow[];
+  agentLimits?: Record<string, number>;
+  conversationMode?: 'standalone' | 'conversation';
+  inputSnapshot?: string;
+  otherRunningForTask?: number;
+  priorTurns?: Array<{ id: string; status: string; inputSnapshot: string; report: { markdown: string } | null }>;
+} = {}) {
   const executionId = options.steps?.[0]?.executionId ?? randomUUID();
   const task = {
     id: randomUUID(),
@@ -125,6 +134,7 @@ function executionFixture(options: { attempt?: number; steps?: StepRow[]; agentL
     ownerId,
     title: 'Timeout task',
     prompt: 'Wait for the provider',
+    conversationMode: options.conversationMode ?? 'standalone',
     systemInstructions: null,
     timezone: 'Europe/Vienna',
     model: 'mock-model',
@@ -144,18 +154,23 @@ function executionFixture(options: { attempt?: number; steps?: StepRow[]; agentL
       headers: { authorization: HEADER_SECRET },
     },
   };
-  const execution = { id: executionId, ownerId, attempt: options.attempt ?? 0 };
+  const execution = { id: executionId, ownerId, attempt: options.attempt ?? 0, inputSnapshot: options.inputSnapshot ?? task.prompt };
   const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
   const stepRows: StepRow[] = [...(options.steps ?? [])];
   const stepInserts: StepRow[] = [];
   const stepDeletes: Array<{ sql: string; params: unknown[] }> = [];
+  let executionSelectCount = 0;
   const dialect = new PgDialect();
   const execute = async (query: unknown) => {
     const sql = typeof query === 'string' ? query : dialect.sqlToQuery(query as never).sql;
     if (sql.includes('from system_settings')) return { rows: [{ values: { agentLimits: options.agentLimits ?? {} } }] };
-    if (sql.includes('select owner_id, attempt')) return { rows: [{ owner_id: ownerId, attempt: 0, already_admitted_today: false }] };
+    if (sql.includes('select owner_id, task_id, attempt')) return { rows: [{ owner_id: ownerId, task_id: task.id, attempt: 0, already_admitted_today: false }] };
     if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
-    if (sql.includes('prior_executions_today')) return { rows: [{ prior_executions_today: 0, other_running_for_owner: 0 }] };
+    if (sql.includes('prior_executions_today')) return { rows: [{
+      prior_executions_today: 0,
+      other_running_for_owner: 0,
+      other_running_for_task: options.otherRunningForTask ?? 0,
+    }] };
     if (sql.includes("set status = 'running'")) return { rows: [] };
     if (sql.includes('set lease_expires_at')) return { rows: [] };
     if (sql.includes('select cancel_requested')) return { rows: [{ cancel_requested: false }] };
@@ -176,7 +191,12 @@ function executionFixture(options: { attempt?: number; steps?: StepRow[]; agentL
     select: () => ({
       from(table: unknown) {
         if (table === providers) return chain([provider]);
-        if (table === executions) return chain([{ execution, task }]);
+        if (table === executions) {
+          executionSelectCount += 1;
+          if (executionSelectCount === 1) return chain([{ execution, task }]);
+          if (task.conversationMode === 'conversation' && executionSelectCount === 2) return chain(options.priorTurns ?? []);
+          return chain([]);
+        }
         if (table === providerCredentials) return chain([{ ownerId: null, ciphertext: box.encrypt('fake-provider-key') }]);
         if (table === providerModels) return chain([]);
         if (table === executionSteps) return chain(stepRows);
@@ -239,6 +259,47 @@ const completedResult: AgentRunResult = {
 };
 
 describe('execution timeline persistence', () => {
+  it('requeues a same-task execution after transient contention without spending an attempt', async () => {
+    const fixture = executionFixture({ otherRunningForTask: 1 });
+    const { executor, send } = executorFor(fixture, async () => {
+      throw new Error('a deferred execution must not run');
+    });
+
+    await executor.handle(fixture.executionId);
+
+    expect(send).toHaveBeenCalledWith(QUEUE_EXECUTION, { executionId: fixture.executionId }, {
+      startAfter: 30,
+      singletonKey: expect.stringMatching(new RegExp(`^${fixture.executionId}:task-busy:\\d+$`)),
+      retryLimit: 0,
+    });
+    expect(executionStatus(fixture.updates)).toBeUndefined();
+  });
+
+  it('passes the immutable execution input with bounded completed conversation context', async () => {
+    const fixture = executionFixture({
+      conversationMode: 'conversation',
+      inputSnapshot: 'What changed since yesterday?',
+      priorTurns: [{
+        id: 'previous-run',
+        status: 'completed',
+        inputSnapshot: 'Summarize yesterday.',
+        report: { markdown: 'Yesterday’s findings.' },
+      }],
+    });
+    let observed: RunAgentOptions | undefined;
+    const { executor } = executorFor(fixture, async (options) => {
+      observed = options;
+      return completedResult;
+    });
+
+    await executor.handle(fixture.executionId);
+
+    expect(observed?.prompt).toBe('What changed since yesterday?');
+    expect(JSON.parse(observed?.conversationContext ?? '[]')).toEqual([
+      { user: 'Summarize yesterday.', assistant: 'Yesterday’s findings.' },
+    ]);
+  });
+
   it('uses validated administrator limits rather than task-owned limit values', async () => {
     const fixture = executionFixture({ agentLimits: {
       maxDurationSec: 45,
