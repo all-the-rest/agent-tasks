@@ -68,7 +68,9 @@ Three ideas carry most of the value:
 2. **Results are an inbox, not a log.** A run that found nothing is a different
    state from a run that needs you.
 3. **A task is portable.** Its definition can be shared as a snapshot; its data
-   (history, memory, credentials) never travels with it.
+   (history, memory, credentials) never travels with it. Its destination can be a
+   standalone run or the same task's private conversation history; that history
+   remains owner-scoped and is not a separately shared chat.
 
 ## 3. Observed UI (walkthrough, German UI, Plus account, 2026-11-03)
 
@@ -255,7 +257,7 @@ automated" marker — a trade-off we should decide explicitly.
 | End condition: never / on a date | **Adopt** | Add "after N runs" as our extension |
 | Pause and save in the modal footer | **Adopt** | Lifecycle where the definition lives |
 | Save disabled until dirty | **Adopt** | Prevents accidental no-op writes |
-| Destination: this chat vs new chat per run | **Adopt** | The single biggest UX differentiator |
+| Destination: continue this task's private conversation vs standalone runs | **Adapt — implemented for v1** | A task-level mode reuses owner-scoped execution history; no external chat or OpenCode Web surface is introduced |
 | Model / reasoning per task | **Adapt** | We pin provider + model, not "reasoning effort" |
 
 ### 4.3 Runs and inbox
@@ -263,10 +265,10 @@ automated" marker — a trade-off we should decide explicitly.
 | Behaviour | Decision | Why |
 | --- | --- | --- |
 | Run-now without moving the schedule | **Adopt** | Essential for testing a prompt |
-| Runs as immutable snapshots | **Adopt** | Partly ours already: title, model, report and usage are frozen per run; prompt and schedule are not (see §8.2) |
+| Runs as immutable snapshots | **Adopt** | Each run now stores its exact user-input snapshot, including follow-ups; title, model, report and usage are also frozen. Schedule and other task settings remain task-level values (see §8.2) |
 | "Nothing to report" as a real outcome | **Adopt** | The core of monitoring |
 | Unread marker on new runs | **Adopt** | The inbox metaphor depends on it |
-| Run history shown inside the chat | **Adapt** | We keep runs in the task view and link the chat |
+| Run history shown inside the chat | **Adapt — shipped in v1** | Runs and private follow-ups stay in the task view; there is no separate chat object to link |
 | Completed filter separate from paused | **Adopt** | Different recovery actions |
 
 ### 4.4 Sharing, permissions, compliance
@@ -338,9 +340,10 @@ remove a working capability to look more like the reference.
 
 ## 7. Behavioural edge cases to encode as tests
 
-- Deleting a chat pauses its tasks but does not delete the task or a share link.
-  _(blocked on the destination slice — there is no chat concept yet)_
-- Deleting a task leaves the chat untouched. _(blocked on the destination slice)_
+- External chat deletion semantics are out of scope: v1 creates no separate chat
+  object; private conversation history is the task's execution history.
+- There is no separate chat to preserve when a task is deleted; task deletion
+  follows the existing task/execution data lifecycle.
 - Resuming does not backfill missed runs.
 - Two occurrences with the same `(task, scheduled_for)` never double-book.
 - "Nothing to report" is a valid outcome and still consumes quota/usage.
@@ -354,6 +357,15 @@ remove a working capability to look more like the reference.
 - Relative next-run text stays correct across DST changes.
 - An empty filter shows the empty state, not the suggestion block.
 - Duplicating a task copies definition and schedule, never history or memory.
+- Follow-ups are accepted only for enabled, incomplete conversation tasks and are
+  rejected while that task has a queued or running execution.
+- A task has at most one queued or running execution: the scheduler leaves due work
+  pending while an execution is active, and a racing worker claim is deferred without
+  consuming a retry attempt.
+- A follow-up is a manual execution: it preserves the schedule and stores its
+  exact message as the execution input; a retry keeps that same input.
+- Conversation context includes only recent completed executions from the same
+  task and owner, is byte-bounded, and treats historical text as untrusted data.
 
 ## 8. Template vs. implementation — reconciled against the code (2026-11-03)
 
@@ -374,6 +386,9 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Leases, retries, cancellation | worker id, lease expiry, attempt counter, `cancel_requested` | `schema.ts:238-250`, `apps/worker/src/executor.ts` |
 | Run statuses | `queued, running, completed, failed, cancelled, timed_out` | `packages/shared/src/status.ts:1` |
 | Immutable run history | denormalised `task_title`, provider, model, `usage`, `report` JSON | `schema.ts:233-247`, `scheduling.ts:38`, `executor.ts:297-299` |
+| Immutable run input | Each manual, scheduled, follow-up and retry execution stores `input_snapshot`; retries copy the failed attempt's input | `schema.ts` (`executions.inputSnapshot`), `drizzle/0010_woozy_mauler.sql`, task routes and `scheduling.ts` |
+| Private task conversation | Task-level standalone/conversation mode (new and migrated tasks default to standalone); owner-scoped history and follow-up endpoint; one active manual run/follow-up at a time | `apps/api/src/routes/tasks.ts`, `TaskDetailPage.tsx`, `test/integration/tasks.test.ts` |
+| Bounded conversation context | Up to four recent completed turns, capped at 8 KB per turn and 24 KB serialized; prior text is labelled untrusted | `packages/shared/src/conversation.ts`, `packages/agent-runtime/src/prompt.ts`, worker tests |
 | Tool timeline | one row per tool call with args, duration, error, preview | `schema.ts:262-280` |
 | Sources with confidence | `execution_sources` with `confidence`, `excerpt`, unique per URL | `schema.ts:282-296` |
 | Task actions | create, edit, pause, resume, run now, duplicate, delete | `apps/api/src/routes/tasks.ts:57-283` |
@@ -411,7 +426,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Multi-weekday / multi-day-of-month | ✅+ | Reference has single day per preset |
 | Advanced recurrence (RRULE vs cron) | 🟡 | Five-field cron, no RRULE; equivalent for our cases |
 | End condition (never / date / after N) | ✅ | Date is inclusive in the task timezone; after N counts scheduled bookings, excluding manual runs and retries. Reaching a condition records completion and stops booking. |
-| Destination: this chat vs new chat | ❌ | Every run is standalone; there is no chat concept |
+| Destination: this task's private conversation vs standalone | ✅ (adapted) | The task's execution history is the conversation; follow-ups are manual executions and do not change the schedule. There is no separate chat object or OpenCode Web integration. |
 | Per-task model/reasoning effort | 🟡 | Model is pinned; variants exist (`model#high`), no explicit effort UI |
 | Per-task sandbox/permission profile | 🟡 | Browser isolation is deployment-wide; web research is a per-task switch; the per-task `limits` column is stored but not enforced (global settings win) |
 | Approval-gated unattended actions | ❌ | No approval state |
@@ -421,14 +436,14 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Reference behaviour | Ours | Note |
 | --- | --- | --- |
 | Run status incl. awaiting approval | 🟡 | Six statuses, no approval/paused |
-| Immutable snapshots | 🟡 | Title, model, report and usage are stored; prompt and schedule are not, so an edited prompt makes old runs non-reproducible |
+| Immutable snapshots | 🟡 | Title, model, report, usage and exact per-execution user input are stored. Schedule and other task settings are not snapshotted; inputs from before migration are best-effort backfilled from the task's prompt at migration time. |
 | Step timeline | ✅+ | Tool args, durations, errors |
 | Sources and confidence | ✅+ | Unique per URL, excerpt stored |
 | Token usage and duration | ✅+ | `usage` JSON, `duration_ms` |
 | Cancel / retry / export | ✅+ | Markdown and JSON export (`tasks.ts:404-426`); the reference exposes cancel implicitly |
 | "Nothing to report" as an outcome | ✅ | Each completed run stores `report.change` (`first` / `changed` / `unchanged` / `unknown`) against the previous completed run of the same task |
 | Notification only when relevant | ✅ | `notification: "email_on_change"` suppresses the e-mail when the report text is unchanged; a changed or uncomparable report is always delivered |
-| Concurrency guard per task | 🟡 | Run-now refuses while a run is active; the scheduler only dedupes per occurrence. Concurrency is limited per **user** (`quota.ts:29-31`), not per task |
+| Concurrency guard per task | ✅ | Scheduler checks active executions under the task row lock; a due occurrence remains pending until the active run finishes. Worker claims serialize through the owner lock and defer a same-task second claim without consuming a retry attempt. Covered by `test/integration/scheduler.test.ts` and `apps/worker/test/executor.test.ts`. |
 
 **Lifecycle, sharing, compliance**
 
@@ -465,7 +480,7 @@ Kept deliberately, per §5:
 | --- | --- | --- | --- |
 | 1 | ✅ **Inbox slice shipped in #20** | Owner-scoped unread counts and explicit read markers, with active / paused / completed filtering and relative next-run text | Shipped using existing task and execution state; no separate archive state |
 | 2 | ✅ **Prompt-first creation shipped** | The form asks for provider/model/schedule before the user has said what they want | Prompt composer + private history-state draft + explicit form confirmation; direct form remains available |
-| 3 | **Destination choice** | Every run looks the same; no "continue this thread" | L — needs a conversation concept |
+| 3 | ✅ **Task-bound destination implemented for #20 v1** | Per-task standalone or private conversation mode, history and follow-ups; no separate chat system | Implemented with owner-scoped execution history and bounded context |
 | 4 | **End conditions (date / after N runs)** | Long-running monitors never stop | ✅ Shipped in #20; after N counts scheduled bookings, while manual runs and retries remain independent |
 | 5 | ✅ **Monitoring comparison and quiet runs** | Unchanged report text need not generate e-mail noise | `email_on_change` suppresses unchanged reports; comparison is text-based, not semantic |
 | 6 | **Notification channels** (push, per-feature) | E-mail-only limits the product to inbox-checkers | Only-on-change e-mail exists; additional channels and per-feature settings remain open |
@@ -493,7 +508,9 @@ Kept deliberately, per §5:
 6. ✅ **Share snapshot shipped** — definition only, copy-on-adopt, revoke, explicit
    exclusion of memory and history. The link carries title, prompt, schedule and
    timezone; the adopter supplies their own provider and model.
-7. **Destination** — thread-aware runs, once a conversation model exists.
+7. ✅ **Task-bound destination implemented for #20 v1** — standalone or conversation mode;
+   follow-ups create manual executions without changing the schedule, and only
+   completed same-task turns enter the bounded context. Retry inputs are retained.
 8. **Approvals** — open design: unlisted tools are not offered and browser/egress
    hard denies must not be overridden. An OpenCode permission request can pause a
    live process, but the pending request is lost on runtime restart. Durable
@@ -512,6 +529,7 @@ Kept deliberately, per §5:
 - [x] Idempotent booking, leases, retries, cancellation, per-user concurrency and
       daily execution caps
 - [x] Immutable result snapshots (title, model, report, usage) with timeline, sources, confidence
+- [x] Immutable per-execution user input, including scheduled runs, follow-ups and retries
 - [x] Duplicate, retry, run-now, Markdown and JSON export
 - [x] Per-task and global memory with review policy
 - [x] En/de UI, owner-scoped access, audit log
@@ -526,14 +544,16 @@ Kept deliberately, per §5:
 - [x] "Nothing to report" outcome that suppresses notification
 - [ ] Notification channels beyond e-mail, with per-feature settings
 - [x] Share snapshot with copy-on-adopt and revoke
-- [ ] Destination: continue an existing thread or start a standalone run
+- [x] Task-level destination: standalone runs or a private task conversation with follow-ups
+- [x] At most one queued/running execution per task; due occurrences remain pending and racing claims are deferred without spending retry attempts
 - [ ] Approval pause for unattended actions
 - [ ] Event triggers — only after a connector layer exists (see §9 item 9)
 
 ## 11. Open questions
 
-- Do we introduce a conversation model at all, or keep runs standalone and let the
-  execution view be the destination?
+- Should conversation mode be snapshotted per execution, or should a queued run
+  use the task's mode when the worker starts it? User input itself is immutable;
+  other task settings remain task-level values.
 - Should "paused" and "disabled" stay the same state, or split?
 - Do suggestions come from a static list, from the user's past tasks, or both?
 - How do we phrase the per-user execution limits so they feel like a guardrail,
@@ -552,3 +572,7 @@ Kept deliberately, per §5:
   `packages/shared/src/limits.ts`, `packages/shared/src/status.ts`,
   `packages/database/src/schema.ts`, `apps/api/src/routes/tasks.ts`,
   `apps/worker/src/executor.ts`, `apps/web/src/pages/{Tasks,TaskForm,TaskDetail,Executions}Page.tsx`.
+- Issue #20 v1 implementation: `packages/shared/src/conversation.ts`,
+  `packages/database/drizzle/0010_woozy_mauler.sql`, task conversation API/UI,
+  and worker/prompt tests. Historical inputs are backfilled from each task's
+  current prompt at migration time; prior edited prompts cannot be reconstructed.

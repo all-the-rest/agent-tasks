@@ -49,6 +49,7 @@ function emptyValues(timezone: string, prompt = ''): TaskFormValues {
     allowWebResearch: true,
     notification: 'none',
     memorySettings: { ...DEFAULT_MEMORY_SETTINGS },
+    conversationMode: 'standalone',
   };
 }
 
@@ -84,6 +85,7 @@ function taskValues(task: Task, fallbackTimezone: string): TaskFormValues {
     allowWebResearch: task.allowWebResearch,
     notification: task.notification,
     memorySettings: { ...DEFAULT_MEMORY_SETTINGS, ...(task.memorySettings ?? {}) },
+    conversationMode: task.conversationMode ?? 'standalone',
   };
 }
 
@@ -229,9 +231,20 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
   const tr = (message?: string) =>
     message ? t(message.startsWith('validation.') ? message : 'validation.range') : undefined;
 
-  if (editing && task.isLoading) return <Spinner label={t('common.loadingPage')} />;
+  if (me.isLoading || providers.isLoading || config.isLoading || (editing && task.isLoading)) {
+    return <Spinner label={t('common.loadingPage')} />;
+  }
+  if (me.isError) {
+    return <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void me.refetch()} />;
+  }
+  if (providers.isError) {
+    return <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void providers.refetch()} />;
+  }
+  if (config.isError) {
+    return <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void config.refetch()} />;
+  }
   if (editing && (task.isError || !task.data)) {
-    return <ErrorAlert message={t('errors.notFound')} />;
+    return <ErrorAlert message={t('errors.notFound')} onRetry={() => void task.refetch()} />;
   }
 
   const zones = timezonesWith(schedule?.timezone ?? fallbackTimezone);
@@ -351,6 +364,12 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
               error={tr(errors.systemInstructions?.message)}
             >
               <textarea id="task-system" className="textarea w-full" rows={3} {...register('systemInstructions')} />
+            </Field>
+            <Field label={t('tasks.destination')} htmlFor="task-conversation-mode" hint={t('tasks.destinationHelp')}>
+              <select id="task-conversation-mode" className="select w-full" {...register('conversationMode')}>
+                <option value="standalone">{t('tasks.destinationStandalone')}</option>
+                <option value="conversation">{t('tasks.destinationConversation')}</option>
+              </select>
             </Field>
           </div>
         </section>

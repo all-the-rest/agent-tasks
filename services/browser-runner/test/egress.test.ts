@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { connect } from 'node:net';
 import { createServer, get as httpGet } from 'node:http';
 import type { Server } from 'node:http';
@@ -222,6 +222,71 @@ describe('egress proxy', () => {
     const repeated = await getAbsolute(proxy.port, firstHop.location);
     expect(repeated.status).toBe(403);
     expect(proxy.blocked.slice(before).filter((entry) => entry.host === 'rebind.internal.example')).toHaveLength(2);
+  });
+
+  it('fetches robots through the pinned egress path and revalidates redirect targets', async () => {
+    const before = proxy.blocked.length;
+    await expect(proxy.fetchRobots('http://public.example/robots.txt', 'AgentTasksResearchBot/0.2'))
+      .rejects.toThrow(/non-public|not allowed|blocked/);
+    expect(connectHosts.at(-1)).toBe('93.184.216.34');
+    expect(connectHosts).not.toContain('10.0.0.7');
+    expect(proxy.blocked.length).toBeGreaterThan(before);
+    expect(proxy.blocked.slice(before).some((entry) => entry.host === 'rebind.internal.example')).toBe(true);
+  });
+
+  it('bounds robots redirects and response size without contacting the public network', async () => {
+    let mode: 'redirect' | 'large' = 'redirect';
+    let requests = 0;
+    const fixture = createServer((_request, response) => {
+      requests += 1;
+      if (mode === 'redirect') {
+        response.writeHead(302, { location: 'http://public.example/robots.txt' }).end();
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'text/plain' });
+      response.end('x'.repeat(512 * 1024 + 1));
+    });
+    await new Promise<void>((resolve) => fixture.listen(0, '127.0.0.1', resolve));
+    const address = fixture.address();
+    if (!address || typeof address === 'string') throw new Error('robots fixture failed to bind');
+    const boundedProxy = await startEgressProxy({
+      allowedPorts: [80],
+      allowHttp: true,
+      lookupFn: async () => [{ address: '93.184.216.34', family: 4 }],
+      connectFn: (_options, connectionListener) => connect({ host: '127.0.0.1', port: address.port }, connectionListener),
+    });
+
+    try {
+      await expect(boundedProxy.fetchRobots('http://public.example/robots.txt', 'AgentTasksResearchBot/0.2'))
+        .rejects.toThrow('robots redirect limit exceeded');
+      expect(requests).toBe(6);
+      mode = 'large';
+      requests = 0;
+      await expect(boundedProxy.fetchRobots('http://public.example/robots.txt', 'AgentTasksResearchBot/0.2'))
+        .rejects.toThrow('robots response exceeded size limit');
+      expect(requests).toBe(1);
+    } finally {
+      await boundedProxy.close();
+      await new Promise<void>((resolve) => fixture.close(() => resolve()));
+    }
+  });
+
+  it('times out a stalled DNS lookup before opening a robots connection', async () => {
+    const timedProxy = await startEgressProxy({
+      allowedPorts: [80],
+      allowHttp: true,
+      lookupFn: () => new Promise<Array<{ address: string; family: number }>>(() => undefined),
+    });
+    vi.useFakeTimers();
+    try {
+      const pending = timedProxy.fetchRobots('http://public.example/robots.txt', 'AgentTasksResearchBot/0.2');
+      const rejected = expect(pending).rejects.toThrow('robots request timed out');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+      await timedProxy.close();
+    }
   });
 
   it('tunnels a public target when the network answers', async () => {

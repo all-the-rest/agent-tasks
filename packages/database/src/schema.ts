@@ -214,6 +214,7 @@ export const tasks = pgTable(
      * `contextBytes` caps the memory block injected into a run.
      */
     memorySettings: jsonb('memory_settings').notNull().default({}),
+    conversationMode: text('conversation_mode').$type<'standalone' | 'conversation'>().notNull().default('standalone'),
     nextRunAt: timestamp('next_run_at', { withTimezone: true, mode: 'date' }),
     lastRunAt: timestamp('last_run_at', { withTimezone: true, mode: 'date' }),
     ...timestamps,
@@ -265,6 +266,8 @@ export const executions = pgTable(
       .references(() => user.id, { onDelete: 'cascade' }),
     /** Denormalised snapshot so history survives later task edits. */
     taskTitle: text('task_title').notNull(),
+    /** Immutable user input for this run, independent of later task edits. */
+    inputSnapshot: text('input_snapshot').notNull().default(''),
     status: text('status').notNull(),
     trigger: text('trigger').notNull(),
     scheduledFor: timestamp('scheduled_for', { withTimezone: true, mode: 'date' }),

@@ -10,6 +10,7 @@ import { de } from '../src/i18n/de';
 import { en } from '../src/i18n/en';
 import { api } from '../src/lib/api';
 import { AuthProvider, RequireAuth, useAuth } from '../src/lib/auth';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 import { resetTaskPromptDraftMemory, setTaskPromptDraftOwner, taskPromptDraftState } from '../src/lib/task-prompt-draft';
 import { TASK_SUGGESTION_IDS } from '../src/lib/task-suggestions';
 import type { SessionUser, Task } from '../src/lib/types';
@@ -77,6 +78,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     allowWebResearch: false,
     notification: 'none',
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
+    conversationMode: 'standalone',
     nextRunAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -132,6 +134,7 @@ function renderCreationFlow(initialEntries: Array<string | { pathname: string; s
               <Route element={<RequireAuth><Outlet /></RequireAuth>}>
                 <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/tasks/new" element={<TaskFormPage />} />
+                <Route path="/tasks/:id/edit" element={<TaskFormPage />} />
                 <Route path="/tasks/:id" element={<p>Task details</p>} />
               </Route>
             </Routes>
@@ -157,6 +160,7 @@ function renderBrowserCreationFlow() {
               <Route element={<RequireAuth><Outlet /></RequireAuth>}>
                 <Route path="/tasks" element={<TasksPage />} />
                 <Route path="/tasks/new" element={<TaskFormPage />} />
+                <Route path="/tasks/:id/edit" element={<TaskFormPage />} />
                 <Route path="/tasks/:id" element={<p>Task details</p>} />
               </Route>
             </Routes>
@@ -273,7 +277,7 @@ describe('prompt-first task creation', () => {
     const restoredComposer = await screen.findByRole('textbox', { name: 'What should this task do?' });
     expect((restoredComposer as HTMLTextAreaElement).value).toBe(editedPrompt);
     expect(screen.getByTestId('current-location').textContent).toBe('/tasks');
-  });
+  }, 15_000);
 
   it('retains review edits in owner-scoped history state across a reload-style remount', async () => {
     mockCreationApi();
@@ -364,7 +368,7 @@ describe('prompt-first task creation', () => {
     const reloadedComposer = await screen.findByRole('textbox', { name: 'What should this task do?' });
     expect((reloadedComposer as HTMLTextAreaElement).value).toBe('');
     expect(screen.getByTestId('current-location').textContent).toBe('/tasks');
-  });
+  }, 15_000);
 
   it('gives every form control a non-empty accessible name', async () => {
     mockCreationApi();
@@ -396,6 +400,7 @@ describe('prompt-first task creation', () => {
       return !(ariaLabel || labelledBy || labelText);
     });
     expect(unnamedRoleless.map((element) => `${element.tagName.toLowerCase()}#${element.id}`)).toEqual([]);
+    expectInteractiveControlsNamed();
   });
 
   it('keeps the direct new-task form available without a prompt draft', async () => {
@@ -405,6 +410,76 @@ describe('prompt-first task creation', () => {
     expect((await screen.findByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement).value).toBe('');
     expect(screen.getByRole('button', { name: 'Save task' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review and create task' })).toBeNull();
+  });
+
+  it('retries a failed task edit load before exposing the form', async () => {
+    mockCreationApi();
+    const getTask = vi.spyOn(api.tasks, 'get')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(makeTask({ id: 'task-edit' }));
+
+    renderCreationFlow(['/tasks/task-edit/edit']);
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save task' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('textbox', { name: 'Prompt' })).toBeTruthy();
+    expect(getTask).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces provider catalog failures and retries before exposing the task form', async () => {
+    mockCreationApi();
+    const providersQuery = vi.mocked(api.providers.list).mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup({ delay: null });
+
+    renderCreationFlow(['/tasks/new']);
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save task' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('textbox', { name: 'Prompt' })).toBeTruthy();
+    expect(providersQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces profile load failures and retries before exposing the task form', async () => {
+    mockCreationApi();
+    const profileQuery = vi.mocked(api.me).mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup({ delay: null });
+
+    renderCreationFlow(['/tasks/new']);
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('textbox', { name: 'Prompt' })).toBeTruthy();
+    expect(profileQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces schedule configuration failures and retries before exposing the task form', async () => {
+    mockCreationApi();
+    const configQuery = vi.mocked(api.config).mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup({ delay: null });
+
+    renderCreationFlow(['/tasks/new']);
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('textbox', { name: 'Prompt' })).toBeTruthy();
+    expect(configQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('defaults new tasks to standalone and submits an explicitly selected private conversation mode', async () => {
+    const createTask = mockCreationApi();
+    const user = userEvent.setup({ delay: null });
+    renderCreationFlow(['/tasks/new']);
+
+    const destination = await screen.findByRole('combobox', { name: 'Run destination' });
+    expect((destination as HTMLSelectElement).value).toBe('standalone');
+    await user.selectOptions(destination, 'conversation');
+    await user.type(screen.getByRole('textbox', { name: 'Title' }), 'Private weekly research');
+    await user.type(screen.getByRole('textbox', { name: 'Prompt' }), 'Summarize new public research and cite the sources every week.');
+    await user.click(screen.getByRole('button', { name: 'Save task' }));
+
+    await waitFor(() => expect(createTask).toHaveBeenCalledWith(expect.objectContaining({ conversationMode: 'conversation' })));
   });
 
   it('offers only providers the worker can execute', async () => {

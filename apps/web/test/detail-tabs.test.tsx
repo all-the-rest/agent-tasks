@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -12,6 +12,7 @@ import type { Execution, Task } from '../src/lib/types';
 import { ExecutionDetailPage } from '../src/pages/ExecutionDetailPage';
 import { MemoryPage } from '../src/pages/MemoryPage';
 import { TaskDetailPage } from '../src/pages/TaskDetailPage';
+import { expectInteractiveControlsNamed } from './accessibility-helpers';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -32,6 +33,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     allowWebResearch: false,
     notification: 'none',
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
+    conversationMode: 'standalone',
     nextRunAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -52,6 +54,7 @@ function makeExecution(): Execution {
     finishedAt: '2026-01-01T00:01:00.000Z',
     durationMs: 60_000,
     error: null,
+    inputSnapshot: 'Research current developments.',
     ownerId: 'owner-1',
     providerId: 'provider-1',
     model: 'mock-model',
@@ -63,19 +66,26 @@ function makeExecution(): Execution {
   };
 }
 
-function renderAt(path: string, route: string, element: ReactElement) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
-        <ToastProvider>
-          <Routes>
-            <Route path={route} element={element} />
-          </Routes>
-        </ToastProvider>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+function renderAt(
+  path: string,
+  route: string,
+  element: ReactElement,
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[path]}>
+          <ToastProvider>
+            <Routes>
+              <Route path={route} element={element} />
+            </Routes>
+          </ToastProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 /** WAI-ARIA tabs: each tab controls an existing panel, and selection tracks visibility. */
@@ -121,6 +131,7 @@ describe('memory scope tabs', () => {
 
     const globalTab = await screen.findByRole('tab', { name: 'Global user memory' });
     const taskTab = screen.getByRole('tab', { name: 'Task memory' });
+    expectInteractiveControlsNamed();
 
     expect(globalTab.getAttribute('aria-selected')).toBe('true');
     expect(taskTab.getAttribute('aria-selected')).toBe('false');
@@ -136,6 +147,24 @@ describe('memory scope tabs', () => {
     expect(document.getElementById(taskPanel?.id ?? '')?.hasAttribute('hidden')).toBe(false);
     expect(document.getElementById(globalPanel?.id ?? '')?.hasAttribute('hidden')).toBe(true);
     expect(await screen.findByRole('heading', { name: 'All task memories' })).toBeTruthy();
+  });
+
+  it('gives the memory editor dialog a name and names every form control', async () => {
+    const user = userEvent.setup({ delay: null });
+    renderMemory();
+
+    await user.click(await screen.findByRole('button', { name: 'Add memory' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    const titleId = dialog.getAttribute('aria-labelledby');
+    expect(titleId).toBeTruthy();
+    expect(titleId ? document.getElementById(titleId)?.textContent?.trim() : '').toBeTruthy();
+    expect(within(dialog).getByRole('combobox', { name: 'Category' })).toBeTruthy();
+    expect(within(dialog).getAllByRole('textbox')).toHaveLength(2);
+
+    for (const role of ['button', 'combobox', 'textbox'] as const) {
+      expect(within(dialog).queryAllByRole(role, { name: '' }), `unnamed dialog ${role}`).toHaveLength(0);
+    }
   });
 
   it('moves and activates tabs with arrow, Home and End keys', async () => {
@@ -160,11 +189,38 @@ describe('memory scope tabs', () => {
     expect(document.activeElement).toBe(globalTab);
     expect(globalTab.getAttribute('aria-selected')).toBe('true');
   });
+
+  it('announces memory statistics load failures and retries them', async () => {
+    const statsQuery = vi.spyOn(api.memory, 'stats')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ global: 2, task: 3, total: 5 });
+
+    renderMemory();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(statsQuery).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('5')).toBeTruthy();
+  });
+
+  it('announces memory-list load failures and retries the list query', async () => {
+    const memoryQuery = vi.spyOn(api.memory, 'list')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ items: [], total: 0, limit: 100, offset: 0 });
+
+    renderMemory();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(memoryQuery).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('task detail tabs', () => {
-  function renderTaskDetail() {
-    return renderAt('/tasks/task-active', '/tasks/:id', <TaskDetailPage />);
+  function renderTaskDetail(queryClient?: QueryClient) {
+    return renderAt('/tasks/task-active', '/tasks/:id', <TaskDetailPage />, queryClient);
   }
 
   beforeEach(() => {
@@ -174,6 +230,54 @@ describe('task detail tabs', () => {
     vi.spyOn(api.tasks, 'memoryChanges').mockResolvedValue([]);
     vi.spyOn(api.recommendations, 'list').mockResolvedValue([]);
     vi.spyOn(api.recommendations, 'events').mockResolvedValue([]);
+  });
+
+  it('announces task detail load failures and retries the query', async () => {
+    const taskQuery = vi.spyOn(api.tasks, 'get')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(makeTask());
+
+    renderTaskDetail();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('tab', { name: 'Overview' })).toBeTruthy();
+    expect(taskQuery).toHaveBeenCalledTimes(2);
+    expectInteractiveControlsNamed();
+  });
+
+  it('announces and retries a failed execution-history refresh while keeping loaded runs visible', async () => {
+    let failNextRefresh = false;
+    const executionsPage = vi.spyOn(api.tasks, 'executionsPage').mockImplementation(async () => {
+      if (failNextRefresh) {
+        throw new Error('offline');
+      }
+      return { items: [makeExecution()], nextCursor: null };
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(['task-executions', 'task-active'], {
+      pages: [{ items: [{ ...makeExecution(), id: 'run-cached' }], nextCursor: null }],
+      pageParams: [null],
+    });
+
+    renderTaskDetail(queryClient);
+
+    expect(await screen.findByRole('link', { name: 'run-cach' })).toBeTruthy();
+    const callsBeforeRefresh = executionsPage.mock.calls.length;
+    failNextRefresh = true;
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['task-executions', 'task-active'], exact: true });
+    });
+    failNextRefresh = false;
+
+    expect(executionsPage.mock.calls.length).toBeGreaterThan(callsBeforeRefresh);
+    expect(queryClient.getQueryState(['task-executions', 'task-active'])?.status).toBe('error');
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    const callsAfterFailedRefresh = executionsPage.mock.calls.length;
+    expect(screen.getByRole('link', { name: 'run-cach' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(executionsPage.mock.calls.length).toBeGreaterThan(callsAfterFailedRefresh);
   });
 
   it('gives every tab a panel and exposes only the selected panel', async () => {
@@ -186,6 +290,7 @@ describe('task detail tabs', () => {
     expect(overview.getAttribute('aria-selected')).toBe('true');
     for (const tab of [overview, memory, recommendations]) expectTabLinkage(tab);
     expect(screen.getByRole('tablist').getAttribute('aria-label')).toBe('Task details');
+    expectInteractiveControlsNamed();
   });
 
   it('switches panels with arrow keys and follows roving tabindex', async () => {
@@ -218,6 +323,91 @@ describe('task detail tabs', () => {
     expect(document.activeElement).toBe(overview);
     expect(overview.getAttribute('aria-selected')).toBe('true');
   });
+
+  it('announces memory change history failures and retries the query', async () => {
+    const changesQuery = vi.spyOn(api.tasks, 'memoryChanges')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce([]);
+
+    renderTaskDetail();
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Memory' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(changesQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces memory suggestion failures and retries the query', async () => {
+    const suggestionsQuery = vi.spyOn(api.tasks, 'memorySuggestions')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce([]);
+
+    renderTaskDetail();
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Memory' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(suggestionsQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces task execution history failures and retries the query', async () => {
+    const executionsQuery = vi.spyOn(api.tasks, 'executionsPage')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ items: [], nextCursor: null });
+
+    renderTaskDetail();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(executionsQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces conversation history failures and retries before rendering the follow-up composer', async () => {
+    vi.spyOn(api.tasks, 'get').mockResolvedValue(makeTask({ conversationMode: 'conversation' }));
+    const conversationQuery = vi.spyOn(api.tasks, 'conversation')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ items: [] });
+
+    renderTaskDetail();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(conversationQuery).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expectInteractiveControlsNamed();
+  });
+
+  it('announces recommendation history failures and retries the query', async () => {
+    const eventsQuery = vi.spyOn(api.recommendations, 'events')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce([]);
+
+    renderTaskDetail();
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Recommendations' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(eventsQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('announces recommendation list failures and retries the query', async () => {
+    const recommendationsQuery = vi.spyOn(api.recommendations, 'list')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce([]);
+
+    renderTaskDetail();
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Recommendations' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(recommendationsQuery).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('execution detail tabs', () => {
@@ -240,6 +430,7 @@ describe('execution detail tabs', () => {
     const tabs = await screen.findAllByRole('tab');
     expect(tabs).toHaveLength(4);
     for (const tab of tabs) expectTabLinkage(tab);
+    expectInteractiveControlsNamed();
 
     const panels = tabs.map((tab) => document.getElementById(tab.getAttribute('aria-controls') ?? ''));
     expect(new Set(panels.map((panel) => panel?.id)).size).toBe(4);
@@ -272,5 +463,20 @@ describe('execution detail tabs', () => {
     await user.keyboard('{ArrowRight}');
     expect(document.activeElement).toBe(report);
     expect(sources?.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('announces execution memory failures once and retries the shared review query', async () => {
+    const memoryQuery = vi.spyOn(api.executions, 'memory')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ changes: [], suggestions: [], recommendationEvents: [] });
+
+    renderExecutionDetail();
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Memory' }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(memoryQuery).toHaveBeenCalledTimes(2);
   });
 });

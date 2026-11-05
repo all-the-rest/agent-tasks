@@ -27,9 +27,10 @@ import {
   mergeProviderCatalog,
   parseMemorySettings,
   renderEmailDocument,
-  reportToMarkdown,
   reportChangeStatus,
   checkReportLinks,
+  buildConversationContext,
+  CONVERSATION_CONTEXT_TURNS,
   scheduleSchema,
   systemSettingsSchema,
   taskRequiresTools,
@@ -235,6 +236,14 @@ export class Executor {
       // Another worker already owns it, or the execution is no longer queued.
       return;
     }
+    if (claim.status === 'deferred') {
+      await this.deps.boss.send(QUEUE_EXECUTION, { executionId }, {
+        startAfter: 30,
+        singletonKey: `${executionId}:task-busy:${Math.floor(Date.now() / 30_000)}`,
+        retryLimit: 0,
+      });
+      return;
+    }
     if (claim.status === 'refused') {
       if (claim.retryAttempt !== null) {
         await this.deps.boss.send(QUEUE_EXECUTION, { executionId }, {
@@ -336,7 +345,6 @@ export class Executor {
       // used for this run. Credential-like config headers may also be echoed by a gateway.
       knownSecrets.push(...collectKnownSecrets(credential.apiKey, credentials, decrypt));
       knownSecrets.push(...providerHeaderSecrets(providerConfig));
-      knownSecrets.push(...providerHeaderSecrets(providerConfig));
 
       const adapter = createProvider(provider.kind);
       const providerContext = contextFor({ ...provider, config: providerConfig }, credential.apiKey);
@@ -388,6 +396,35 @@ export class Executor {
           budgetBytes: memorySettings.contextBytes,
         });
         memoryContext = built.text;
+      }
+
+      let conversationContext: string | null = null;
+      if (task.conversationMode === 'conversation') {
+        const priorTurns = await db
+          .select({ id: executions.id, status: executions.status, inputSnapshot: executions.inputSnapshot, report: executions.report })
+          .from(executions)
+          .where(
+            and(
+              eq(executions.taskId, task.id),
+              eq(executions.ownerId, task.ownerId),
+              eq(executions.status, 'completed'),
+              ne(executions.id, executionId),
+            ),
+          )
+          .orderBy(desc(executions.finishedAt), desc(executions.createdAt))
+          .limit(CONVERSATION_CONTEXT_TURNS);
+        conversationContext = buildConversationContext(
+          priorTurns.map((turn) => ({
+            id: turn.id,
+            status: turn.status,
+            inputSnapshot: turn.inputSnapshot,
+            assistantOutput:
+              typeof turn.report === 'object' && turn.report !== null && 'markdown' in turn.report && typeof turn.report.markdown === 'string'
+                ? turn.report.markdown
+                : null,
+          })),
+          executionId,
+        );
       }
 
       // The timeline is per attempt but survives crash recovery of that attempt.
@@ -453,8 +490,9 @@ export class Executor {
         providerContext,
         model: task.model,
         title: task.title,
-        prompt: task.prompt,
+        prompt: execution.inputSnapshot || task.prompt,
         systemInstructions: task.systemInstructions,
+        conversationContext,
         timezone: task.timezone,
         allowWebResearch: task.allowWebResearch,
         // Search/filter inputs may be filled during research; the model-facing tool
@@ -561,12 +599,7 @@ export class Executor {
           )
           .onConflictDoNothing();
       }
-      const markdown = reportToMarkdown(
-        { summary: result.summary, markdown: result.markdown, sources: result.sources, uncertainty: result.uncertainty },
-        { title: task.title, finishedAt: finishedAt.toISOString() },
-      );
       await db.update(tasks).set({ lastRunAt: finishedAt }).where(eq(tasks.id, task.id));
-      void markdown;
 
       // Durable memory is written only after the execution was marked completed.
       // Operations are schema-validated in the worker and applied in one transaction;

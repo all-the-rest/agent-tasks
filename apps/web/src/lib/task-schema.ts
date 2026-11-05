@@ -45,6 +45,7 @@ export const taskFormSchema = z
       mode: z.enum(['off', 'suggest', 'auto']),
       contextBytes: z.number().int().min(1_000, 'validation.range').max(100_000, 'validation.range'),
     }),
+    conversationMode: z.enum(['standalone', 'conversation']),
   })
   .superRefine((value, ctx) => {
     const { schedule } = value;
@@ -103,5 +104,6 @@ export function toTaskInput(values: TaskFormValues): TaskInput {
     allowWebResearch: values.allowWebResearch,
     notification: values.notification,
     memorySettings: values.memorySettings,
+    conversationMode: values.conversationMode,
   };
 }

@@ -73,6 +73,12 @@ export function MemoryPage() {
 
       <MemoryCommandBar className="mb-5 md:hidden" />
 
+      {stats.isError ? (
+        <div className="mb-4">
+          <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void stats.refetch()} />
+        </div>
+      ) : null}
+
       {error ? (
         <div className="mb-4">
           <ErrorAlert message={error} />

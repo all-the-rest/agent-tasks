@@ -246,7 +246,7 @@ export function AdminProvidersPage() {
       {providers.isLoading ? (
         <Spinner label={t('common.loading')} />
       ) : providers.isError ? (
-        <ErrorAlert message={t('errors.loadFailed')} />
+        <ErrorAlert message={t('errors.loadFailed')} onRetry={() => void providers.refetch()} />
       ) : !providers.data || providers.data.length === 0 ? (
         <div className="rounded-box border border-dashed border-base-300 bg-base-100 p-10 text-center text-sm opacity-60">
           {t('admin.noProviders')}
