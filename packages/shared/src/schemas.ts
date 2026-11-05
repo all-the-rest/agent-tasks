@@ -5,6 +5,7 @@ import { emailBlocksSchema } from './email-blocks.js';
 import { scheduleSchema } from './schedule.js';
 import { taskEndConditionSchema } from './task-end-condition.js';
 import { EXECUTION_STATUSES, REPORT_CONFIDENCE, ROLES } from './status.js';
+import { safeHttpUrl } from './url.js';
 
 export const idSchema = z.string().uuid();
 export const slugSchema = z
@@ -136,7 +137,10 @@ export const executionReportSchema = z.object({
   sources: z
     .array(
       z.object({
-        url: z.string().max(2_000),
+        url: z
+          .string()
+          .max(2_000)
+          .refine((value) => safeHttpUrl(value) !== null, { message: 'source URL must be an HTTP(S) URL' }),
         title: z.string().max(300).optional(),
         retrievedAt: z.string(),
         confidence: z.enum(REPORT_CONFIDENCE).default('unknown'),

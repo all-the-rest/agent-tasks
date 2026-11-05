@@ -3,14 +3,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { fromNodeHeaders } from 'better-auth/node';
-import { eq } from 'drizzle-orm';
 import { AppError, toPublicError, WEB_CSP_DIRECTIVES } from '@agent-tasks/shared';
-import { user } from '@agent-tasks/database';
 import type { AppContext } from './context.js';
 import { TRUSTED_SIGNUP_HEADER } from './auth.js';
 import { requestSerializer } from './lib/log-redaction.js';
-import { claimInvitation, registerSetupRoutes, releaseInvitation } from './routes/setup.js';
-import type { ClaimedInvitation } from './routes/setup.js';
+import { claimInvitation, completeInvitationSignup, registerSetupRoutes, releaseInvitation } from './routes/setup.js';
+import type { ClaimedInvitation, CreatedAccount } from './routes/setup.js';
 import { registerMeRoutes, registerAdminRoutes } from './routes/admin.js';
 import { registerProviderRoutes } from './routes/providers.js';
 import { registerTaskRoutes } from './routes/tasks.js';
@@ -18,6 +16,16 @@ import { registerTaskShareRoutes } from './routes/task-shares.js';
 import { registerMemoryRoutes } from './routes/memory.js';
 import { isSpaNavigation, registerWebApp, resolveWebRoot } from './static.js';
 import { isUnlimitedHealthCheck, proxyTrust } from './http-policy.js';
+
+/** Better Auth's sign-up payload; only the fields used for account binding. */
+function createdAccount(buffer: Buffer): CreatedAccount {
+  try {
+    const payload = JSON.parse(buffer.toString('utf8')) as { user?: { id?: unknown; email?: unknown } };
+    return { id: payload.user?.id, email: payload.user?.email };
+  } catch {
+    return {};
+  }
+}
 
 export async function buildApp(context: AppContext): Promise<FastifyInstance> {
   const app = Fastify({
@@ -184,14 +192,26 @@ export async function buildApp(context: AppContext): Promise<FastifyInstance> {
       throw error;
     }
     if (claimed) {
+      // Better Auth writes on its own connection and answers a duplicate address
+      // with a generic 200. Bind the invite role to the returned persisted id and
+      // address instead of optimistically updating by email.
+      const buffer = Buffer.from(await response.arrayBuffer());
       if (response.status < 400) {
-        await context.db
-          .update(user)
-          .set({ role: claimed.role, emailVerified: true })
-          .where(eq(user.email, claimed.email.toLowerCase()));
+        const created = createdAccount(buffer);
+        const applied = await completeInvitationSignup(context.db, claimed, created);
+        if (!applied) throw AppError.conflict('an account with this e-mail already exists');
       } else {
         await releaseInvitation(context.db, claimed.id);
       }
+      reply.code(response.status);
+      for (const [key, value] of response.headers.entries()) {
+        if (['content-encoding', 'content-length', 'transfer-encoding'].includes(key.toLowerCase())) continue;
+        if (key.toLowerCase() === 'set-cookie') continue;
+        reply.header(key, value);
+      }
+      const cookies = response.headers.getSetCookie?.() ?? [];
+      if (cookies.length > 0) reply.header('set-cookie', cookies);
+      return reply.send(buffer.length > 0 ? buffer : null);
     }
 
     reply.code(response.status);

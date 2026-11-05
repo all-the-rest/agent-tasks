@@ -29,6 +29,7 @@ import {
   renderEmailDocument,
   reportChangeStatus,
   checkReportLinks,
+  sanitizeReportSources,
   buildConversationContext,
   CONVERSATION_CONTEXT_TURNS,
   scheduleSchema,
@@ -554,7 +555,11 @@ export class Executor {
       // Only links a tool actually visited stay clickable; anything else is reduced
       // to plain text and surfaced as an uncertainty note instead of becoming a
       // plausible-looking hallucinated citation.
-      const links = checkReportLinks(result.markdown, result.sources);
+      // Persistence boundary: only HTTP(S) citations without credentials are
+      // stored. The renderer also defends itself, but an unsafe source URL must
+      // never reach durable storage or another consumer in the first place.
+      const sources = sanitizeReportSources(result.sources);
+      const links = checkReportLinks(result.markdown, sources);
       const uncertainty = links.removed.length > 0
         ? [...result.uncertainty, `${links.removed.length} link(s) in the report were not backed by a visited source and were reduced to plain text.`]
         : result.uncertainty;
@@ -571,7 +576,7 @@ export class Executor {
           report: {
             summary: result.summary,
             markdown: links.markdown,
-            sources: result.sources,
+            sources,
             uncertainty,
             change: { status: change, ...(previous ? { previousExecutionId: previous.id } : {}) },
             ...(result.emailBlocks.length > 0 ? { email: { blocks: result.emailBlocks } } : {}),
@@ -583,11 +588,11 @@ export class Executor {
         })
         .where(eq(executions.id, executionId));
 
-      if (result.sources.length > 0) {
+      if (sources.length > 0) {
         await db
           .insert(executionSources)
           .values(
-            result.sources.map((source) => ({
+            sources.map((source) => ({
               id: randomUUID(),
               executionId,
               url: source.url.slice(0, 2_000),

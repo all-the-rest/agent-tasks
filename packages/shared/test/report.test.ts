@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { visit } from 'unist-util-visit';
-import { checkReportLinks, emptyReport, reportChangeStatus, reportToMarkdown } from '../src/report.js';
+import { checkReportLinks, emptyReport, reportChangeStatus, reportToMarkdown, sanitizeReportSources } from '../src/report.js';
 
 describe('report change detection', () => {  it('marks the first run and a missing predecessor honestly', () => {
     expect(reportChangeStatus(null, 'anything')).toBe('first');
@@ -160,5 +160,57 @@ describe('report link validation', () => {
     expect(result.removed).toContain('https://invented.example/escaped');
     expect(result.markdown).toContain('`https://invented.example/code`');
     expect(result.markdown).toContain('raw HTML');
+  });
+
+  it('neutralizes raw HTML so Markdown consumers see inert literal text', () => {
+    const markdown = [
+      '# Report',
+      '<script>window.__pwned = true</script>',
+      '<img src=x onerror="alert(1)">',
+    ].join('\n\n');
+    const result = checkReportLinks(markdown, []);
+    const tree = fromMarkdown(result.markdown);
+    const html: string[] = [];
+    visit(tree, 'html', (node) => html.push(node.value));
+
+    expect(html).toEqual([]);
+    expect(result.markdown).not.toMatch(/(^|[^\\])<script>/i);
+    expect(result.markdown).not.toMatch(/(^|[^\\])<img /i);
+    expect(result.markdown).toContain('script');
+    expect(result.markdown).toContain('onerror');
+  });
+
+  it('drops non-HTTP source URLs at the persistence boundary', () => {
+    const sources = sanitizeReportSources([
+      { url: 'https://example.com/article', title: 'Safe' },
+      { url: 'javascript:alert(1)', title: 'Unsafe' },
+      { url: 'data:text/html,<script>alert(1)</script>', title: 'Unsafe data' },
+      { url: 'https://reader:secret@example.com/private', title: 'Credentialed' },
+    ]);
+
+    expect(sources.map((source) => source.url)).toEqual([
+      'https://example.com/article',
+      'https://example.com/private',
+    ]);
+    expect(JSON.stringify(sources)).not.toContain('javascript:');
+    expect(JSON.stringify(sources)).not.toContain('secret');
+  });
+
+  it('caps source titles and excerpts to the report schema limits', () => {
+    const [source] = sanitizeReportSources([{
+      url: 'https://example.com/article',
+      title: 't'.repeat(301),
+      excerpt: 'e'.repeat(1_001),
+    }]);
+
+    expect(source?.title).toHaveLength(300);
+    expect(source?.excerpt).toHaveLength(1_000);
+
+    const invalidMetadata = {
+      url: 'https://example.com/article',
+      title: null,
+      excerpt: null,
+    } as unknown as { url: string; title?: string; excerpt?: string };
+    expect(sanitizeReportSources([invalidMetadata])).toEqual([{ url: 'https://example.com/article' }]);
   });
 });
