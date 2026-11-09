@@ -48,7 +48,21 @@
         "count": { "command": ["sh", "scripts/count.sh", "dependency-count"] }
       }
     }
+  },
+  { "preset": "agent-rules" },
+  {
+    "name": "project-owned-rule-files",
+    "rules": {
+      "rule-file-max-lines": {
+        "class": "a rule file drifting into a specification",
+        "incident": "LuminaRust/Agents.md reached 623 lines and open-accreditation 380: architecture, stack and release runbook in the file every session loads",
+        "unit": "lines in the longest rule file",
+        "direction": "ceiling",
+        "description": "the largest project-owned AGENTS.md; installed dependency guidance is not repository guidance",
+        "aggregate": "max",
+        "count": { "file_metrics": { "files": ["**/AGENTS.md"], "metric": "line_count" } },
+        "exclude": ["**/node_modules/**"]
+      }
+    }
   }
-,
-  { "preset": "agent-rules" }
 ]
