@@ -353,7 +353,7 @@ async function prepareRuntime(input, token) {
       stage = 'start OpenCode server';
       await docker([
         'exec', '--detach', '--user', '10001:10001', containerName,
-        'sh', '-ec', `${exports}; exec /usr/local/bin/opencode serve --hostname 0.0.0.0 --port 4096`,
+        'sh', '-ec', `${exports}; exec bun run /app/services/opencode-sdk-runtime/host.mjs`,
       ]);
       stage = 'wait for OpenCode readiness';
       await waitForRuntime(state, password);
@@ -397,7 +397,7 @@ async function waitForRuntime(state, password) {
   let lastConnectionError;
   for (let i = 0; i < 120; i += 1) {
     try {
-      const response = await globalThis.fetch(`http://${state.containerName}:4096/api/info`, { headers: { authorization }, signal: globalThis.AbortSignal.timeout(1_000) });
+      const response = await globalThis.fetch(`http://${state.containerName}:4096/healthz`, { headers: { authorization }, signal: globalThis.AbortSignal.timeout(1_000) });
       if (response.ok) return;
       lastHttpStatus = response.status;
     } catch (error) {

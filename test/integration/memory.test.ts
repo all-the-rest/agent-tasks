@@ -53,7 +53,7 @@ async function createTask(cookie: string, title: string): Promise<string> {
       schedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
       limits: { maxDurationSec: 120, maxAgentSteps: 6, maxPageVisits: 4, maxOutputBytes: 100_000, maxToolCalls: 10, maxSearchQueries: 3 },
       allowWebResearch: false,
-      notification: 'none',
+      notification: { email: { enabled: false, when: 'always' } },
       memorySettings: { mode: 'auto', contextBytes: 12_000 },
     },
   });

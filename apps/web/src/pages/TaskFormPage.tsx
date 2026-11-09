@@ -47,7 +47,7 @@ function emptyValues(timezone: string, prompt = ''): TaskFormValues {
     schedule: { ...defaultSchedule(timezone), timePreset: 'morning' },
     endCondition: { type: 'never', date: '', runs: 1 },
     allowWebResearch: true,
-    notification: 'none',
+    notification: { email: { enabled: true, when: 'always' } },
     memorySettings: { ...DEFAULT_MEMORY_SETTINGS },
     conversationMode: 'standalone',
   };
@@ -715,11 +715,11 @@ function TaskFormPageForOwner({ ownerId }: { ownerId: string | null }) {
                 />
               </Field>
               <Field label={t('tasks.notification')} htmlFor="task-notification">
-                <select id="task-notification" className="select w-full" {...register('notification')}>
-                  <option value="none">{t('tasks.notificationNone')}</option>
-                  <option value="email">{t('tasks.notificationEmail')}</option>
-                  <option value="email_on_change">{t('tasks.notificationEmailOnChange')}</option>
+                <select id="task-notification" className="select w-full" {...register('notification.email.when')}>
+                  <option value="always">{t('tasks.notificationEmail')}</option>
+                  <option value="on_change">{t('tasks.notificationEmailOnChange')}</option>
                 </select>
+                <label className="flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" className="toggle toggle-sm" {...register('notification.email.enabled')} />{t('tasks.notificationEmail')}</label>
               </Field>
               <div className="flex flex-col gap-2 pt-2">
                 <label className="flex cursor-pointer items-center gap-2 text-sm" htmlFor="task-enabled">

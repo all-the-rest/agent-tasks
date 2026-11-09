@@ -24,11 +24,7 @@ type Tab = 'overview' | 'memory' | 'recommendations';
 
 const TASK_TABS = ['overview', 'memory', 'recommendations'] as const;
 
-const notificationKeys = {
-  none: 'tasks.notificationNone',
-  email: 'tasks.notificationEmail',
-  email_on_change: 'tasks.notificationEmailOnChange',
-} as const;
+const notificationKeys = { always: 'tasks.notificationEmail', on_change: 'tasks.notificationEmailOnChange' } as const;
 
 export function TaskDetailPage() {
   const { t, i18n } = useTranslation();
@@ -427,7 +423,7 @@ export function TaskDetailPage() {
                 <span className={`badge badge-sm ${data.allowWebResearch ? 'badge-info' : 'badge-ghost'}`}>
                   {t('tasks.allowWebResearch')}
                 </span>
-                <span className="badge badge-ghost badge-sm">{t(notificationKeys[data.notification])}</span>
+                <span className="badge badge-ghost badge-sm">{data.notification.email.enabled ? t(notificationKeys[data.notification.email.when]) : t('tasks.notificationNone')}</span>
               </div>
             </div>
           </section>

@@ -9,6 +9,7 @@ import type {
   RecommendationStatus,
   Role,
   ScheduleTimePresets,
+  TaskNotification,
 } from '@agent-tasks/shared';
 import type { TaskEndCondition as SharedTaskEndCondition } from '@agent-tasks/shared';
 
@@ -27,7 +28,7 @@ export type {
 export type SchedulePreset = 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
 export type Locale = 'en' | 'de';
 export type ThemePreference = 'system' | 'light' | 'dark';
-export type Notification = 'none' | 'email' | 'email_on_change';
+export type Notification = TaskNotification;
 export type TaskStatus = 'active' | 'paused' | 'completed';
 export type TaskConversationMode = 'standalone' | 'conversation';
 export type TaskEndCondition = SharedTaskEndCondition;

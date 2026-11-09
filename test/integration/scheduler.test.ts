@@ -24,7 +24,7 @@ async function insertTask(
   const id = randomUUID();
   await harness.db.pool.query(
     `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, end_condition, timezone, limits, allow_web_research, notification, next_run_at)
-     values ($1,$2,'Scheduled task','Research something with sources.',$3,'mock-researcher',$4,$5,$6,'Europe/Vienna',$7,true,'none',$8)`,
+     values ($1,$2,'Scheduled task','Research something with sources.',$3,'mock-researcher',$4,$5,$6,'Europe/Vienna',$7,true,'{"email":{"enabled":false,"when":"always"}}'::jsonb,$8)`,
     [id, taskOwnerId, providerId, enabled, JSON.stringify(taskSchedule), JSON.stringify(endCondition), JSON.stringify(limits), nextRunAt.toISOString()],
   );
   return id;

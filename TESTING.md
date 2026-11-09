@@ -80,12 +80,16 @@ on the published port, so Playwright exercises the same static-serving path as
 production. Local development still uses Vite on `:5173` with its `/api` proxy
 (`VITE_API_PROXY`, default `http://localhost:8080`). With a remote Docker daemon,
 set `HTTP_BIND=0.0.0.0` in `deployment/env/e2e.env` (the default binds the
-daemon's loopback) and set `E2E_BASE_URL` to the address that reaches it.
+daemon's loopback) and set `E2E_BASE_URL` to the address that reaches it. Also
+set `PUBLIC_BASE_URL` to that same origin; authentication rejects browser origins
+that do not match the configured public URL.
 
 The suite starts `packages/mock-openai` and registers it as an
-`openai-compatible` provider with a declared model. It binds a loopback port on
-the test host; a remote Docker daemon needs a reachable address, so that topology
-is not covered by the current helper.
+`openai-compatible` provider with a declared model. It binds on all interfaces by
+default. With a remote Docker daemon, set `E2E_MOCK_BASE_URL` to the daemon's
+backend-network gateway at port `18099`; CI derives this gateway from the Compose
+network. This is the provider URL the API and worker use to reach the host-side
+mock.
 
 The browser suite is deliberately order-independent (the shared stack still uses
 one Playwright worker): `beforeAll` bootstraps the administrator and the mock

@@ -207,7 +207,7 @@ export const tasks = pgTable(
     timezone: text('timezone').notNull(),
     limits: jsonb('limits').notNull(),
     allowWebResearch: boolean('allow_web_research').notNull().default(true),
-    notification: text('notification').notNull().default('none'),
+    notification: jsonb('notification').$type<{ email: { enabled: boolean; when: 'always' | 'on_change' } }>().notNull().default({ email: { enabled: true, when: 'always' } }),
     /**
      * Per-task automatic learning policy: `off`, `suggest` (review queue) or
      * `auto` (apply validated operations and show them in the change log).

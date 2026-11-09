@@ -169,7 +169,6 @@ export async function registerTaskShareRoutes(app: FastifyInstance, context: App
     // able to run tools, and the copy starts with no memory of the source task.
     await assertTaskExecutable(db, me.id, parsed.data.providerId, parsed.data.model, {
       allowWebResearch: true,
-      notification: 'none',
       memoryMode: 'off',
     });
 
@@ -211,7 +210,7 @@ export async function registerTaskShareRoutes(app: FastifyInstance, context: App
           timezone: snapshot.timezone,
           limits: AGENT_RUNTIME_LIMITS,
           allowWebResearch: true,
-          notification: 'none',
+          notification: { email: { enabled: true, when: 'always' } },
           memorySettings: DEFAULT_MEMORY_SETTINGS,
           nextRunAt,
         })
