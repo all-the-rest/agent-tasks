@@ -78,6 +78,13 @@
       "when": 1793813707704,
       "tag": "0010_woozy_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793813707705,
+      "tag": "0011_task_notification_channels",
+      "breakpoints": true
     }
   ]
 }

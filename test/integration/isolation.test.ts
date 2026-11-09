@@ -47,7 +47,7 @@ const taskPayload = () => ({
   schedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
   limits: { maxDurationSec: 120, maxAgentSteps: 6, maxPageVisits: 4, maxOutputBytes: 100000, maxToolCalls: 10, maxSearchQueries: 3 },
   allowWebResearch: true,
-  notification: 'none',
+  notification: { email: { enabled: false, when: 'always' } },
 });
 
 describe('multi-user isolation', () => {

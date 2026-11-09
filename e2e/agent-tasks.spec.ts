@@ -238,7 +238,7 @@ async function createTask(
       enabled: options.enabled ?? true,
       schedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
       allowWebResearch: false,
-      notification: 'none',
+      notification: { email: { enabled: false, when: 'always' } },
       memorySettings: { mode: 'auto', contextBytes: 12_000 },
     },
   });

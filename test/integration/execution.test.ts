@@ -94,7 +94,7 @@ afterAll(async () => {
   await harness.close();
 });
 
-async function seedTask(options: { limits?: Record<string, number>; agentLimits?: Record<string, number>; allowWebResearch?: boolean; baseUrl?: string; notification?: 'none' | 'email' | 'email_on_change'; apiKey?: string; model?: string; supportsTools?: boolean; memoryMode?: 'auto' | 'suggest' | 'off' } = {}): Promise<{ taskId: string; executionId: string; ownerId: string; providerId: string }> {
+async function seedTask(options: { limits?: Record<string, number>; agentLimits?: Record<string, number>; allowWebResearch?: boolean; baseUrl?: string; notification?: { email: { enabled: boolean; when: 'always' | 'on_change' } }; trigger?: 'schedule' | 'manual'; apiKey?: string; model?: string; supportsTools?: boolean; memoryMode?: 'auto' | 'suggest' | 'off' } = {}): Promise<{ taskId: string; executionId: string; ownerId: string; providerId: string }> {
   const model = options.model ?? 'mock-researcher';
   const owner = await harness.db.pool.query(`insert into "user" (id, name, email, email_verified, role) values ($1,'Owner',$2,true,'USER') returning id`, [randomUUID(), `owner-${randomUUID()}@example.com`]);
   const ownerId = owner.rows[0].id;
@@ -119,22 +119,22 @@ async function seedTask(options: { limits?: Record<string, number>; agentLimits?
   await harness.db.pool.query(
     `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, memory_settings)
      values ($1,$2,'Live research','What does example.com say about itself? Cite the page.',$3,$4,true,$5,'Europe/Vienna',$6,$7,$8,$9)`,
-    [taskId, ownerId, provider.rows[0].id, model, JSON.stringify({ preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 0 }), JSON.stringify(limits), options.allowWebResearch ?? true, options.notification ?? 'none', JSON.stringify({ mode: options.memoryMode ?? 'auto', contextBytes: 12_000 })],
+    [taskId, ownerId, provider.rows[0].id, model, JSON.stringify({ preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 0 }), JSON.stringify(limits), options.allowWebResearch ?? true, JSON.stringify(options.notification ?? { email: { enabled: false, when: 'always' } }), JSON.stringify({ mode: options.memoryMode ?? 'auto', contextBytes: 12_000 })],
   );
   const executionId = randomUUID();
   await harness.db.pool.query(
-    `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Live research','queued','manual',$4,$5)`,
-    [executionId, taskId, ownerId, model, provider.rows[0].id],
+    `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Live research','queued',$4,$5,$6)`,
+    [executionId, taskId, ownerId, options.trigger ?? 'manual', model, provider.rows[0].id],
   );
   return { taskId, executionId, ownerId, providerId: provider.rows[0].id as string };
 }
 
 /** Queue a second execution for an existing task, as the scheduler would. */
-async function queueExecution(input: { taskId: string; ownerId: string; providerId: string }): Promise<string> {
+async function queueExecution(input: { taskId: string; ownerId: string; providerId: string; trigger?: 'schedule' | 'manual' }): Promise<string> {
   const executionId = randomUUID();
   await harness.db.pool.query(
-    `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Live research','queued','manual','mock-researcher',$4)`,
-    [executionId, input.taskId, input.ownerId, input.providerId],
+    `insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Live research','queued',$4,'mock-researcher',$5)`,
+    [executionId, input.taskId, input.ownerId, input.trigger ?? 'manual', input.providerId],
   );
   return executionId;
 }
@@ -191,7 +191,7 @@ async function startFakeSearch(): Promise<{ url: string; close: () => Promise<vo
 
 describe('provisioned execution integration (fake runtime and provider, real Executor and persistence)', () => {
   it('sends the completion e-mail with the agent image-text block', async () => {
-    const { executionId, ownerId } = await seedTask({ allowWebResearch: false, notification: 'email' });
+    const { executionId, ownerId } = await seedTask({ allowWebResearch: false, notification: { email: { enabled: true, when: 'always' } }, trigger: 'schedule' });
     openCode.plans.set(executionId, {
       answer: 'Revenue grew 12% in the last quarter.',
       emailDsl: [
@@ -229,7 +229,7 @@ describe('provisioned execution integration (fake runtime and provider, real Exe
   });
 
   it('sends a change notification only when the report text actually changed', async () => {
-    const { taskId, executionId, ownerId, providerId } = await seedTask({ allowWebResearch: false, notification: 'email_on_change' });
+    const { taskId, executionId, ownerId, providerId } = await seedTask({ allowWebResearch: false, notification: { email: { enabled: true, when: 'on_change' } }, trigger: 'schedule' });
     const sent: Array<{ subject: string }> = [];
     const mailer = {
       kind: 'log' as const,
@@ -245,7 +245,7 @@ describe('provisioned execution integration (fake runtime and provider, real Exe
 
     // Same text on the next run is a quiet run: the execution still completes and
     // records the comparison, but no e-mail is sent.
-    const unchangedId = await queueExecution({ taskId, ownerId, providerId });
+    const unchangedId = await queueExecution({ taskId, ownerId, providerId, trigger: 'schedule' });
     openCode.plans.set(unchangedId, { answer: 'Stable answer.' });
     await executor.handle(unchangedId);
     expect(sent).toHaveLength(1);
@@ -254,7 +254,7 @@ describe('provisioned execution integration (fake runtime and provider, real Exe
     expect(unchanged.rows[0].report.change).toMatchObject({ status: 'unchanged', previousExecutionId: executionId });
 
     // A changed report is delivered.
-    const changedId = await queueExecution({ taskId, ownerId, providerId });
+    const changedId = await queueExecution({ taskId, ownerId, providerId, trigger: 'schedule' });
     openCode.plans.set(changedId, { answer: 'The situation changed since the last run.' });
     await executor.handle(changedId);
     expect(sent).toHaveLength(2);
@@ -414,7 +414,7 @@ describe('provisioned execution integration (fake runtime and provider, real Exe
   }, 120_000);
 
   it('runs a tool-less model when the task requests no tools at all', async () => {
-    const { executionId } = await seedTask({ allowWebResearch: false, supportsTools: false, memoryMode: 'off', notification: 'none' });
+    const { executionId } = await seedTask({ allowWebResearch: false, supportsTools: false, memoryMode: 'off', notification: { email: { enabled: false, when: 'always' } } });
     openCode.plans.set(executionId, { answer: 'Plain answer without tools.' });
     const before = openCode.requests.length;
     await makeExecutor().handle(executionId);

@@ -30,7 +30,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     completedAt: null,
     timezone: 'UTC',
     allowWebResearch: false,
-    notification: 'none',
+    notification: { email: { enabled: false, when: 'always' } },
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
     conversationMode: 'standalone',
     nextRunAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),
@@ -302,7 +302,7 @@ describe('scheduled-task inbox UI', () => {
   });
 
   it('shows the change-only e-mail notification instead of "No notification"', async () => {
-    vi.spyOn(api.tasks, 'get').mockResolvedValue(makeTask({ notification: 'email_on_change' }));
+    vi.spyOn(api.tasks, 'get').mockResolvedValue(makeTask({ notification: { email: { enabled: true, when: 'on_change' } } }));
     vi.spyOn(api.tasks, 'executionsPage').mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(api.tasks, 'memorySuggestions').mockResolvedValue([]);
     vi.spyOn(api.tasks, 'memoryChanges').mockResolvedValue([]);

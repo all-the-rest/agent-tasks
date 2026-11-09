@@ -429,20 +429,20 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Destination: this task's private conversation vs standalone | ✅ (adapted) | The task's execution history is the conversation; follow-ups are manual executions and do not change the schedule. There is no separate chat object or OpenCode Web integration. |
 | Per-task model/reasoning effort | 🟡 | Model is pinned; variants exist (`model#high`), no explicit effort UI |
 | Per-task sandbox/permission profile | 🟡 | Browser isolation is deployment-wide; web research is a per-task switch; the per-task `limits` column is stored but not enforced (global settings win) |
-| Approval-gated unattended actions | ❌ | No approval state |
+| Manual approval workflow for unattended actions | OUT OF SCOPE | Review/approval workflow belongs to a separate project; hard-denied tools remain denied and are never auto-approved here |
 
 **Runs**
 
 | Reference behaviour | Ours | Note |
 | --- | --- | --- |
-| Run status incl. awaiting approval | 🟡 | Six statuses, no approval/paused |
+| Run status incl. awaiting approval | OUT OF SCOPE | No in-product reviewer workflow; task pause/resume remains separate from execution approval |
 | Immutable snapshots | 🟡 | Title, model, report, usage and exact per-execution user input are stored. Schedule and other task settings are not snapshotted; inputs from before migration are best-effort backfilled from the task's prompt at migration time. |
 | Step timeline | ✅+ | Tool args, durations, errors |
 | Sources and confidence | ✅+ | Unique per URL, excerpt stored |
 | Token usage and duration | ✅+ | `usage` JSON, `duration_ms` |
 | Cancel / retry / export | ✅+ | Markdown and JSON export (`tasks.ts:404-426`); the reference exposes cancel implicitly |
 | "Nothing to report" as an outcome | ✅ | Each completed run stores `report.change` (`first` / `changed` / `unchanged` / `unknown`) against the previous completed run of the same task |
-| Notification only when relevant | ✅ | `notification: "email_on_change"` suppresses the e-mail when the report text is unchanged; a changed or uncomparable report is always delivered |
+| Notification only when relevant | ✅ | The channel-oriented e-mail policy supports `on_change`; unchanged scheduled reports suppress mail, while changed/first/uncomparable reports deliver it. Manual and conversation executions never send scheduled mail. |
 | Concurrency guard per task | ✅ | Scheduler checks active executions under the task row lock; a due occurrence remains pending until the active run finishes. Worker claims serialize through the owner lock and defer a same-task second claim without consuming a retry attempt. Covered by `test/integration/scheduler.test.ts` and `apps/worker/test/executor.test.ts`. |
 
 **Lifecycle, sharing, compliance**
@@ -453,7 +453,7 @@ Legend: **✅ have** (equal or better than the reference), **🟡 partial**, **�
 | Task caps per plan | ✅+ | No cap on task count by design; per-user execution caps instead (`maxTaskExecutionsPerDay`, `maxConcurrentExecutionsPerUser`) |
 | Share as frozen snapshot | ✅ | `POST /api/tasks/:id/share` freezes title, prompt, schedule and timezone; description, system instructions, provider/model, credentials, memory and history are never in the snapshot |
 | Copy-on-adopt | ✅ | `POST /api/shares/:token/adopt` requires a signed-in owner and their own executable provider/model; it creates an independent copy with no source memory, history or credentials |
-| Per-feature notification channels | ❌ | One global e-mail switch per task |
+| Per-feature notification channels | 🟡 | Persisted channel-oriented e-mail policy is in place; additional channels and per-feature settings remain open |
 | Push channel | ❌ | E-mail only |
 | Event triggers (Gmail/Slack/GitHub) | ❌ | No connectors |
 | Compliance/data export coverage | ❌ | No export of task definitions |
@@ -483,10 +483,10 @@ Kept deliberately, per §5:
 | 3 | ✅ **Task-bound destination implemented for #20 v1** | Per-task standalone or private conversation mode, history and follow-ups; no separate chat system | Implemented with owner-scoped execution history and bounded context |
 | 4 | **End conditions (date / after N runs)** | Long-running monitors never stop | ✅ Shipped in #20; after N counts scheduled bookings, while manual runs and retries remain independent |
 | 5 | ✅ **Monitoring comparison and quiet runs** | Unchanged report text need not generate e-mail noise | `email_on_change` suppresses unchanged reports; comparison is text-based, not semantic |
-| 6 | **Notification channels** (push, per-feature) | E-mail-only limits the product to inbox-checkers | Only-on-change e-mail exists; additional channels and per-feature settings remain open |
+| 6 | ✅ **Notification channel model** (email) | E-mail-only limits the product to inbox-checkers | Channel-oriented JSONB settings replace the single enum; new scheduled tasks default to e-mail, existing opt-outs migrate intact, and `on_change` is supported. Push and per-feature settings remain deferred. |
 | 7 | ✅ **Share snapshot shipped** | A frozen definition-only link can be handed to a colleague without credentials; revoking stops the link, not existing copies | Snapshot table, public read route, owner-scoped revoke, authenticated copy-on-adopt |
 | 8 | **Event triggers** | Pull-based only; no reaction to changes | L — connector layer, rate limits, review UI |
-| 9 | **Approval pause** | Unattended actions either run or fail | M — approval state + resume |
+| 9 | **Manual approval workflow** | Unattended actions either run or fail | Out of scope for Agent Tasks; human review belongs in a separate project. Hard-denied actions remain denied. |
 | 10 | **RRULE import/export** | Only relevant if we interoperate with calendar tooling | S — optional |
 
 ## 9. Suggested delivery slices (ordered by size and dependency; §8.4 ranks by value)
@@ -503,19 +503,20 @@ Kept deliberately, per §5:
 4. ✅ **Prompt-first creation shipped** — the tasks-page composer carries the
    prompt into the existing form as a history-state draft; users review the full
    form and confirm before creation. The prompt is not put in the URL.
-5. **Notification channels** — abstract `notification` into channels and add
-   per-feature settings. E-mail and opt-in `email_on_change` already exist.
+5. ✅ **Notification channels** — a channel-oriented JSONB policy replaces the
+   single notification enum. The migration preserves existing `none`, `email`, and
+   `email_on_change` choices; new scheduled tasks default to e-mail, owners can
+   disable it, and mail is only sent for scheduled-origin runs. Push and per-feature
+   settings remain out of this slice.
 6. ✅ **Share snapshot shipped** — definition only, copy-on-adopt, revoke, explicit
    exclusion of memory and history. The link carries title, prompt, schedule and
    timezone; the adopter supplies their own provider and model.
 7. ✅ **Task-bound destination implemented for #20 v1** — standalone or conversation mode;
    follow-ups create manual executions without changing the schedule, and only
    completed same-task turns enter the bounded context. Retry inputs are retained.
-8. **Approvals** — open design: unlisted tools are not offered and browser/egress
-   hard denies must not be overridden. An OpenCode permission request can pause a
-   live process, but the pending request is lost on runtime restart. Durable
-   approval therefore needs an explicit approvable action policy and recovery
-   design before it can safely be shipped.
+8. **Manual approval/reviewer workflow** — out of scope for Agent Tasks; it belongs
+   in a separate project. This product does not add automatic approval, and its
+   browser/egress hard denies cannot be overridden.
 9. **Event triggers** — only after a connector exists.
 10. **RRULE** (rank 10 in §8.4) stays out of scope: five-field cron covers our cases.
 11. ✅ **One-click suggestions shipped** — a static, originally written set on the
@@ -542,11 +543,14 @@ Kept deliberately, per §5:
 - [x] One-click suggested prompts that fill the draft only
 - [x] End condition: never / on a date / after N scheduled bookings (manual runs and retries do not count)
 - [x] "Nothing to report" outcome that suppresses notification
-- [ ] Notification channels beyond e-mail, with per-feature settings
+- [x] Channel-oriented e-mail setting with on/off and always/on-change policy; new
+      scheduled tasks default to e-mail, legacy values migrate without changing
+      existing opt-outs, and manual executions do not send scheduled e-mail
+- [ ] Additional notification channels and per-feature settings
 - [x] Share snapshot with copy-on-adopt and revoke
 - [x] Task-level destination: standalone runs or a private task conversation with follow-ups
 - [x] At most one queued/running execution per task; due occurrences remain pending and racing claims are deferred without spending retry attempts
-- [ ] Approval pause for unattended actions
+- [x] No in-product reviewer/approval workflow; hard-denied actions are never auto-approved
 - [ ] Event triggers — only after a connector layer exists (see §9 item 9)
 
 ## 11. Open questions

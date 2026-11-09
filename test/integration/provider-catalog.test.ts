@@ -122,7 +122,7 @@ async function createTask(input: {
       enabled: true,
       schedule: { preset: 'once', timezone: 'Europe/Vienna', runAt: new Date(Date.now() + 3_600_000).toISOString() },
       allowWebResearch: input.allowWebResearch ?? false,
-      notification: 'none',
+      notification: { email: { enabled: false, when: 'always' } },
       memorySettings: { mode: input.memoryMode ?? 'off', contextBytes: 12_000 },
     },
   });
@@ -254,7 +254,7 @@ describe('persisted provider catalog and tool capability', () => {
     const taskId = randomUUID();
     await harness.db.pool.query(
       `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, memory_settings)
-       values ($1,$2,'Legacy ollama','Legacy task prompt for an unsupported provider.',$3,'llama3.2:1b',false,$4,'Europe/Vienna',$5,false,'none','{}')`,
+       values ($1,$2,'Legacy ollama','Legacy task prompt for an unsupported provider.',$3,'llama3.2:1b',false,$4,'Europe/Vienna',$5,false,'{"email":{"enabled":false,"when":"always"}}'::jsonb,'{}')`,
       [taskId, owner.rows[0].id, providerId, JSON.stringify({ preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 0 }), JSON.stringify({ maxDurationSec: 60, maxAgentSteps: 4, maxPageVisits: 0, maxOutputBytes: 50_000, maxToolCalls: 4, maxSearchQueries: 0 })],
     );
     const read = await harness.app.inject({ method: 'GET', url: `/api/tasks/${taskId}`, headers: { cookie: adminCookie } });

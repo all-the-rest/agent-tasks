@@ -63,7 +63,7 @@ async function createSourceTask(title = 'Vienna transit monitor'): Promise<strin
       enabled: true,
       schedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
       allowWebResearch: true,
-      notification: 'email',
+      notification: { email: { enabled: true, when: 'always' } },
       memorySettings: { mode: 'off', contextBytes: 5_000 },
     },
   });
@@ -314,7 +314,7 @@ describe('task share snapshots', () => {
       description: null,
       systemInstructions: null,
       allowWebResearch: true,
-      notification: 'none',
+      notification: { email: { enabled: true, when: 'always' } },
     });
     expect(copy.schedule).toEqual({ preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 });
     expect(copy.id).not.toBe(taskId);

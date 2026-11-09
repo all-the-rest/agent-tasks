@@ -10,6 +10,8 @@ import {
   taskEndConditionSchema,
   taskInputSchema,
   taskUpdateSchema,
+  migrateLegacyNotification,
+  shouldSendNotification,
   userPreferencesUpdateSchema,
 } from '../src/index.js';
 
@@ -24,7 +26,7 @@ const createBody = {
 describe('PATCH schemas do not apply create defaults', () => {
   it('still fills defaults for a create body', () => {
     const created = taskInputSchema.parse(createBody);
-    expect(created).toMatchObject({ enabled: true, allowWebResearch: true, notification: 'none', endCondition: { type: 'never' } });
+    expect(created).toMatchObject({ enabled: true, allowWebResearch: true, notification: { email: { enabled: true, when: 'always' } }, endCondition: { type: 'never' } });
     expect(created).not.toHaveProperty('limits');
   });
 
@@ -79,6 +81,23 @@ describe('PATCH schemas do not apply create defaults', () => {
   it('leaves omitted preference fields absent on update', () => {
     expect(userPreferencesUpdateSchema.parse({ theme: 'dark' })).toEqual({ theme: 'dark' });
     expect(userPreferencesUpdateSchema.parse({})).toEqual({});
+  });
+});
+
+describe('channel notification policy', () => {
+  it.each([['none', false, 'always'], ['email', true, 'always'], ['email_on_change', true, 'on_change']] as const)(
+    'maps legacy %s values', (legacy, enabled, when) => {
+      expect(migrateLegacyNotification(legacy)).toEqual({ email: { enabled, when } });
+    },
+  );
+  it('defaults to email and respects always, on-change and disabled delivery', () => {
+    const policy = taskInputSchema.parse(createBody).notification;
+    expect(policy).toEqual({ email: { enabled: true, when: 'always' } });
+    expect(shouldSendNotification(policy, false)).toBe(true);
+    expect(shouldSendNotification({ email: { enabled: true, when: 'always' } }, false)).toBe(true);
+    expect(shouldSendNotification({ email: { enabled: true, when: 'on_change' } }, false)).toBe(false);
+    expect(shouldSendNotification({ email: { enabled: true, when: 'on_change' } }, true)).toBe(true);
+    expect(shouldSendNotification({ email: { enabled: false, when: 'always' } }, true)).toBe(false);
   });
 });
 

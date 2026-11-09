@@ -208,7 +208,7 @@ function taskSeed(context: UiReviewSeedContext): Promise<Record<string, string>>
         enabled: false,
         schedule: { preset: 'daily', timezone: 'UTC', hour: 9, minute: 0 },
         allowWebResearch: true,
-        notification: 'none',
+        notification: { email: { enabled: false, when: 'always' } },
       });
     } else if (task.providerId !== provider.id) {
       task = await apiRequest<ApiTask>(context.page, 'PATCH', `/api/tasks/${encodeURIComponent(task.id)}`, {

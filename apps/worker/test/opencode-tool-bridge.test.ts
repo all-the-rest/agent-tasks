@@ -56,6 +56,32 @@ describe('OpenCode tool bridge', () => {
     expect(list.result.tools.map((tool) => tool.name).sort()).toEqual(['add_email_block', 'compose_email']);
   });
 
+  it('keeps two execution MCP capabilities isolated on the shared hub', async () => {
+    hub = await createToolBridgeHub({ port: 0 });
+    const first = hub.open({ tools: ['compose_email'] });
+    const second = hub.open({ tools: ['add_email_block'] });
+    const firstClient = { url: hub.url, token: first.token } as unknown as ToolBridge;
+    const secondClient = { url: hub.url, token: second.token } as unknown as ToolBridge;
+
+    const firstCatalog = await rpc(firstClient, { jsonrpc: '2.0', id: 1, method: 'tools/list' }) as {
+      result: { tools: Array<{ name: string }> };
+    };
+    const secondCatalog = await rpc(secondClient, { jsonrpc: '2.0', id: 2, method: 'tools/list' }) as {
+      result: { tools: Array<{ name: string }> };
+    };
+    expect(firstCatalog.result.tools.map((tool) => tool.name)).toEqual(['compose_email']);
+    expect(secondCatalog.result.tools.map((tool) => tool.name)).toEqual(['add_email_block']);
+
+    const crossExecutionCall = await rpc(firstClient, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'add_email_block', arguments: {} },
+    }) as { result: { isError: boolean; content: Array<{ text: string }> } };
+    expect(crossExecutionCall.result.isError).toBe(true);
+    expect(crossExecutionCall.result.content[0]?.text).toContain('tool not allowed');
+  });
+
   it('captures validated e-mail blocks from compose_email', async () => {
     bridge = await startToolBridge({ token: 'secret-token', port: 0 });
     const reply = await rpc(bridge, {

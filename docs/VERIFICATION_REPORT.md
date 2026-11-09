@@ -1,5 +1,136 @@
 # Verification report
 
+## Pre-review local verification — 2026-11-04
+
+These results were recorded on the implementation batch before independent review
+corrections (originally committed as `944659f`; its gate files were later separated
+into gate-only commit `8529406`). They remain historical evidence for that revision
+only, not a release verdict or verification of the current post-review changes. CI
+run `41742072347` covered parent commit `18725fb`; it does not cover this batch.
+Production deployment and live-provider verification are excluded.
+
+Earlier local gates on the pre-review implementation batch:
+
+| Command | Result |
+| --- | --- |
+| `pnpm install --frozen-lockfile` | passed |
+| `pnpm lint` | passed, no errors or warnings |
+| `pnpm -r typecheck` | passed (10 workspace projects) |
+| `docker compose ... build api` | passed; API, worker and SPA built; main JavaScript chunk is 907.01 kB and retains Vite's size warning |
+| `pnpm test:unit` | **568 passed, 4 skipped** (41 files passed, 1 skipped) |
+| `pnpm --filter @agent-tasks/web test` | **101 passed** (19 files), rerun after the final UI changes |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:32769/agent_tasks pnpm test:integration` | **148 passed** (19 files; isolated PostgreSQL) |
+| `pnpm exec vitest run --project unit packages/shared/test/report.test.ts` | **8 passed** after the final report-link edit |
+| `docker compose ... config -q` (local and production files) | passed with synthetic secrets |
+| Isolated local Compose stack | all services started; API `/api/healthz` returned `{"ok":true}`; fake runtime/provider only |
+| `E2E_BASE_URL=http://dind:8298 pnpm exec playwright test` | **11 passed** (50.5 s; isolated Compose API, test-only runtime/provider) |
+| `E2E_BASE_URL=http://dind:8298 pnpm test:contrast` | **2 passed** (light and dark themes; WCAG AA semantic-color matrix) |
+| `E2E_BASE_URL=http://dind:8298 pnpm test:screenshots` | **52 passed, 52 intentionally skipped** (desktop/mobile visual captures; all enabled cases passed after manifest fixes) |
+| Targeted screenshots for Memory, Admin Users, task list and execution detail | **12 passed, 12 intentionally skipped**; final post-fix captures, output under `test-results/ui-screenshots/` |
+| `ratchet check` | **11/11 gates passed** |
+| `git diff --check` | passed |
+
+The follow-up closes the execution-timeline and durable tool-budget gaps, redacts
+credential-like provider headers, and rechecks provenance in both current and
+historical reports while suppressing all remote Markdown images. Runtime-derived
+uncertainty for unverified citation links is recorded; model-authored uncertainty
+prose remains unextracted, alongside the full accessibility audit gap. See
+`docs/audit/requirements-coverage.md`. Production deployment and live-provider
+verification are excluded.
+
+The global Fastify request limit is configurable as `RATE_LIMIT_API_MAX` (default
+300 requests/minute/IP); the isolated multi-context E2E stack uses 1000 without
+changing the production default. Public auth pages now expose a semantic `main`
+landmark. The contrast matrix initially found dark-theme primary-link and badge
+text below WCAG AA; the dark primary tokens were adjusted and the full matrix now
+passes in both themes.
+
+The visual-review screenshot harness now selects the seeded paused task and uses
+direct seeded routes for create/detail/edit captures. The complete enabled desktop
+and mobile capture set passed; 52 other matrix cases are intentionally skipped by
+the manifest. Captures are under `test-results/ui-screenshots/` and the earlier
+pre-fix batch is archived under `/tmp/opencode/agent-tasks-ui-review-before/`.
+
+The final targeted visual recapture covered the four routes changed during review:
+Memory, Admin Users, task list, and execution detail (**12 passed, 12 intentional
+skips**). It includes the sanitized Markdown summary and full-width mobile task
+search fixes, which landed after the 52-pass full matrix. Findings and before/after
+capture names are consolidated in `docs/audit/ui-review-findings.md`; all four
+findings are fixed and visually rechecked. The web test suite was rerun at **101
+passed** after these changes. This targeted run does not replace a new full matrix.
+
+## Post-review local verification — 2026-11-04
+
+These results cover the current working tree after the review corrections. They are
+not a release verdict. Production deployment and live-provider verification remain
+excluded.
+
+| Command | Result |
+| --- | --- |
+| `pnpm install --frozen-lockfile` | passed after moving `@types/mdast` to the root devDependencies |
+| `pnpm lint` | passed |
+| `pnpm -r typecheck` | passed (all workspace projects) |
+| `pnpm test:unit` | **571 passed, 4 skipped** (41 files passed, 1 skipped) |
+| `pnpm --filter @agent-tasks/web test` | **101 passed** (19 files) |
+| `TEST_DATABASE_URL=postgres://agent:agent@dind:32769/agent_tasks pnpm test:integration` | **151 passed** (19 files), before the final public-client spoofed-header assertion was added |
+| Targeted Auth/Admin/Provider integration run | **41 passed** before the final spoofed-header assertion |
+| Final Auth integration rerun | blocked before tests by PostgreSQL connection timeout; all 23 tests skipped, so the new spoofed-header assertion remains unverified |
+| `git diff --check` | passed |
+| `PATH=/home/dev/.local/bin:$PATH ratchet check --rule dependency-count` | passed, 17 ≤ 17 dependency sections |
+| `PATH=/home/dev/.local/bin:$PATH ratchet check` | passed, **11/11 gates**, after separating gate paths into gate-only commit `8529406` |
+| Compose config, parity, deploy-contract and offline deploy dry-run checks | passed |
+| Post-review Compose build / Playwright E2E | not verified: the isolated build was cancelled after repeated npm registry download timeouts; Docker CLI status commands and the integration database probe timed out |
+
+The post-review Compose attempt uses only the fake runtime/provider. The E2E result
+from the earlier implementation snapshot is historical and is not evidence for this
+working tree. The failed Auth rerun did not reach test assertions; it is an
+environmental database-availability failure, not a passing test. The isolated Auth
+spoofing assertion, fresh independent review, and current-tree E2E remain open gates.
+
+## Working-tree follow-up — 2026-11-04
+
+OpenCode MCP tool calls are now persisted as bounded, redacted timeline steps; the
+terminal OpenCode summary follows the calls and is replaced on recovered replay.
+Memory/recommendation content is omitted from step history. Call, page, search and
+cumulative output budgets are atomically reserved in PostgreSQL, and admin limits
+also govern step count and duration. Limits remain finite and cannot exceed hard
+ceilings across retries and worker recovery.
+
+Current and historical Markdown reports both pass the source-provenance check at
+render time. Unbacked links become plain text, and every remote image is suppressed
+to avoid tracking requests and untrusted content loads. `rehype-sanitize` remains in
+the rendering path.
+
+## Latest working-tree verification — 2026-11-05
+
+These results cover the current uncommitted tree after the latest accessibility and
+retry-state changes. They are local checks, not a release verdict. No production
+deployment or live-provider verification was performed. The independent security
+review remains open; nothing has been pushed, and `stash@{0}` is preserved.
+
+| Command / gate | Result |
+| --- | --- |
+| `pnpm -r --workspace-concurrency=1 typecheck` | passed across all 10 workspace projects |
+| `pnpm lint` | passed |
+| `pnpm test:unit` | **600 passed, 4 skipped** (45 files passed, 1 skipped) |
+| `pnpm --filter @agent-tasks/web test` | **171 passed** (28 files); includes accessible names, feedback, keyboard, UI state/retry and unsafe-source-link handling |
+| `pnpm build` | passed across workspace packages, apps and services; generated 795-message English and German catalogues; Vite warns that the 916.48 kB minified JS chunk (260.12 kB gzip) exceeds its 500 kB advisory limit |
+| `/home/dev/.local/bin/ratchet check` | passed, **11/11 gates** (Ratchet 0.6.3) |
+| `docker compose config -q` | passed with synthetic, config-only environment values; no real credentials used |
+| `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **161 passed** (19 files) against the isolated local PostgreSQL test database; other databases were untouched |
+| Current-tree isolated Compose startup | Passed: five core services were running, configured health checks were healthy, and API `/api/healthz` returned 200. The browser-runner reported `sandbox: true` with Chromium `156.0.8078.4`; a worker-to-runner smoke loaded `https://example.com`. |
+| Current-tree Compose Playwright E2E | Fresh `agent-tasks-e2e-review` stack with `mail` and `search` profiles: **11 passed** (49.8 s) using only the test mock provider and fake runtime. API, PostgreSQL, browser runner, fake provisioner, Mailpit and SpamAssassin health checks passed; API health returned 200. The earlier 7/11 run was superseded. `docker compose down --volumes --remove-orphans` completed for this project only; follow-up container, network and volume label queries returned no resources. |
+| Screenshot and DOM accessibility audit | **52 passed, 52 intentional viewport skips** in the full current-tree route/state matrix against the local API/Vite stack with a test-only fake runtime/provider. Each capture ran checks for visible interactive names, one main landmark and named visible h1, image alt attributes, non-empty live announcements, and no focusable controls in `aria-hidden` content. The 144 full-page/section captures were reviewed; affected screens were recaptured and rechecked. |
+| `git diff --check` | passed after the latest source and documentation changes |
+
+CI run `41742072347` covers only parent `18725fb`, not this tree. The full UI screenshot
+matrix, local authenticated API/Vite suite and latest full Compose Playwright suite
+passed using only the test fake runtime/provider; no live model provider was contacted.
+The prior Compose attempt (7 passed, 2 failed, 2 not run) was superseded by the fresh
+11/11 run. Scoped cleanup of `agent-tasks-e2e-review` completed and was verified by
+empty project-label queries. Production deployment and live-provider checks remain
+excluded.
+
 ## OpenCode Go migration — 2026-11-03
 
 **Decision: the isolated OpenCode runtime is the worker's only execution backend;
@@ -128,20 +259,23 @@ and the fake reported `api/mcp` as `data: []`, so the worker's mandatory
 `connected` wait failed with "OpenCode MCP bridge did not connect". The fake now
 reports the registered bridge as connected, matching the real runtime.
 
-Known differences from the removed legacy loop (tracked in
-`docs/audit/requirements-coverage.md`, not silently claimed as parity):
+Known differences from the removed legacy loop as of 2026-11-03 (subsequent
+implementation and review corrections are described above; remaining gaps are tracked
+in `docs/audit/requirements-coverage.md`):
 
-- The execution timeline records one synthetic `opencode` step per run. MCP tool
-  calls are validated and their sources, e-mail blocks and memory proposals are
-  persisted, but they are not yet individual timeline steps.
-- The runtime returns plain final text, so `report.uncertainty` stays empty; the
-  model's uncertainty is not extracted into a structured field.
+- The execution timeline now records individual MCP calls as well as the synthetic
+  terminal `opencode` step. These rows are bounded and redacted; private memory and
+  recommendation payloads are omitted.
+- The runtime does not extract model-authored uncertainty prose into a structured
+  field. It records execution-derived uncertainty for unverified citation links;
+  remote-image removal is not treated as citation uncertainty.
 - Completion e-mail no longer requires a tool-capable model: the worker renders
   and sends it itself. A tool-capable model additionally gets `compose_email` for
   structured e-mail blocks.
-- Per-run hard limits for duration, page visits, search queries, tool calls and
-  output bytes are not all enforced by the OpenCode runtime; the runtime has a
-  configured agent-step cap. This is the main open production gate.
+- Per-run limits for agent steps, duration, page visits, search queries, tool calls
+  and cumulative output bytes are enforced from administrator settings, with durable
+  reservations for tool usage. Real OpenCode Go/provider validation remains a
+  separate, intentionally excluded production gate.
 
 Not run in this environment: any production deploy and a live OpenCode Go
 credential run. Production deploys stay intentionally blocked by the preflight
@@ -559,7 +693,7 @@ HTTPS); and the API image contains unserved source maps.
 | 1 | pnpm monorepo, Apache-2.0, CI | `pnpm-workspace.yaml`, `apps/*`, `services/*`, `packages/*`, `LICENSE`, `.github/workflows/ci.yml` | `pnpm install`, `pnpm build`, `pnpm lint`, `pnpm -r typecheck`; `LICENSE` present | PASS |
 | 2 | Roles, invite-only onboarding, secure bootstrap | `apps/api/src/auth.ts`, `routes/setup.ts`, `routes/admin.ts`, `apps/api/src/bootstrap.ts` | `auth.test.ts`: setup token, single admin under concurrent setup, blocked direct sign-up, single-use invite under concurrency, revoked/expired invite. `bootstrap.test.ts`: first admin from `ADMIN_EMAIL`/`ADMIN_PASSWORD` (idempotent, role ADMIN), registration setting opens direct `USER` sign-up only when enabled | PASS |
 | 2 | TOTP MFA, backup codes | `twoFactor()` plugin; `LoginPage` challenge; `SettingsPage` enable/disable | `auth.test.ts` (enable → verify → sign-in `twoFactorRedirect` → wrong code → valid code), `login-mfa.test.tsx` (4), `settings-mfa.test.tsx` (2) | PASS |
-| 2 | Session revocation, CSRF, rate limits | `cookieCache.enabled=false`, origin hook in `app.ts`, `rateLimit.customRules` | `auth.test.ts` logout 401, CSRF 403, 429 | PASS |
+| 2 | Session revocation, CSRF, rate limits | `cookieCache.enabled=false`, origin hook in `app.ts`, `rateLimit.customRules` | `auth.test.ts` logout 401, CSRF 403, and 429 boundaries for sign-in, TOTP verification, password reset, verification resend and public sign-up | PASS |
 | 2 | Audit log | `audit_logs`, `context.audit()` | `audit.test.ts`: setup, invite, role change, provider, credential; asserts the credential value never appears | PASS |
 | 2 | Email reset/verification (HTML) | `mailer.ts`, `lib/email-templates.ts`, Better Auth senders | **Mailpit over real SMTP** (CI): multipart text+HTML, SpamAssassin score 0.6 (`IsSpam=false`); Mailpit HTML check **87.4 % supported, 1.55 % unsupported, 10 warnings**; Playwright renders the Mailpit UI, asserts heading/button/2 reset links and screenshots it. No external provider | PASS (SMTP + HTML compatibility via Mailpit) |
 | 3 | Multi-user isolation / IDOR | owner-scoped queries, `requireUuid` | `isolation.test.ts` (8 tests: cross-user read/write/run/pause/cancel/export/history, forged owner id, credential isolation, admin bypass) | PASS |
@@ -910,3 +1044,190 @@ Agent Tasks scope, except for the separate OpenCode migration decision above:
 6. **Local developer host** — its kernel forbids unprivileged user namespaces,
    so the local Compose run used the documented `RUNNER_CHROMIUM_SANDBOX=false`
    override; the shipped default is proven in CI.
+
+## Historical issue-fix working tree — 2026-11-05
+
+This records the integrated uncommitted working tree as of that date. It includes
+the task-bound private conversation/follow-up slice, robots.txt enforcement,
+Markdown export hardening, expanded page-level accessibility/retry coverage and
+retained-data refresh retries for task and execution lists. The issue-specific
+verification sections below supersede its status for the current #8/#20/#32 work.
+It is not a release verdict; production deployment and live-provider verification
+were not performed.
+
+| Command / gate | Result |
+| --- | --- |
+| `pnpm lint` | Passed. |
+| `pnpm -r --workspace-concurrency=1 typecheck` | Passed across all 10 workspace projects. |
+| `pnpm build` | Passed across workspace packages, apps and services; generated both 795-message locale catalogues. Vite reports a 916.48 kB minified JavaScript chunk (260.12 kB gzip), above its 500 kB advisory threshold. |
+| `pnpm test:unit` | **600 passed, 4 skipped** (45 files passed, 1 skipped). |
+| `pnpm --filter @agent-tasks/web test` | **171 passed** (28 files), including accessible-name, feedback, keyboard, state, retry and safe-source-link regressions across the UI routes. |
+| `TEST_DATABASE_URL=postgres://agent@127.0.0.1:55432/agent_tasks pnpm test:integration` | **161 passed** (19 files) against the isolated local PostgreSQL test database. |
+| Issue #2 auth-rate-limit regression | `test/integration/auth.test.ts`: **26 passed** (one file), including 429 boundaries for TOTP verification (6/minute), password resets (3/5 minutes), public registration (5/5 minutes), failed sign-in and verification resend. Targeted ESLint, `git diff --check`, and Ratchet **11/11** passed. |
+| Issue #20 per-task concurrency delta | Focused `apps/worker/test/executor.test.ts`: **19 passed**; `test/integration/scheduler.test.ts`: **20 passed** on retry with `--hookTimeout=120000` (6.73 seconds); `test/integration/execution-budget.test.ts`: **10 passed**. Worker typecheck, targeted ESLint, `git diff --check`, and Ratchet **11/11** passed. The first scheduler attempt timed out in `createHarness` `beforeAll` after 60 seconds; cause unknown. |
+| Authenticated local Playwright E2E | **11 passed** against a fresh local PostgreSQL database, API/Vite stack and test-only fake runtime/provider. |
+| `pnpm exec vitest run --project unit services/browser-runner/test/robots-policy.test.ts services/browser-runner/test/browser-robots-policy.test.ts` | **13 passed** across the two robots-policy suites. |
+| `E2E_BASE_URL=http://127.0.0.1:5175 pnpm test:contrast` | **2 passed** (light and dark WCAG AA semantic-color matrix) against the local Vite app; no authenticated or API-backed page was tested. |
+| `docker compose config -q` with synthetic values | Passed; this does not prove the stack starts. |
+| Ratchet 0.6.3 `check` | **11/11 gates passed**. |
+| `git diff --check` | Passed after the final documentation changes. |
+| Current-tree Compose startup and browser-runner smoke | Isolated Compose project started with all five core services running; services with health checks were healthy. API `/api/healthz` returned 200. Browser-runner `/healthz` returned `sandbox: true` and Chromium `156.0.8078.4`; a worker-to-runner session opened `https://example.com` and returned `Example Domain`. |
+| Current-tree Compose Playwright E2E | Fresh `agent-tasks-e2e-review` stack with `mail`/`search` profiles passed **11/11** (49.8 s) using the test-only provider/runtime. API and all services with health checks reported healthy; API health returned 200. Earlier 8/11 and 7/11 attempts were superseded. Scoped `down --volumes --remove-orphans` completed; no containers, networks or volumes carrying the project label remained. |
+| Screenshot and DOM accessibility audit | Full current-tree route/state matrix: **52 passed, 52 intentional viewport skips** against local API/Vite and test-only fake runtime/provider. Each captured route/state/viewport passed checks for visible interactive names, main landmark, named h1, image alt, live announcements and no focusable `aria-hidden` controls. All 144 full-page/section captures were reviewed; the affected screens were recaptured and rechecked. |
+
+The screenshot matrix passed 52 route/state/viewport cases with 52 intentional
+viewport skips; the light/dark WCAG AA semantic-color checks passed 2/2. No production
+deployment, live-provider test, commit or push was performed. The tree remains
+uncommitted and `stash@{0}` is preserved. Cleanup of only the isolated
+`agent-tasks-e2e-review` project completed and its labeled containers, networks and
+volumes are absent. No other Compose project was changed. An independent security
+review is still required before any push or issue-status change.
+
+## OpenCode SDK rollout scope — 2026-11-09
+
+The OpenCode SDK migration remains the chosen execution path. The existing
+browser-runner is the selected and supported research backend; neither Browse nor a
+hosted browser service is part of the current deployment.
+
+### Browse feasibility
+
+Browse is **MCP-compatible with the SDK**, but is not a drop-in headless browser:
+
+- The OpenCode V2 SDK can connect configured MCP servers; this runtime does so in
+  `services/opencode-sdk-runtime/host.mjs` (`connectConfiguredMcp`). Browse exposes
+  `browse mcp` over stdio, so there is no inherent MCP/SDK protocol blocker.
+- Browse drives a real browser through its installed Chromium extension. Its
+  documented remote-browser mode allows the OpenCode host to remain headless while
+  the extension runs in a separate user browser. That extension is installed and
+  paired on the browser side; it is not preinstalled into this server runtime.
+- **Concrete blocker in the current deployment:** the provisioner creates an
+  internal network and data/config volumes per execution
+  (`services/opencode-provisioner/server.mjs`), and the SDK image contains neither
+  a browser nor Browse. The runtime has no ingress path for a user's extension and
+  no persistent per-owner Browse relay/pairing state. Merely adding `browse mcp` to
+  the runtime would therefore start an MCP server without a paired browser.
+- Browse's documented remote setup binds the relay for extension access and warns
+  that the relay connection is unencrypted; it recommends a private encrypted
+  network such as Tailscale or WireGuard. This deployment has no such owner-scoped
+  browser-to-relay channel. Exposing the current per-execution runtime directly is
+  not an acceptable workaround.
+
+**Decision — 2026-11-09: keep the browser-runner only.** Do not add Browse MCP,
+relay provisioning, extension pairing, or a maintained WSS extension fork. This
+avoids requiring every user's browser to join Tailscale/WireGuard and avoids
+shipping a custom extension to work around Browse's current `ws://` connection.
+Browse remains technically MCP-compatible with the SDK; this is the selected
+product/deployment scope, not a claim that the SDK cannot connect to Browse.
+Sources checked 2026-11-09:
+[Browse product](https://opencode.ai/product/browse), [Browse install and remote
+browser documentation](https://github.com/anomalyco/browse#readme), [OpenCode V2
+SDK](https://opencode.ai/docs/build/sdk), and [OpenCode V2 MCP
+servers](https://opencode.ai/docs/mcp-servers).
+
+### Kitesurf issue #15 — deferred after v1
+
+Kitesurf is distinct from Browse and is a Cloudflare-hosted Browser Run backend.
+The product decision is to keep the local browser-runner, and reconsider Kitesurf
+only after v1 and only if a self-hostable/open-source implementation becomes
+available. Do not send page URLs or contents to the hosted Cloudflare service in
+the current product. Issue #15 remains a deferred backlog item; no Cloudflare
+credentials are configured and no Kitesurf code or live test was added.
+
+### Agent Tasks scope decisions
+
+- Scheduled tasks remain focused on the ChatGPT-inspired Planen/inbox experience.
+- A manual reviewer/approval workflow, automatic approval, and GitHub auto-merge
+  controls are not Agent Tasks features; handle that workflow in its separate
+  project/conversation. No hard-denied action becomes approvable here.
+- Separating a repository issue tracker from a ticket-system backend is also not
+  part of this application; no backend adapters, configuration, or ticket were
+  added here.
+- Event-triggered tasks remain deferred until a connector layer exists.
+
+### CLI 2.2.5 volume compatibility gate — PASS (2026-11-09)
+
+The gate was run against a newly created Docker named volume containing only
+synthetic test data; no production or user volume was mounted. The fixture was
+created by the official `ghcr.io/anomalyco/opencode:2.2.5` image (manifest
+`sha256:1690aad69864d2f6714772d1e040918feebc6df5286d2bd7e181fbb35d12d4a9`).
+The CLI reported `2.2.5` from `/api/info`, ran with `--network none`, and received
+no provider credentials. It created session
+`ses_e3e1530c5ffeRHv4jKnhI482tx` and the synthetic history marker
+`legacy-cli-2.2.5-history-marker` in
+`/root/.local/share/opencode/opencode.db`.
+
+The fixture was then mounted at the SDK image's configured database path,
+`/home/opencode/.local/share/opencode/opencode.db`. The local
+`agent-tasks-opencode-sdk:local` image (image ID
+`sha256:10c7615d6528bf0f92491e4f46c49a39b292f83c41c9987fee0bad3efb393c7e`)
+reported `@opencode/sdk` `2.2.6`. With `--network=none`, the test opened the
+existing session/history through `services/opencode-sdk-runtime/host.mjs`,
+created a new session through its HTTP handler, closed and reopened the SDK host,
+then verified both the old CLI history and the SDK-created session were present.
+A second SDK write (`sessions.synthetic`, `resume: false`) was confirmed through
+the durable inbox before and after host restart. Result:
+
+```json
+{"result":"PASS","cli":"2.2.5","sdk":"2.2.6","historyReadThroughHttpRoute":true,"sessionCreateThroughHttpRoute":true,"sdkWritePersisted":true,"recoveredAfterSdkRestart":true,"network":"none"}
+```
+
+The Bun SDK-host tests passed **6/6**, and the final runtime image built successfully
+with `docker build -f docker/Dockerfile.opencode -t agent-tasks-opencode-sdk:verify .`.
+
+Fixture provenance and commands: create a fresh volume with
+`docker volume create --label com.agent-tasks.compatibility-test=cli225-sdk226
+<unique-name>`; run the official CLI image with that volume at
+`/root/.local/share/opencode`, `--network none`, and `serve --hostname
+127.0.0.1 --port 4096`; seed a session and synthetic marker using the CLI's
+authenticated `opencode api` (`POST /api/session`, then
+`POST /api/session/{id}/synthetic`); stop/remove that CLI container; then run
+the SDK image with the same volume mounted at
+`/home/opencode/.local/share/opencode`, `--network=none`, and Bun importing
+`@opencode/sdk` plus `createRuntimeHandler` from `host.mjs`. The test-only
+fixture was removed after verification. The pinned image digest and marker above
+make the fixture source and expected prior state reproducible; only the fixture
+password is intentionally generated per run.
+
+The first SDK launch attempt was blocked by the local shell policy because its
+container destination matched a blanket `/home/*` shell rule. This was a policy
+false positive, not a Docker or volume ownership error. A narrow local exception
+for the labeled compatibility volumes, local SDK image, and `--network=none`
+allowed the authorized test; the test volume and its containers were then removed.
+
+### Deployment, backup, and rollback guidance
+
+- Quiesce executions before switching a volume; never mount one SQLite data volume
+  concurrently in CLI and SDK processes.
+- Take a storage-level snapshot/copy of the stopped volume before rollout. Keep
+  the original and snapshot unchanged until SDK startup, history access, and a
+  write/restart check pass for the migrated execution.
+- If SDK startup or recovery fails, stop the SDK runtime and restore the snapshot
+  into a separate volume; point the previous CLI runtime at that restored volume.
+  Do not attempt rollback by opening the SDK-mutated volume with both versions.
+- Retain the backup until the execution is confirmed healthy and the rollback
+  window expires; only then remove it under the normal data-retention policy.
+
+No database migration was required by this fixture. The compatibility gate passed,
+but this is not a production deployment or a substitute for a per-volume backup
+before rollout. Issue #32 records this compatibility gate and its deployment
+safety requirements; it does not change browser-runner or egress policy.
+
+### Issue #8 agent-runtime verification — PASS (2026-11-09)
+
+- `pnpm exec vitest run --project unit packages/agent-runtime/test/runtime.test.ts packages/agent-runtime/test/tools.test.ts` — **20 passed**.
+- `pnpm test:unit` — **608 passed, 4 skipped** (45 files passed, 1 skipped).
+- Full integration suite — **162 passed** (19 files) against an ephemeral PostgreSQL 17 database. `execution.test.ts` starts the real browser-runner/Chromium, opens public pages, and verifies the persisted sourced Markdown report; the three-public-page sourcing case also passed.
+- `pnpm install --frozen-lockfile` — passed after allowlisting the pinned `@parcel/watcher` install hook. Its script is a no-op unless `npm_config_build_from_source=true`; the platform binary is supplied by the optional platform package.
+
+These gates verify the runtime and installer behavior on this worktree; the full
+CI pipeline and release deployment remain separate gates.
+
+### Issue #20 notification-channel verification — PASS (2026-11-09)
+
+- Migration `0011_task_notification_channels.sql` was applied to the integration database. A separate transaction-scoped PostgreSQL 17 check mapped legacy `none` → disabled, `email` → enabled/always, and `email_on_change` → enabled/on-change; the new-row database default is enabled/always. The check rolled back its temporary schema.
+- `pnpm test:unit` — **608 passed, 4 skipped**; schema tests cover the new default, legacy conversion, and always/on-change/disabled policies.
+- Full integration suite — **162 passed** (19 files). The run verifies scheduled e-mail delivery and quiet unchanged runs; `tasks.test.ts` was rerun after adding assertions that manual retries retain `retry` while retries of scheduled-origin runs retain `schedule`.
+- `pnpm --filter @agent-tasks/web test` — **171 passed** (28 files).
+- `pnpm -r typecheck`, `pnpm lint`, `pnpm install --frozen-lockfile`, `pnpm --filter @agent-tasks/database generate`, and `git diff --check` — passed. Drizzle reports no schema changes after the checked-in 0011 snapshot.
+- Isolated Compose E2E (`mail` and `search` profiles), `E2E_BASE_URL=http://dind:8280`, matching `PUBLIC_BASE_URL`, `E2E_MOCK_BASE_URL` at the backend-network gateway, and the test-only provider/runtime — **11 passed** in 51.5 s. The API and supporting services were healthy; the stack was stopped without deleting its named PostgreSQL volume.
+- `ratchet check` — **11/11 passed**. Dependency documentation is excluded from the project-rule length metric; the empty `@agent-tasks/mock-openai` dependency section was removed so the dependency-section count remains at its 17 ceiling.
