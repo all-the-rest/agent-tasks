@@ -18,7 +18,7 @@ const taskBody = (providerId: string) => ({
   enabled: true,
   schedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
   allowWebResearch: false,
-  notification: 'none',
+  notification: { email: { enabled: false, when: 'always' } },
 });
 
 async function providerFor(current: TestHarness, adminCookie: string): Promise<string> {

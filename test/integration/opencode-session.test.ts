@@ -18,7 +18,7 @@ const lease = { ownerId, executionId, workerId: 'opencode-worker-one' };
 beforeAll(async () => {
   await database.pool.query(`insert into "user" (id, name, email, email_verified, role) values ($1,'Owner',$2,true,'USER')`, [ownerId, `${ownerId}@example.invalid`]);
   await database.pool.query(`insert into providers (id, name, kind, enabled, is_default, config) values ($1,$2,'openai-compatible',true,false,'{}')`, [providerId, `test-${providerId}`]);
-  await database.pool.query(`insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification) values ($1,$2,'Task','Test',$3,'model',true,$4,'UTC',$5,false,'none')`, [taskId, ownerId, providerId, JSON.stringify({ preset: 'daily', timezone: 'UTC', hour: 6, minute: 0 }), JSON.stringify(AGENT_RUNTIME_LIMITS)]);
+  await database.pool.query(`insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification) values ($1,$2,'Task','Test',$3,'model',true,$4,'UTC',$5,false,'{"email":{"enabled":false,"when":"always"}}'::jsonb)`, [taskId, ownerId, providerId, JSON.stringify({ preset: 'daily', timezone: 'UTC', hour: 6, minute: 0 }), JSON.stringify(AGENT_RUNTIME_LIMITS)]);
   await database.pool.query(`insert into executions (id, task_id, owner_id, task_title, status, trigger, worker_id, lease_expires_at) values ($1,$2,$3,'Task','running','manual',$4,now() + interval '2 minutes')`, [executionId, taskId, ownerId, lease.workerId]);
 });
 

@@ -15,6 +15,5 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts"
-  },
-  "dependencies": {}
+  }
 }

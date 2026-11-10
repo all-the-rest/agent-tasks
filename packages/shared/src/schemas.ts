@@ -4,6 +4,7 @@ import { memorySettingsSchema, DEFAULT_MEMORY_SETTINGS } from './memory.js';
 import { emailBlocksSchema } from './email-blocks.js';
 import { scheduleSchema } from './schedule.js';
 import { taskEndConditionSchema } from './task-end-condition.js';
+import { DEFAULT_TASK_NOTIFICATION, taskNotificationSchema } from './notification.js';
 import { EXECUTION_STATUSES, REPORT_CONFIDENCE, ROLES } from './status.js';
 import { safeHttpUrl } from './url.js';
 
@@ -116,7 +117,7 @@ export const taskInputSchema = z.object({
   schedule: scheduleSchema,
   endCondition: taskEndConditionSchema.default({ type: 'never' }),
   allowWebResearch: z.boolean().default(true),
-  notification: z.enum(['none', 'email', 'email_on_change']).default('none'),
+  notification: taskNotificationSchema.default(DEFAULT_TASK_NOTIFICATION),
   memorySettings: memorySettingsSchema.default(DEFAULT_MEMORY_SETTINGS),
   conversationMode: z.enum(['standalone', 'conversation']).default('standalone'),
 });

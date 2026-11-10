@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { connect } from 'node:net';
 import { createServer, get as httpGet } from 'node:http';
 import type { Server } from 'node:http';
+import { chromium } from 'playwright';
 import { chromiumEgressArgs } from '../src/browser.js';
 import { startEgressProxy } from '../src/proxy.js';
 import type { EgressProxy } from '../src/proxy.js';
@@ -128,6 +129,55 @@ describe('egress proxy', () => {
     expect(args).toContain('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
     // Even when Chromium proxies loopback because of the new flags, the proxy refuses it.
     expect(await request(proxy.port, '127.0.0.1:80')).toContain('403');
+  });
+
+  it('blocks loopback and DNS-rebinding image subresources in headless Chromium behind the proxy', async () => {
+    const served: string[] = [];
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/pWQAAAAASUVORK5CYII=', 'base64');
+    let fixturePort = 0;
+    const fixture = createServer((request, response) => {
+      const host = request.headers.host ?? 'unknown';
+      served.push(`${host}${request.url ?? ''}`);
+      if (request.url === '/') {
+        response.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' });
+        response.end(`<!doctype html><img id="public" src="http://public.example/public.png"><img id="loopback" src="http://127.0.0.1:${fixturePort}/private.png"><img id="rebind" src="http://rebind.example/private.png">`);
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+      response.end(png);
+    });
+    await new Promise<void>((resolve) => fixture.listen(0, '127.0.0.1', resolve));
+    const address = fixture.address();
+    if (!address || typeof address === 'string') throw new Error('Chromium egress fixture failed to bind');
+    fixturePort = address.port;
+
+    const browserProxy = await startEgressProxy({
+      allowedPorts: [80, fixturePort],
+      allowHttp: true,
+      lookupFn: async (host) => host === 'rebind.example'
+        ? [{ address: '10.0.0.7', family: 4 }]
+        : [{ address: '93.184.216.34', family: 4 }],
+      connectFn: (_options, connectionListener) => connect({ host: '127.0.0.1', port: fixturePort }, connectionListener),
+    });
+    let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+    try {
+      browser = await chromium.launch({ headless: true, args: ['--no-sandbox', ...chromiumEgressArgs(browserProxy.port)] });
+      const page = await browser.newPage();
+      await page.goto('http://public.example/', { waitUntil: 'load', timeout: 10_000 });
+      await page.waitForFunction(() => {
+        const image = document.querySelector<HTMLImageElement>('#public');
+        return Boolean(image?.complete);
+      }, undefined, { timeout: 5_000 });
+
+      expect(await page.locator('#public').evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1);
+      expect(browserProxy.blocked.map((entry) => entry.host)).toEqual(expect.arrayContaining(['127.0.0.1', 'rebind.example']));
+      expect(served).toContain('public.example/public.png');
+      expect(served.some((request) => /private\.png/.test(request))).toBe(false);
+    } finally {
+      await browser?.close();
+      await browserProxy.close();
+      await new Promise<void>((resolve) => fixture.close(() => resolve()));
+    }
   });
 
   it('refuses private-network targets', async () => {

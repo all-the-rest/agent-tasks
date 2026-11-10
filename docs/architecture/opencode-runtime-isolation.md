@@ -192,14 +192,17 @@ failed. A timeout is terminal and never retried.
 
 ## Version, persistence and operations
 
-- **Pinned version.** `docker/Dockerfile.opencode` pins `OPENCODE_VERSION=2.2.5`;
-  the compose image is the only supported runtime. The V2 HTTP API is experimental,
-  so the contract tests (`apps/worker/test/opencode-v2-*.test.ts`) and the opt-in
-  live suite run against that exact binary. A version bump re-runs the live suite
-  before the image tag changes.
-- **Persistence.** OpenCode state lives in per-execution volumes (`data`, `config`,
-  `state`) and is reattached when the same execution reopens its runtime. The
-  volumes are cleaned by the provisioner after `OPENCODE_RUNTIME_TTL_SECONDS`
+- **Pinned version.** `docker/Dockerfile.opencode` installs the locked
+  `@opencode/sdk` 2.2.6 in the Bun runtime. The SDK host exposes only the HTTP
+  routes used by the worker and is the supported production runtime. The opt-in
+  worker live suite still exercises the OpenCode CLI 2.2.5 protocol; a separate
+  disposable-volume gate opens CLI 2.2.5 data through the SDK 2.2.6 host and checks
+  history, new writes and restart recovery. An SDK version bump must repeat that
+  compatibility gate before the image tag changes.
+- **Persistence.** OpenCode state lives in per-execution `data` and `config`
+  volumes. `/home/opencode/.local/state`, cache and temporary files are tmpfs;
+  the provisioner reattaches the persistent volumes when the same execution
+  reopens its runtime and cleans them after `OPENCODE_RUNTIME_TTL_SECONDS`
   (default 30 days). Postgres remains the system of record: the session mapping,
   durable message ID, steps, sources, report and usage are stored there, so a lost
   runtime volume only forces a fresh session, never a lost report.
@@ -214,9 +217,11 @@ failed. A timeout is terminal and never retried.
   and failure messages pass through `redact` with every known secret before they
   reach the database, an API response or a notification.
 - **Verification plan.** Local: `pnpm lint`, `pnpm -r typecheck`, `pnpm test:unit`,
-  `TEST_DATABASE_URL=… pnpm test:integration`, `OPENCODE_LIVE_TEST=1` for the real
-  2.2.5 binary, the provisioner unit tests and `scripts/verify-opencode-provisioner.mjs`
-  against the rebuilt container, plus `check-compose-parity.mjs` and `ratchet check`.
-  CI runs the same unit/integration suites, builds every image, executes the
-  deploy dry-run and the browser E2E suite. The real-credential gates listed above
-  are the only checks that cannot run in CI without a Go account.
+  `TEST_DATABASE_URL=… pnpm test:integration`, `OPENCODE_LIVE_TEST=1` for the CLI
+  2.2.5 protocol suite, the Bun SDK-host tests, the disposable CLI-2.2.5-volume to
+  SDK-2.2.6 recovery check, the provisioner unit tests and
+  `scripts/verify-opencode-provisioner.mjs` against the rebuilt container, plus
+  `check-compose-parity.mjs` and `ratchet check`. CI runs the same unit/integration
+  suites, builds every image, executes the deploy dry-run and browser E2E suite.
+  Real-provider/Go credential gates remain open because they require an operator
+  account.

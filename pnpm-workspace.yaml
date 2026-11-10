@@ -6,6 +6,10 @@ packages:
 # One place for the versions every workspace project shares (pnpm catalog).
 allowBuilds:
   esbuild: true
+  "@parcel/watcher": true # Its install hook is a no-op unless build_from_source=true; platform prebuilds are optional dependencies.
+
+overrides:
+  zod@3.25.76: 4.6.7
 
 catalog:
   "@types/node": ^26.6.6

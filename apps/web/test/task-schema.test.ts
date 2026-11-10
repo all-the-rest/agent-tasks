@@ -25,7 +25,7 @@ function validValues(overrides: Partial<TaskFormValues> = {}): TaskFormValues {
     },
     endCondition: { type: 'never', date: '', runs: 1 },
     allowWebResearch: true,
-    notification: 'email',
+    notification: { email: { enabled: true, when: 'always' } },
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
     conversationMode: 'standalone',
     ...overrides,
