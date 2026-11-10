@@ -9,6 +9,7 @@ import {
   systemSettingsSchema,
   taskEndConditionSchema,
   taskInputSchema,
+  taskNotificationSchema,
   taskUpdateSchema,
   migrateLegacyNotification,
   shouldSendNotification,
@@ -90,6 +91,10 @@ describe('channel notification policy', () => {
       expect(migrateLegacyNotification(legacy)).toEqual({ email: { enabled, when } });
     },
   );
+  it('rejects unknown notification channels and email policy fields', () => {
+    expect(taskNotificationSchema.safeParse({ email: { enabled: true, when: 'always', sms: true } }).success).toBe(false);
+    expect(taskNotificationSchema.safeParse({ email: { enabled: true, when: 'always' }, sms: true }).success).toBe(false);
+  });
   it('defaults to email and respects always, on-change and disabled delivery', () => {
     const policy = taskInputSchema.parse(createBody).notification;
     expect(policy).toEqual({ email: { enabled: true, when: 'always' } });

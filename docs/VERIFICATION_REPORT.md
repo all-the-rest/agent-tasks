@@ -1218,6 +1218,7 @@ safety requirements; it does not change browser-runner or egress policy.
 - `pnpm test:unit` — **608 passed, 4 skipped** (45 files passed, 1 skipped).
 - Full integration suite — **162 passed** (19 files) against an ephemeral PostgreSQL 17 database. `execution.test.ts` starts the real browser-runner/Chromium, opens public pages, and verifies the persisted sourced Markdown report; the three-public-page sourcing case also passed.
 - `pnpm install --frozen-lockfile` — passed after allowlisting the pinned `@parcel/watcher` install hook. Its script is a no-op unless `npm_config_build_from_source=true`; the platform binary is supplied by the optional platform package.
+- CI follow-up (2026-11-10): Unit installs Playwright's headless Chromium shell for the real egress regression; `scripts/verify-workers.mjs` now sends the channel-oriented disabled-email policy. A workspace override resolves the SDK provider tree's unpatched `zod@3.25.76` to `zod@4.6.7`; `pnpm why zod` reports only 4.6.7, `gitlab-ai-provider` and `@opencode/sdk` import successfully with it, and `pnpm audit --prod --audit-level high` reports no high-severity findings (three moderate advisories remain).
 
 These gates verify the runtime and installer behavior on this worktree; the full
 CI pipeline and release deployment remain separate gates.
