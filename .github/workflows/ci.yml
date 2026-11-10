@@ -93,6 +93,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install Chromium for browser egress tests
+        run: pnpm exec playwright install --with-deps --only-shell chromium
       - name: Unit tests
         run: pnpm test:unit
       - name: Web unit tests
