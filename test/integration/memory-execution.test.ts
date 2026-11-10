@@ -99,7 +99,7 @@ beforeAll(async () => {
   taskId = randomUUID();
   await harness.db.pool.query(
     `insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, memory_settings)
-     values ($1,$2,'Memory research','Research alpha and report changes. Cite sources.',$3,'mock-researcher',true,$4,'Europe/Vienna',$5,false,'none',$6)`,
+      values ($1,$2,'Memory research','Research alpha and report changes. Cite sources.',$3,'mock-researcher',true,$4,'Europe/Vienna',$5,false,'{"email":{"enabled":false,"when":"always"}}'::jsonb,$6)`,
     [
       taskId,
       ownerId,

@@ -31,7 +31,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     completedAt: null,
     timezone: 'UTC',
     allowWebResearch: false,
-    notification: 'none',
+    notification: { email: { enabled: false, when: 'always' } },
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
     conversationMode: 'standalone',
     nextRunAt: new Date(Date.now() + 3 * 86_400_000).toISOString(),

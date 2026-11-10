@@ -1,0 +1,12 @@
+{
+  "name": "@agent-tasks/opencode-sdk-runtime",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run host.mjs",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opencode/sdk": "2.2.6"
+  }
+}

@@ -10,7 +10,7 @@ import type { WorkerEnv } from '../src/env.js';
 const box = new SecretBox(Buffer.alloc(32, 1).toString('base64'));
 const ownerId = 'AbCdEfGhIjKlMnOpQrStUvWxYz012345';
 
-function fixture(kind = 'codex', notification: 'none' | 'email' = 'none') {
+function fixture(kind = 'codex', notification = { email: { enabled: false, when: 'always' as const } }, trigger: 'schedule' | 'manual' | 'retry' = 'schedule') {
   const executionId = randomUUID();
   const task = {
     id: randomUUID(),
@@ -33,7 +33,7 @@ function fixture(kind = 'codex', notification: 'none' | 'email' = 'none') {
     enabled: true,
     config: { baseUrl: 'https://provider.invalid/v1', models: [{ id: 'mock-model', supportsTools: true }] },
   };
-  const execution = { id: executionId, ownerId, attempt: 0 };
+  const execution = { id: executionId, ownerId, attempt: 0, trigger };
   const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
   const dialect = new PgDialect();
   const execute = async (query: unknown) => {
@@ -124,9 +124,10 @@ describe('isolated OpenCode provider contract', () => {
   });
 
   it('persists OpenCode report blocks and delivers the same content in completion mail', async () => {
-    const fake = fixture('openai-compatible', 'email');
+    const fake = fixture('openai-compatible', { email: { enabled: true, when: 'always' } });
     const openCodeRunner = vi.fn(async (options: RunAgentOptions) => {
       expect(options.provider.kind).toBe('openai-compatible');
+      expect(options.emailNotification).toBe(true);
       return result;
     });
     const mailer = { send: vi.fn(async () => undefined) };
@@ -155,5 +156,34 @@ describe('isolated OpenCode provider contract', () => {
     expect(mail.html).toContain('All checks passed.');
     expect(mail.html).toContain('href="https://example.com/executions/1"');
     expect(mail.text).toContain('Details.');
+  });
+
+  it('does not send or compose notification mail for manual executions', async () => {
+    const fake = fixture('openai-compatible', { email: { enabled: true, when: 'always' } }, 'manual');
+    const openCodeRunner = vi.fn(async (options: RunAgentOptions) => {
+      expect(options.emailNotification).toBe(false);
+      return result;
+    });
+    const mailer = { send: vi.fn(async () => undefined) };
+    const executor = new Executor({ db: fake.db, env, boss: {} as never, workerId: 'unit-worker', openCodeRunner, mailer });
+
+    await executor.handle(fake.executionId);
+
+    expect(openCodeRunner).toHaveBeenCalledOnce();
+    expect(mailer.send).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for retry triggers without scheduled origin', async () => {
+    const fake = fixture('openai-compatible', { email: { enabled: true, when: 'always' } }, 'retry');
+    const openCodeRunner = vi.fn(async (options: RunAgentOptions) => {
+      expect(options.emailNotification).toBe(false);
+      return result;
+    });
+    const mailer = { send: vi.fn(async () => undefined) };
+    const executor = new Executor({ db: fake.db, env, boss: {} as never, workerId: 'unit-worker', openCodeRunner, mailer });
+
+    await executor.handle(fake.executionId);
+
+    expect(mailer.send).not.toHaveBeenCalled();
   });
 });

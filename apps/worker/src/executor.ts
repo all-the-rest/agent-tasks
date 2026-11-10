@@ -37,6 +37,8 @@ import {
   taskRequiresTools,
   isExecutableProviderKind,
   resolveAgentLimits,
+  shouldSendNotification,
+  migrateLegacyNotification,
 } from '@agent-tasks/shared';
 import type { MemoryCategory, MemoryContextRecord, MemoryScope, RecommendationContextRecord } from '@agent-tasks/shared';
 import { claimExecution, heartbeat, isCancelRequested } from './scheduling.js';
@@ -326,8 +328,8 @@ export class Executor {
       };
 
       const memorySettings = parseMemorySettings(task.memorySettings);
-      // E-mail, research and memory are only real when the runtime may offer tools.
-      // Refuse before provisioning instead of letting OpenCode run without them.
+      // Research and memory require model tools. Refuse before provisioning instead
+      // of letting OpenCode silently run without those features.
       if (taskRequiresTools({
         allowWebResearch: task.allowWebResearch,
         memoryMode: memorySettings.mode,
@@ -499,7 +501,7 @@ export class Executor {
         // Search/filter inputs may be filled during research; the model-facing tool
         // has no submit argument and the browser runner rejects submissions outright.
         allowForms: task.allowWebResearch,
-        emailNotification: task.notification !== 'none',
+        emailNotification: execution.trigger === 'schedule' && migrateLegacyNotification(task.notification).email.enabled,
         memoryEnabled: memoryToolsEnabled,
         memoryContext,
         limits,
@@ -653,8 +655,10 @@ export class Executor {
         }
       }
 
-      const notifyByEmail = task.notification === 'email'
-        || (task.notification === 'email_on_change' && change !== 'unchanged');
+      // Unknown and non-scheduled triggers fail closed: only scheduled runs have
+      // an owner-configured e-mail delivery policy.
+      const notifyByEmail = execution.trigger === 'schedule' &&
+        shouldSendNotification(migrateLegacyNotification(task.notification), change !== 'unchanged');
       if (notifyByEmail) {
         // A notification failure must never turn a completed execution into a failure.
         await this.sendCompletionEmail({ task, executionId, result, finishedAt }).catch((error: unknown) => {

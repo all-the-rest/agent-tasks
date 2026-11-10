@@ -45,7 +45,7 @@ const taskBody = (providerId: string) => ({
   enabled: true,
   schedule: { preset: 'daily', timezone: 'Europe/Vienna', hour: 6, minute: 30 },
   allowWebResearch: false,
-  notification: 'none',
+  notification: { email: { enabled: false, when: 'always' } },
 });
 
 async function createTask(current: TestHarness, cookie: string, providerId: string, title: string): Promise<string> {
@@ -65,12 +65,13 @@ async function insertExecution(
   ownerId: string,
   status: 'completed' | 'queued' | 'failed' = 'completed',
   readAt: Date | null = null,
+  trigger: 'schedule' | 'manual' | 'retry' = 'manual',
 ): Promise<string> {
   const id = randomUUID();
   await current.db.pool.query(
     `insert into executions (id, task_id, owner_id, task_title, status, "trigger", read_at)
-     values ($1, $2, $3, 'Inbox test execution', $4, 'manual', $5)`,
-    [id, taskId, ownerId, status, readAt],
+     values ($1, $2, $3, 'Inbox test execution', $4, $5, $6)`,
+    [id, taskId, ownerId, status, trigger, readAt],
   );
   return id;
 }
@@ -106,15 +107,15 @@ describe('partial task updates', () => {
       title: 'Renamed while paused',
       enabled: false,
       allowWebResearch: false,
-      notification: 'none',
+      notification: { email: { enabled: false, when: 'always' } },
       nextRunAt: null,
     });
 
-    const stored = await harness.db.pool.query<{ enabled: boolean; allow_web_research: boolean; notification: string; next_run_at: Date | null }>(
+    const stored = await harness.db.pool.query<{ enabled: boolean; allow_web_research: boolean; notification: { email: { enabled: boolean; when: string } }; next_run_at: Date | null }>(
       'select enabled, allow_web_research, notification, next_run_at from tasks where id = $1',
       [taskId],
     );
-    expect(stored.rows[0]).toMatchObject({ enabled: false, allow_web_research: false, notification: 'none', next_run_at: null });
+    expect(stored.rows[0]).toMatchObject({ enabled: false, allow_web_research: false, notification: { email: { enabled: false, when: 'always' } }, next_run_at: null });
   });
 
   it('does not expose per-task agent limits and ignores per-task overrides', async () => {
@@ -506,6 +507,24 @@ describe('parallel execution admission', () => {
     })));
 
     expect(retries.map((retry) => retry.statusCode)).toEqual([201, 201, 201, 201]);
+
+    const retryIds = retries.map((retry) => retry.json().executionId as string);
+    const manualRetryTriggers = await harness.db.pool.query('select trigger from executions where id = any($1::uuid[])', [retryIds]);
+    expect(manualRetryTriggers.rows.map((row) => row.trigger)).toEqual(['retry', 'retry', 'retry', 'retry']);
+
+    // A retry retains scheduled origin, so the worker can apply scheduled-mail
+    // preferences only to this execution and not to a manual retry.
+    await harness.db.pool.query("update executions set status = 'completed' where id = any($1::uuid[])", [retryIds]);
+    const scheduledFailureId = await insertExecution(harness, taskIds[0]!, admin.id, 'failed', null, 'schedule');
+    const scheduledRetry = await harness.app.inject({
+      method: 'POST',
+      url: `/api/executions/${scheduledFailureId}/retry`,
+      headers: { cookie: admin.cookie },
+    });
+    expect(scheduledRetry.statusCode, scheduledRetry.body).toBe(201);
+    const scheduledRetryId = scheduledRetry.json().executionId as string;
+    const scheduledRetryRow = await harness.db.pool.query('select trigger from executions where id = $1', [scheduledRetryId]);
+    expect(scheduledRetryRow.rows[0]?.trigger).toBe('schedule');
   });
 });
 

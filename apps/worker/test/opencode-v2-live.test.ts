@@ -106,7 +106,7 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
     const executionId = randomUUID();
     const ownerId = 'live-test-owner';
     const key = Buffer.alloc(32, 1).toString('base64');
-    const task = { id: randomUUID(), ownerId, providerId: randomUUID(), title: 'Mock task', prompt: 'Respond to this test.', model: 'mock-model', timezone: 'UTC', allowWebResearch: false, notification: 'none', memorySettings: { mode: 'off' } };
+    const task = { id: randomUUID(), ownerId, providerId: randomUUID(), title: 'Mock task', prompt: 'Respond to this test.', model: 'mock-model', timezone: 'UTC', allowWebResearch: false, notification: { email: { enabled: false, when: 'always' } }, memorySettings: { mode: 'off' } };
     const provider = { id: task.providerId, name: 'Mock', kind: 'openai-compatible', enabled: true, config: { baseUrl: `http://127.0.0.1:${mockAddress.port}/v1`, models: [{ id: 'mock-model', supportsTools: false }] } };
     const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
     const dialect = new PgDialect();
@@ -156,7 +156,7 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
         await database.pool.query(`insert into "user" (id, name, email, email_verified, role) values ($1,'OpenCode test',$2,true,'USER')`, [realOwnerId, `${realOwnerId}@example.invalid`]);
         await database.pool.query(`insert into providers (id, name, kind, enabled, is_default, config) values ($1,$2,'openai-compatible',true,false,$3)`, [realProviderId, `OpenCode test ${realProviderId}`, JSON.stringify(provider.config)]);
         await database.pool.query(`insert into provider_credentials (id, provider_id, owner_id, label, ciphertext) values ($1,$2,$3,'test',$4)`, [randomUUID(), realProviderId, realOwnerId, new SecretBox(key).encrypt('fake-key')]);
-        await database.pool.query(`insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, memory_settings) values ($1,$2,'Mock task','Respond to this test.',$3,'mock-model',true,$4,'UTC',$5,false,'none',$6)`, [realTaskId, realOwnerId, realProviderId, JSON.stringify({ preset: 'daily', timezone: 'UTC', hour: 6, minute: 0 }), JSON.stringify(AGENT_RUNTIME_LIMITS), JSON.stringify({ mode: 'off' })]);
+        await database.pool.query(`insert into tasks (id, owner_id, title, prompt, provider_id, model, enabled, schedule, timezone, limits, allow_web_research, notification, memory_settings) values ($1,$2,'Mock task','Respond to this test.',$3,'mock-model',true,$4,'UTC',$5,false,'{"email":{"enabled":false,"when":"always"}}'::jsonb,$6)`, [realTaskId, realOwnerId, realProviderId, JSON.stringify({ preset: 'daily', timezone: 'UTC', hour: 6, minute: 0 }), JSON.stringify(AGENT_RUNTIME_LIMITS), JSON.stringify({ mode: 'off' })]);
         await database.pool.query(`insert into executions (id, task_id, owner_id, task_title, status, trigger, model, provider_id) values ($1,$2,$3,'Mock task','queued','manual','mock-model',$4)`, [realExecutionId, realTaskId, realOwnerId, realProviderId]);
         const realExecutor = new Executor({ db: database.db, env: { ...env, DATABASE_URL: databaseUrl }, boss, workerId: 'live-postgres-worker', openCodeRunner: runner });
         await boss.work<{ executionId: string }>(QUEUE_EXECUTION, executionWorkOptions(1), async (jobs) => {
@@ -481,7 +481,7 @@ describe.skipIf(process.env.OPENCODE_LIVE_TEST !== '1')('OpenCode V2 with an Ope
       const key = Buffer.alloc(32, 1).toString('base64');
       const task = {
         id: randomUUID(), ownerId, providerId: randomUUID(), title: 'Research task', prompt: 'Open the page.',
-        model: 'mock-model', timezone: 'UTC', allowWebResearch: true, notification: 'none', memorySettings: { mode: 'off' },
+        model: 'mock-model', timezone: 'UTC', allowWebResearch: true, notification: { email: { enabled: false, when: 'always' } }, memorySettings: { mode: 'off' },
       };
       const provider = { id: task.providerId, name: 'Mock', kind: 'openai-compatible', enabled: true, config: { baseUrl: `http://127.0.0.1:${chatAddress.port}/v1`, models: [{ id: 'mock-model', supportsTools: true }] } };
       const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];

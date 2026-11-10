@@ -139,7 +139,7 @@ function executionFixture(options: {
     timezone: 'Europe/Vienna',
     model: 'mock-model',
     allowWebResearch: false,
-    notification: 'none',
+    notification: { email: { enabled: false, when: 'always' } },
     memorySettings: { mode: 'off' },
     limits: AGENT_RUNTIME_LIMITS,
   };

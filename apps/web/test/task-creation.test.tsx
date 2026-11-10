@@ -76,7 +76,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     completedAt: null,
     timezone: 'UTC',
     allowWebResearch: false,
-    notification: 'none',
+    notification: { email: { enabled: true, when: 'always' } },
     memorySettings: { mode: 'auto', contextBytes: 12_000 },
     conversationMode: 'standalone',
     nextRunAt: null,

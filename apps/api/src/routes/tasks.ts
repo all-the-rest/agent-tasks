@@ -165,7 +165,6 @@ interface TaskProvider {
 
 interface TaskToolRequirements {
   allowWebResearch: boolean;
-  notification: string;
   memoryMode: string;
 }
 
@@ -317,7 +316,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     if (!parsed.success) throw AppError.badRequest('invalid task', parsed.error.issues);
     const provider = await assertTaskExecutable(db, me.id, parsed.data.providerId, parsed.data.model, {
       allowWebResearch: parsed.data.allowWebResearch,
-      notification: parsed.data.notification,
       memoryMode: parsed.data.memorySettings.mode,
     });
     const schedule = parsed.data.schedule;
@@ -396,7 +394,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       parsed.data.providerId !== undefined ||
       parsed.data.model !== undefined ||
       parsed.data.allowWebResearch !== undefined ||
-      parsed.data.notification !== undefined ||
       parsed.data.memorySettings !== undefined;
     if (executionFieldsChanged) {
       const existing = await db
@@ -413,7 +410,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         parsed.data.model ?? current.model,
         {
           allowWebResearch: parsed.data.allowWebResearch ?? current.allowWebResearch,
-          notification: parsed.data.notification ?? current.notification,
           memoryMode: parseMemorySettings(parsed.data.memorySettings ?? current.memorySettings).mode,
         },
       );
@@ -560,7 +556,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       if (!completed) {
         await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
           allowWebResearch: task.allowWebResearch,
-          notification: task.notification,
           memoryMode: parseMemorySettings(task.memorySettings).mode,
         });
       }
@@ -594,7 +589,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       // A manual run must not queue an execution the worker will refuse.
       await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
         allowWebResearch: task.allowWebResearch,
-        notification: task.notification,
         memoryMode: parseMemorySettings(task.memorySettings).mode,
       });
       const active = await tx
@@ -641,7 +635,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       if (!task.enabled || task.completedAt) throw AppError.conflict('follow-ups require an enabled, incomplete task');
       await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
         allowWebResearch: task.allowWebResearch,
-        notification: task.notification,
         memoryMode: parseMemorySettings(task.memorySettings).mode,
       });
       const active = await tx
@@ -726,7 +719,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
     // Release a deliberate copy only if the worker could actually run it later.
     await assertTaskExecutable(db, me.id, task.providerId, task.model, {
       allowWebResearch: task.allowWebResearch,
-      notification: task.notification,
       memoryMode: parseMemorySettings(task.memorySettings).mode,
     });
     const id = randomUUID();
@@ -921,7 +913,6 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
       // A retry must not queue an execution the worker will refuse.
       await assertTaskExecutable(tx, me.id, task.providerId, task.model, {
         allowWebResearch: task.allowWebResearch,
-        notification: task.notification,
         memoryMode: parseMemorySettings(task.memorySettings).mode,
       });
       const retryId = randomUUID();
@@ -932,7 +923,10 @@ export async function registerTaskRoutes(app: FastifyInstance, context: AppConte
         taskTitle: task.title,
         inputSnapshot: previous.inputSnapshot || task.prompt,
         status: 'queued',
-        trigger: 'retry',
+        // Preserve the origin policy: a retry of a scheduled run is still a
+        // scheduled run for notification purposes. Manual/conversation retries
+        // remain non-scheduled and therefore cannot send scheduled e-mail.
+        trigger: previous.trigger === 'schedule' ? 'schedule' : 'retry',
         attempt: previous.attempt + 1,
         providerId: task.providerId,
         model: task.model,
