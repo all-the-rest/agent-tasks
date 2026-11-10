@@ -86,7 +86,7 @@ const taskPayload = (title, providerId) => ({
   enabled: false,
   schedule: { preset: 'once', timezone: 'Europe/Vienna', runAt: new Date(Date.now() + 3_600_000).toISOString() },
   allowWebResearch: false,
-  notification: 'none',
+  notification: { email: { enabled: false, when: 'always' } },
   // The worker check uses a deliberately tool-less fake model; memory needs tools.
   memorySettings: { mode: 'off' },
 });

@@ -37,6 +37,9 @@ catalogs:
       specifier: ^4.6.7
       version: 4.6.7
 
+overrides:
+  zod@3.25.76: 4.6.7
+
 importers:
 
   .:
@@ -398,7 +401,7 @@ packages:
     resolution: {integrity: sha512-+FXkZ2e169zASBHP5HAakP0Iai3Eoa8zgh7bnuZExsek3N9HgGt/c7l1Oibdxb79vvsn5Mrg2Sjam80mR6bL8A==}
     engines: {node: '>=18.17'}
     peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
+      zod: 4.6.7
 
   '@ai-sdk/provider@3.0.19':
     resolution: {integrity: sha512-5lWq7zSfRaU5ylDESn3sDQjgGl2AI1vjZKO/6JY3aFW70ct4zcP1kN+ZUYOuTXr28fVsYbyu2YFhddLdIgQFZQ==}
@@ -412,7 +415,7 @@ packages:
     resolution: {integrity: sha512-TGNDEUuEstk/DKu0/TflXAEt+p+p/WhTlFzEnoosvbaDU2LTjm42igSdlL0VijrKpWejtOKxX0b8A7uc+XiSAQ==}
     hasBin: true
     peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
+      zod: 4.6.7
     peerDependenciesMeta:
       zod:
         optional: true
@@ -3376,7 +3379,7 @@ packages:
       sqlite3: '>=5'
       typebox: '>=1.2.0'
       valibot: '>=1.0.0-beta.7'
-      zod: ^3.25.0 || ^4.0.0
+      zod: 4.6.7
     peerDependenciesMeta:
       '@aws-sdk/client-rds-data':
         optional: true
@@ -4654,7 +4657,7 @@ packages:
       '@smithy/hash-node': '>=4.3.0 <5'
       '@smithy/signature-v4': '>=5.4.0 <6'
       ws: ^8.18.0
-      zod: ^3.25 || ^4.0
+      zod: 4.6.7
     peerDependenciesMeta:
       '@aws-sdk/credential-provider-node':
         optional: true
@@ -5668,9 +5671,6 @@ packages:
     resolution: {integrity: sha512-xYqdZFUK/VYazNl/oCDYN+3WloWQwMfZxBoiNt6qNyk+xfOdi598muWE42rNZFp1kNOiqW936q5RhUdnpqElSg==}
     engines: {node: '>=18'}
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
@@ -5697,11 +5697,11 @@ snapshots:
     dependencies:
       json-schema: 0.4.0
 
-  '@anthropic-ai/sdk@0.71.2(zod@3.25.76)':
+  '@anthropic-ai/sdk@0.71.2(zod@4.6.7)':
     dependencies:
       json-schema-to-ts: 3.1.1
     optionalDependencies:
-      zod: 3.25.76
+      zod: 4.6.7
 
   '@anycable/core@0.9.2':
     dependencies:
@@ -9068,15 +9068,15 @@ snapshots:
     dependencies:
       '@ai-sdk/provider': 3.0.19
       '@ai-sdk/provider-utils': 4.0.62(zod@4.6.7)
-      '@anthropic-ai/sdk': 0.71.2(zod@3.25.76)
+      '@anthropic-ai/sdk': 0.71.2(zod@4.6.7)
       '@anycable/core': 0.9.2
       graphql-request: 6.1.0(graphql@16.15.0)
       isomorphic-ws: 5.0.0(ws@8.21.0)
-      openai: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.21.0)(zod@3.25.76)
+      openai: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.21.0)(zod@4.6.7)
       proper-lockfile: 4.1.2
       socket.io-client: 4.8.4(supports-color@7.2.0)
       vscode-jsonrpc: 8.2.1
-      zod: 3.25.76
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@aws-sdk/credential-provider-node'
       - '@smithy/hash-node'
@@ -9092,15 +9092,15 @@ snapshots:
     dependencies:
       '@ai-sdk/provider': 3.0.19
       '@ai-sdk/provider-utils': 4.0.62(zod@4.6.7)
-      '@anthropic-ai/sdk': 0.71.2(zod@3.25.76)
+      '@anthropic-ai/sdk': 0.71.2(zod@4.6.7)
       '@anycable/core': 0.9.2
       graphql-request: 6.1.0(graphql@16.15.0)
       isomorphic-ws: 5.0.0(ws@8.22.0)
-      openai: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.0)(zod@3.25.76)
+      openai: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.0)(zod@4.6.7)
       proper-lockfile: 4.1.2
       socket.io-client: 4.8.4(supports-color@7.2.0)
       vscode-jsonrpc: 8.2.1
-      zod: 3.25.76
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@aws-sdk/credential-provider-node'
       - '@smithy/hash-node'
@@ -10187,19 +10187,19 @@ snapshots:
       powershell-utils: 0.2.1
       wsl-utils: 1.0.1
 
-  openai@6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.21.0)(zod@3.25.76):
+  openai@6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.21.0)(zod@4.6.7):
     optionalDependencies:
       '@aws-sdk/credential-provider-node': 3.972.94
       '@smithy/signature-v4': 5.7.5
       ws: 8.21.0
-      zod: 3.25.76
+      zod: 4.6.7
 
-  openai@6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.0)(zod@3.25.76):
+  openai@6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.0)(zod@4.6.7):
     optionalDependencies:
       '@aws-sdk/credential-provider-node': 3.972.94
       '@smithy/signature-v4': 5.7.5
       ws: 8.22.0
-      zod: 3.25.76
+      zod: 4.6.7
 
   optionator@0.9.4:
     dependencies:
@@ -11163,8 +11163,6 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   yoctocolors@2.2.0: {}
-
-  zod@3.25.76: {}
 
   zod@4.6.7: {}
 
