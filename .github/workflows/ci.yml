@@ -1,6 +1,10 @@
 name: CI
 
 on:
+  # Allow re-running the full pipeline on demand (e.g. to verify main after a
+  # merge or to recover from a run that was orphaned while the repo was
+  # archived). This does not change what any job checks.
+  workflow_dispatch:
   push:
     branches: [main]
     # Owner decision: docs-only pushes do not start the full pipeline. The local
