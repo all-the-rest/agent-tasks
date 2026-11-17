@@ -22,3 +22,11 @@ catalog:
   typescript: ^6.0.3
   vitest: ^5.0.5
   zod: ^4.6.7
+
+auditConfig:
+  # CVE-2026-112366 / picomatch ReDoS (High). Advisory lists "Patched versions:
+  # None" and npm latest is 4.0.7, so no fixed release exists to bump to.
+  # Reached only as a deep transitive dev dependency via @opencode/sdk.
+  # Remove this entry once a fixed picomatch release is published.
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
