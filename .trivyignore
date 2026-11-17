@@ -1,0 +1,7 @@
+# CVE-2026-112366 / GHSA-fc5q-39xc-vjpf — picomatch ReDoS (High 8.7)
+# Affects picomatch <= 4.0.7; the advisory lists "Patched versions: None" and
+# npm's latest is 4.0.7, so no fixed release exists to bump to. Reached only as
+# a deep transitive dev dependency (micromatch > picomatch) via @opencode/sdk,
+# not shipped runtime code. The workflow already sets ignore-unfixed: true.
+# Suppress until a fixed picomatch release is published, then remove this entry.
+CVE-2026-112366 exp:2027-02-17
