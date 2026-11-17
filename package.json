@@ -35,7 +35,7 @@
     "@agent-tasks/mock-openai": "workspace:*",
     "@agent-tasks/shared": "workspace:*",
     "@eslint/js": "^9.39.0",
-    "@playwright/test": "^1.64.1",
+    "@playwright/test": "^1.65.1",
     "@types/mdast": "^4.0.4",
     "@types/node": "catalog:",
     "drizzle-orm": "catalog:",
